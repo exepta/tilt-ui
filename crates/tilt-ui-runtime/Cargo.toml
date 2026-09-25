@@ -1,0 +1,57 @@
+[package]
+name = "tilt-ui-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Bevy runtime integration for TiltUI"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["component", "file-dialog"]
+
+component = ["html", "css", "bevy/bevy_ui", "bevy/ghost_nodes", "bevy/ui_picking", "bevy/system_clipboard", "bevy/default_font"]
+
+html = [
+    "dep:tilt-ui-html",
+]
+
+css = [
+    "dep:tilt-ui-css",
+]
+
+hot-reload = ["bevy/file_watcher"]
+file-dialog = ["dep:rfd", "dep:wasm-bindgen-futures"]
+
+[dependencies]
+bevy = { workspace = true, features = ["bevy_asset", "bevy_log"] }
+wgpu-types = "29"
+
+tilt-ui-core.workspace = true
+
+tilt-ui-html = {
+    workspace = true,
+    optional = true,
+}
+
+tilt-ui-css = {
+    workspace = true,
+    optional = true,
+}
+
+thiserror.workspace = true
+smallvec.workspace = true
+inventory.workspace = true
+parley.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+selectors.workspace = true
+bevy_input_focus = "0.19"
+bevy_picking = "0.19"
+rfd = { version = "0.17", optional = true, features = ["file-handle-inner"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = { version = "0.4", optional = true }

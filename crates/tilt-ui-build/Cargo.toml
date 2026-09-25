@@ -1,0 +1,16 @@
+[package]
+name = "tilt-ui-build"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Build-time tooling and component discovery for TiltUI"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+thiserror.workspace = true
+tilt-ui-core.workspace = true
+tilt-ui-html.workspace = true

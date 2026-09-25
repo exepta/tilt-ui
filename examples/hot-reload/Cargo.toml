@@ -1,0 +1,27 @@
+[package]
+name = "tilt-ui-example-hot-reload"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "tilt-ui-example-hot-reload"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "bevy_core_pipeline",
+    "bevy_ui_render",
+    "bevy_winit",
+    "default_font",
+    "wayland",
+    "x11",
+] }
+
+tilt-ui = {
+    workspace = true,
+    features = ["hot-reload"],
+}
+
+[build-dependencies]
+tilt-ui-build.workspace = true

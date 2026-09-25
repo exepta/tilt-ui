@@ -1,0 +1,111 @@
+//! Bevy-specific integration for TiltUI.
+//!
+//! Parsing and semantic data models remain in the Bevy-independent TiltUI
+//! crates. This crate provides the Bevy asset boundary around those models.
+
+/// Native Bevy asset integration for TiltUI component source files.
+pub mod assets;
+
+#[cfg(feature = "component")]
+/// Runtime component instantiation for parsed TiltUI templates.
+pub mod component;
+
+#[cfg(feature = "component")]
+/// Creation-time Bevy UI materialization for TiltUI semantic entities.
+pub mod render;
+
+#[cfg(feature = "component")]
+/// Shared interaction behavior for native TiltUI controls.
+pub mod control;
+
+#[cfg(feature = "component")]
+/// Element-specific runtime definitions for built-in TiltUI widgets.
+pub mod widgets;
+
+#[cfg(feature = "component")]
+/// Component-scoped CSS matching, cascade resolution, and Bevy UI application.
+pub mod style;
+
+#[cfg(feature = "component")]
+/// Shared CSS overflow input and scrollbar rendering.
+pub mod scroll;
+
+#[cfg(feature = "component")]
+pub(crate) mod theme;
+
+#[cfg(feature = "component")]
+pub use theme::{reset_default_theme, set_default_theme_css};
+
+pub use assets::*;
+#[cfg(feature = "component")]
+pub use component::ComponentUpdateRegistration;
+#[cfg(feature = "component")]
+pub use component::*;
+#[cfg(feature = "component")]
+pub use control::{
+    ContextMenu, ControlActivated, ControlChecked, ControlCheckedChanged, ControlPart,
+    ControlPartKind, ControlTabIndex, FieldSetSelection, OptionSelectionChanged,
+    SelectableStaticText, TiltButton, TiltCheckbox, TiltControl, TiltControlSystems,
+    TiltRadioButton, TiltSwitchButton, TiltToggleButton, TiltUiControlRuntimePlugin,
+    set_control_checked, set_option_selected,
+};
+#[cfg(feature = "component")]
+pub use style::{
+    ActiveAnimations, CascadedStyle, RuntimeComputedStyle, TiltUiMediaEnvironment,
+    TiltUiStyleRuntimePlugin,
+};
+#[cfg(feature = "component")]
+pub use widgets::advanced::color_picker::{
+    ColorPickerChanged, ColorPickerState, set_color_picker_open, set_color_value,
+};
+#[cfg(feature = "component")]
+pub use widgets::advanced::date_picker::{
+    DatePickerChanged, DatePickerState, IsoDate, set_date_picker_open, set_date_value,
+};
+#[cfg(feature = "component")]
+pub use widgets::advanced::dialog::{
+    DialogClosed, DialogConfig, DialogKind, DialogLayout, DialogRenderer, DialogResult,
+    DialogSpawned, DialogState, ShowDialog, close_dialog, open_dialog, spawn_dialog,
+};
+#[cfg(feature = "component")]
+pub use widgets::advanced::hyperlink::{LinkActivated, LinkTarget, set_link_href};
+#[cfg(feature = "component")]
+pub use widgets::advanced::progress_bar::set_progress_value;
+#[cfg(feature = "component")]
+pub use widgets::advanced::tooltip::{TooltipSettings, TooltipVariant};
+#[cfg(feature = "component")]
+pub use widgets::content::avatar::{AvatarFallback, set_avatar_source};
+#[cfg(feature = "component")]
+pub use widgets::content::badge::{BadgeValue, set_badge_value};
+#[cfg(feature = "component")]
+pub use widgets::content::divider::DividerAxis;
+#[cfg(feature = "component")]
+pub use widgets::content::headline::HeadlineLevel;
+#[cfg(feature = "component")]
+pub use widgets::content::image::ImageMetadata;
+#[cfg(feature = "component")]
+pub use widgets::content::image::set_image_source;
+#[cfg(feature = "component")]
+pub use widgets::controls::choice_box::{ChoiceBoxParts, set_choice_open};
+#[cfg(feature = "component")]
+pub use widgets::controls::input::{FileInputOptions, FileInputSelected, FileInputSelection};
+#[cfg(feature = "component")]
+pub use widgets::controls::list_box::ListBoxMode;
+#[cfg(feature = "component")]
+pub use widgets::controls::option::OptionData;
+#[cfg(feature = "component")]
+pub use widgets::controls::slider::{SliderSettings, set_slider_value};
+#[cfg(feature = "component")]
+pub use widgets::state::{
+    EditableText, EditableTextChanged, EditableTextCommitted, EditableTextOptions, NumericParts,
+    NumericRange, NumericValueChanged, RangeOrientation, SliderChanged, SliderCommitted,
+    UiMotionSettings, WidgetLayoutOverride, set_editable_readonly, set_editable_text,
+    set_numeric_value, set_slider_values, set_text_area_size,
+};
+#[cfg(feature = "component")]
+pub use widgets::structure::form::{FormButton, FormSettings, FormSubmitted, FormValidationFailed};
+#[cfg(feature = "component")]
+pub use widgets::structure::{
+    table::TableInfo,
+    table_cell::{TableCellInfo, TableSection},
+};

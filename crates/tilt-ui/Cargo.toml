@@ -1,0 +1,43 @@
+[package]
+name = "tilt-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A component-based HTML and CSS UI framework for Bevy"
+keywords = ["bevy", "ui", "html", "css", "gamedev"]
+categories = ["game-development", "gui"]
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["component"]
+
+component = [
+    "html",
+    "css",
+    "tilt-ui-runtime/component",
+]
+
+html = [
+    "tilt-ui-runtime/html",
+]
+
+css = [
+    "tilt-ui-runtime/css",
+]
+
+hot-reload = [
+    "tilt-ui-runtime/hot-reload",
+]
+
+[dependencies]
+tilt-ui-core.workspace = true
+tilt-ui-runtime.workspace = true
+tilt-ui-macros.workspace = true
+bevy.workspace = true
+inventory.workspace = true
+serde.workspace = true
+serde_json.workspace = true

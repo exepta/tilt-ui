@@ -1,0 +1,16 @@
+[package]
+name = "tilt-ui-html"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HTML template parser for TiltUI"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tilt-ui-core.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true

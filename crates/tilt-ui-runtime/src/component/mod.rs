@@ -1,0 +1,42 @@
+//! Runtime component instances and semantic template instantiation.
+
+mod assets;
+mod binding;
+pub(crate) mod binding_runtime;
+mod element;
+mod error;
+mod handlers;
+#[cfg(feature = "hot-reload")]
+mod hot_reload;
+mod instance;
+mod plugin;
+mod resolver;
+mod router;
+mod spawn;
+
+pub use assets::{ComponentAssetStore, LoadedComponentAssets};
+pub use binding::{
+    BeuStore, SharedValueRegistration, UiBindingStore, UiSharedValues, UiStoreRegistration,
+};
+pub use element::{
+    ComponentElementIds, ComponentStyleOwner, ElementClasses, ElementId, ElementState,
+    EventBinding, EventBindings, PropertyBinding, PropertyBindings, StaticAttribute,
+    StaticAttributes, TemplateNodeRef, TiltElement, TiltText,
+};
+pub(crate) use element::{
+    boolean_attribute_value, has_boolean_static_attribute, static_attribute_value,
+};
+pub use error::ComponentInstantiationError;
+pub use handlers::{
+    ComponentInitRegistration, ComponentUpdateRegistration, HtmlChange, HtmlClick, HtmlEvent,
+    HtmlHandlerRegistration, HtmlSubmit, TiltUiCodePlugin,
+};
+pub(crate) use instance::ComponentBoundary;
+pub use instance::{
+    ComponentAssetHandles, ComponentInstance, ComponentRoot, FailedComponentInstantiation,
+    PendingComponent, StyleDirty,
+};
+pub use plugin::{TiltUiComponentRuntimePlugin, TiltUiComponentRuntimeSet, spawn_component};
+pub use resolver::ComponentCatalog;
+pub use router::{RouteTarget, Router, Routes, RoutesRegistration, TiltUiRouterPlugin};
+pub use spawn::instantiate_component;

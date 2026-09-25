@@ -1,0 +1,20 @@
+[package]
+name = "tilt-ui-css"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CSS parser and styling engine for TiltUI"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tilt-ui-core.workspace = true
+
+cssparser.workspace = true
+selectors.workspace = true
+
+thiserror.workspace = true
+precomputed-hash.workspace = true

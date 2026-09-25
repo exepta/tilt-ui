@@ -1,0 +1,49 @@
+.root {
+    display: flex;
+    flex-direction: column;
+    width: 460px;
+    padding: 24px;
+    gap: 14px;
+    background-color: #F8F7FC;
+}
+
+.title {
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.primary {
+    width: 180px;
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.radios {
+    width: 220px;
+}
+
+@keyframes pulse {
+    from { transform: scale(1); }
+    50% { transform: scale(1.04); }
+    to { transform: scale(1); }
+}
+
+.pulse {
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (max-width: 600px) {
+    .root {
+        width: 100%;
+        padding: 12px;
+    }
+}
+
+@media (orientation: portrait) {
+    .root {
+        gap: 10px;
+    }
+}

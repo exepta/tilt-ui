@@ -1,0 +1,13 @@
+body {
+    align-items: center;
+    justify-content: center;
+    background-color: #F2F3F7;
+}
+
+.panel {
+    width: 420px;
+    padding: 24px;
+    background-color: #FFFFFF;
+    border-radius: 6px;
+    gap: 16px;
+}
