@@ -11,17 +11,18 @@ use bevy::{
     ecs::{
         component::Component,
         entity::Entity,
-        hierarchy::ChildOf,
+        hierarchy::{ChildOf, Children},
         message::{Message, MessageReader, Messages},
         system::Commands,
         world::World,
     },
     input::{ButtonInput, keyboard::KeyCode},
     prelude::IntoScheduleConfigs,
-    ui::{FocusPolicy, GlobalZIndex, Node, widget::Button},
+    ui::{
+        FocusPolicy, GlobalZIndex, Node,
+        widget::{Button, Text},
+    },
 };
-#[cfg(feature = "file-dialog")]
-use bevy::{ecs::hierarchy::Children, ui::widget::Text};
 use bevy_input_focus::{
     FocusCause, InputFocus,
     tab_navigation::{TabGroup, TabIndex},
@@ -34,9 +35,9 @@ use bevy_picking::{
 use tilt_ui_core::{ElementKind, TemplateAttribute};
 
 use crate::{
-    ComponentElementIds, ComponentRoot, ComponentStyleOwner, ControlActivated, ControlPartKind,
-    ElementClasses, ElementState, StaticAttribute, StaticAttributes, StyleDirty, TiltControl,
-    TiltElement, TiltText,
+    ComponentElementIds, ComponentRoot, ComponentStyleOwner, ControlActivated, ControlPart,
+    ControlPartKind, ElementClasses, ElementState, StaticAttribute, StaticAttributes, StyleDirty,
+    TiltControl, TiltElement, TiltText,
     widgets::{
         controls::{spawn_part, spawn_text_part},
         state::set_widget_display,
@@ -188,6 +189,26 @@ fn attribute<'a>(attributes: &'a [TemplateAttribute], name: &str) -> Option<&'a 
     crate::component::static_attribute_value(attributes, name)
 }
 
+fn localized_action_label(world: &World, fallback: &str) -> String {
+    let key = match fallback {
+        "Close" => "dialog-action-close",
+        "OK" => "dialog-action-ok",
+        "Cancel" => "dialog-action-cancel",
+        "Confirm" => "dialog-action-confirm",
+        _ => return fallback.to_owned(),
+    };
+    #[cfg(not(feature = "fluent"))]
+    let _ = (world, key);
+    #[cfg(feature = "fluent")]
+    if let Some(value) = world
+        .get_resource::<crate::UiLocalization>()
+        .and_then(|locale| locale.translate(key, None))
+    {
+        return value;
+    }
+    fallback.to_owned()
+}
+
 pub(crate) fn materialize(world: &mut World, entity: Entity, attributes: &[TemplateAttribute]) {
     let renderer = match attribute(attributes, "renderer") {
         Some("system") if cfg!(feature = "file-dialog") => DialogRenderer::System,
@@ -256,6 +277,39 @@ pub(crate) fn panel(world: &World, dialog: Entity) -> Entity {
     world
         .get::<DialogState>(dialog)
         .map_or(dialog, |state| state.panel)
+}
+
+/// Updates a dialog title without reopening the dialog.
+pub(crate) fn set_dialog_title(world: &mut World, dialog: Entity, title: String) {
+    let Some(state) = world.get::<DialogState>(dialog) else {
+        return;
+    };
+    let panel = state.panel;
+    if state.title == title {
+        return;
+    }
+    world.get_mut::<DialogState>(dialog).unwrap().title = title.clone();
+    let label = world.get::<Children>(panel).and_then(|children| {
+        children.iter().copied().find(|child| {
+            world
+                .get::<ControlPart>(*child)
+                .is_some_and(|part| part.kind == ControlPartKind::Label)
+        })
+    });
+    if let Some(label) = label {
+        if let Some(mut text) = world.get_mut::<Text>(label) {
+            text.0 = title;
+        }
+    } else if !title.is_empty() {
+        let label = spawn_text_part(world, dialog, ControlPartKind::Label, title);
+        world.entity_mut(panel).add_child(label);
+        if let Some(scope) = world
+            .get::<ComponentStyleOwner>(dialog)
+            .map(|owner| owner.0)
+        {
+            world.entity_mut(scope).insert(StyleDirty);
+        }
+    }
 }
 
 fn enclosing_body(world: &World, start: Entity) -> Option<Entity> {
@@ -408,6 +462,7 @@ pub fn spawn_dialog(world: &mut World, parent: Entity, config: DialogConfig) -> 
                 .id();
             world.entity_mut(panel).add_child(footer);
             for (label, result) in actions {
+                let label = localized_action_label(world, label);
                 let button = world
                     .spawn((
                         TiltElement {
@@ -420,7 +475,7 @@ pub fn spawn_dialog(world: &mut World, parent: Entity, config: DialogConfig) -> 
                 crate::render::materialize_element(world, button, ElementKind::Button, &[]);
                 world.entity_mut(footer).add_child(button);
                 let text = world.spawn(ComponentStyleOwner(scope)).id();
-                crate::render::materialize_text(world, text, label);
+                crate::render::materialize_text(world, text, &label);
                 world.entity_mut(button).add_child(text);
             }
         }
@@ -836,9 +891,9 @@ mod tests {
     use bevy::{
         app::App,
         camera::NormalizedRenderTarget,
-        ecs::message::Messages,
+        ecs::{hierarchy::Children, message::Messages},
         math::Vec2,
-        ui::{Display, Node},
+        ui::{Display, Node, widget::Text},
     };
     use bevy_input_focus::{InputFocus, tab_navigation::TabGroup};
     use bevy_picking::{
@@ -851,11 +906,11 @@ mod tests {
     use super::{
         DialogAction, DialogClosed, DialogConfig, DialogKind, DialogLayout, DialogRenderer,
         DialogResult, DialogSpawned, DialogState, ShowDialog, close_dialog, install, materialize,
-        open_dialog, resolve_targets,
+        open_dialog, resolve_targets, set_dialog_title,
     };
     use crate::{
-        ComponentElementIds, ComponentRoot, ComponentStyleOwner, ControlActivated, ElementId,
-        StaticAttribute, StaticAttributes, TiltElement,
+        ComponentElementIds, ComponentRoot, ComponentStyleOwner, ControlActivated, ControlPart,
+        ControlPartKind, ElementId, StaticAttribute, StaticAttributes, TiltElement,
     };
 
     fn setup() -> (App, bevy::ecs::entity::Entity, bevy::ecs::entity::Entity) {
@@ -904,6 +959,34 @@ mod tests {
         app.world_mut().entity_mut(body).add_child(dialog);
         resolve_targets(app.world_mut(), scope);
         (app, dialog, trigger)
+    }
+
+    #[test]
+    fn bound_title_updates_the_existing_dialog_label() {
+        let (mut app, dialog, _) = setup();
+        let panel = app.world().get::<DialogState>(dialog).unwrap().panel;
+        let label = app
+            .world()
+            .get::<Children>(panel)
+            .unwrap()
+            .iter()
+            .copied()
+            .find(|child| {
+                app.world()
+                    .get::<ControlPart>(*child)
+                    .is_some_and(|part| part.kind == ControlPartKind::Label)
+            })
+            .unwrap();
+
+        set_dialog_title(app.world_mut(), dialog, "Übersetzter Titel".into());
+        assert_eq!(
+            app.world().get::<DialogState>(dialog).unwrap().title,
+            "Übersetzter Titel"
+        );
+        assert_eq!(
+            app.world().get::<Text>(label).unwrap().0,
+            "Übersetzter Titel"
+        );
     }
 
     #[test]

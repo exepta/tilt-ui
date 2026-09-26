@@ -33,11 +33,13 @@ hot-reload = [
     "tilt-ui-runtime/hot-reload",
 ]
 
+fluent = ["component", "tilt-ui-runtime/fluent"]
+
 [dependencies]
 tilt-ui-core.workspace = true
 tilt-ui-runtime.workspace = true
 tilt-ui-macros.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["bevy_winit", "x11"] }
 inventory.workspace = true
 serde.workspace = true
 serde_json.workspace = true

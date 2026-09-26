@@ -103,7 +103,8 @@ checkbox::indicator {
 checkbox:hover::indicator { border-color: #A833EA; }
 checkbox:focus::indicator { border-color: #A833EA; }
 checkbox:checked::indicator { background-color: #A833EA; border-color: #A833EA; }
-checkbox::mark { color: #FFFFFF; font-family: ui-symbols; font-size: 14px; font-weight: 700; }
+checkbox::mark { display: none; color: #FFFFFF; font-family: ui-symbols; font-size: 14px; font-weight: 700; }
+checkbox:checked::mark { display: flex; }
 
 radio-button::indicator {
     width: 20px;

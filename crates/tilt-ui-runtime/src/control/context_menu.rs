@@ -19,9 +19,8 @@ use bevy::{
     prelude::Visibility,
     text::{EditableText as NativeEditableText, Font, FontSource, TextEdit, TextFont},
     ui::{
-        AlignItems, BackgroundColor, BorderColor, BorderRadius, ComputedNode,
-        ComputedUiRenderTargetInfo, FlexDirection, GlobalZIndex, Interaction, JustifyContent, Node,
-        PositionType, UiGlobalTransform, UiRect, UiScale, Val,
+        AlignItems, BackgroundColor, BorderColor, BorderRadius, ComputedNode, FlexDirection,
+        GlobalZIndex, Interaction, JustifyContent, Node, PositionType, UiRect, Val,
         widget::{Button, Text},
     },
     window::{PrimaryWindow, Window},
@@ -47,6 +46,7 @@ pub struct ContextMenu {
 pub(crate) struct AuthoredContextMenu {
     target_id: Option<String>,
     target: Option<Entity>,
+    parent: Option<Entity>,
 }
 
 pub(crate) fn materialize(
@@ -59,6 +59,7 @@ pub(crate) fn materialize(
             target_id: crate::component::static_attribute_value(attributes, "for")
                 .map(str::to_owned),
             target: None,
+            parent: None,
         },
         GlobalZIndex(20_000),
         Visibility::Hidden,
@@ -85,8 +86,11 @@ pub(crate) fn resolve_targets(world: &mut bevy::ecs::world::World, scope: Entity
                     .flatten()
             });
         if let Some(target) = target {
+            let parent = world.get::<ChildOf>(entity).map(ChildOf::parent);
             world.entity_mut(entity).insert(ContextMenu { target });
-            world.get_mut::<AuthoredContextMenu>(entity).unwrap().target = Some(target);
+            let mut menu = world.get_mut::<AuthoredContextMenu>(entity).unwrap();
+            menu.target = Some(target);
+            menu.parent = parent;
         }
     }
 }
@@ -144,37 +148,30 @@ fn is_inside(mut hit: Entity, parent: Entity, parents: &Query<&ChildOf>) -> bool
 
 #[derive(SystemParam)]
 pub(crate) struct MenuGeometry<'w, 's> {
-    nodes: Query<
-        'w,
-        's,
-        (
-            &'static ComputedNode,
-            &'static ComputedUiRenderTargetInfo,
-            &'static UiGlobalTransform,
-        ),
-    >,
-    scale: Option<Res<'w, UiScale>>,
+    computed_nodes: Query<'w, 's, &'static ComputedNode>,
     theme_fonts: Option<Res<'w, crate::theme::DefaultThemeFonts>>,
+    #[cfg(feature = "fluent")]
+    localization: Option<Res<'w, crate::UiLocalization>>,
 }
 
 impl MenuGeometry<'_, '_> {
-    fn relative_position(
-        &self,
-        menu: Entity,
-        pointer: bevy::math::Vec2,
-        parents: &Query<&ChildOf>,
-    ) -> bevy::math::Vec2 {
-        let Some(parent) = parents.get(menu).ok().map(ChildOf::parent) else {
-            return pointer;
+    fn label_for(&self, action: MenuAction) -> String {
+        let (key, fallback) = match action {
+            MenuAction::Copy => ("context-copy", "Copy"),
+            MenuAction::Paste => ("context-paste", "Paste"),
+            MenuAction::Clear => ("context-clear", "Clear"),
         };
-        let Ok((node, target, transform)) = self.nodes.get(parent) else {
-            return pointer;
-        };
-        let scale = self.scale.as_ref().map_or(1.0, |scale| scale.0);
-        transform.try_inverse().map_or(pointer, |inverse| {
-            inverse.transform_point2(pointer * target.scale_factor() / scale)
-                - node.content_box().min
-        })
+        #[cfg(not(feature = "fluent"))]
+        let _ = key;
+        #[cfg(feature = "fluent")]
+        if let Some(value) = self
+            .localization
+            .as_ref()
+            .and_then(|locale| locale.translate(key, None))
+        {
+            return value;
+        }
+        fallback.to_owned()
     }
 }
 
@@ -237,6 +234,7 @@ fn spawn_menu(
     position: bevy::math::Vec2,
     window: Option<&Window>,
     actions: &[MenuAction],
+    labels: &[String],
     font: Option<&Handle<Font>>,
 ) -> Entity {
     let width = 178.0;
@@ -267,18 +265,8 @@ fn spawn_menu(
             Visibility::Visible,
         ))
         .id();
-    for action in actions {
-        menu_item(
-            commands,
-            menu,
-            match action {
-                MenuAction::Copy => "Copy",
-                MenuAction::Paste => "Paste",
-                MenuAction::Clear => "Clear",
-            },
-            *action,
-            font,
-        );
+    for (action, label) in actions.iter().zip(labels) {
+        menu_item(commands, menu, label, *action, font);
     }
     menu
 }
@@ -289,11 +277,33 @@ fn close_menu(
     authored: &Query<(Entity, &AuthoredContextMenu, &mut Node)>,
 ) {
     if let Some(menu) = open.0.take() {
-        if authored.get(menu).is_ok() {
+        if let Ok((_, authored_menu, _)) = authored.get(menu) {
             commands.entity(menu).insert(Visibility::Hidden);
+            if let Some(parent) = authored_menu.parent {
+                commands.entity(parent).add_child(menu);
+            }
         } else {
             commands.entity(menu).despawn();
         }
+    }
+}
+
+fn remove_orphan_context_menus(world: &mut bevy::ecs::world::World) {
+    let stale = {
+        let mut query = world.query::<(Entity, &AuthoredContextMenu, &ComponentStyleOwner)>();
+        query
+            .iter(world)
+            .filter(|(entity, _, owner)| {
+                world.get::<ChildOf>(*entity).is_none() && world.get_entity(owner.0).is_err()
+            })
+            .map(|(entity, _, _)| entity)
+            .collect::<Vec<_>>()
+    };
+    for entity in stale {
+        if world.resource::<OpenContextMenu>().0 == Some(entity) {
+            world.resource_mut::<OpenContextMenu>().0 = None;
+        }
+        world.entity_mut(entity).despawn();
     }
 }
 
@@ -394,11 +404,27 @@ pub(crate) fn context_menu_pointer_input(
             if !is_inside(press.entity, target, &parents) {
                 continue;
             }
-            let position =
-                geometry.relative_position(entity, press.pointer_location.position, &parents);
+            let position = press.pointer_location.position;
+            let size = geometry
+                .computed_nodes
+                .get(entity)
+                .ok()
+                .map(ComputedNode::size)
+                .filter(|size| size.x > 0.0 && size.y > 0.0)
+                .unwrap_or(bevy::math::Vec2::new(180.0, 46.0));
+            let (left, top) = windows
+                .iter()
+                .next()
+                .map_or((position.x, position.y), |window| {
+                    (
+                        position.x.min((window.width() - size.x - 6.0).max(0.0)),
+                        position.y.min((window.height() - size.y - 6.0).max(0.0)),
+                    )
+                });
             node.position_type = PositionType::Absolute;
-            node.left = Val::Px(position.x.max(0.0));
-            node.top = Val::Px(position.y.max(0.0));
+            node.left = Val::Px(left.max(0.0));
+            node.top = Val::Px(top.max(0.0));
+            commands.entity(entity).remove::<ChildOf>();
             commands.entity(entity).insert(Visibility::Visible);
             open.0 = Some(entity);
             continue 'events;
@@ -434,12 +460,17 @@ pub(crate) fn context_menu_pointer_input(
         if actions.is_empty() {
             continue;
         }
+        let labels = actions
+            .iter()
+            .map(|action| geometry.label_for(*action))
+            .collect::<Vec<_>>();
         open.0 = Some(spawn_menu(
             &mut commands,
             target,
             press.pointer_location.position,
             windows.iter().next(),
             &actions,
+            &labels,
             geometry.theme_fonts.as_ref().map(|fonts| &fonts.regular),
         ));
     }
@@ -482,23 +513,35 @@ pub(crate) fn style_context_menu_items(
 
 pub(crate) fn init(app: &mut bevy::app::App) {
     app.init_resource::<OpenContextMenu>();
+    app.add_systems(bevy::app::Update, remove_orphan_context_menus);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{OpenContextMenu, context_menu_pointer_input, copied_input_value};
+    use super::{
+        AuthoredContextMenu, ContextMenu, OpenContextMenu, context_menu_pointer_input,
+        copied_input_value, remove_orphan_context_menus,
+    };
     use crate::{
-        EditableText,
+        ComponentStyleOwner, EditableText,
         control::text_selection::{ActiveStaticTextSelection, SelectableStaticText},
     };
     use bevy::{
         app::{App, Update},
         camera::NormalizedRenderTarget,
         clipboard::Clipboard,
-        ecs::{hierarchy::Children, message::Messages},
+        ecs::{
+            hierarchy::{ChildOf, Children},
+            message::Messages,
+        },
         math::Vec2,
+        prelude::Visibility,
         text::{EditableText as NativeEditableText, TextEdit},
-        ui::widget::Text,
+        ui::{
+            Node, Val,
+            widget::{Button, Text},
+        },
+        window::{PrimaryWindow, Window},
     };
     use bevy_picking::{
         backend::HitData,
@@ -512,6 +555,15 @@ mod tests {
         entity: bevy::ecs::entity::Entity,
         button: PointerButton,
     ) {
+        press_at(world, entity, button, Vec2::new(40.0, 50.0));
+    }
+
+    fn press_at(
+        world: &mut bevy::ecs::world::World,
+        entity: bevy::ecs::entity::Entity,
+        button: PointerButton,
+        position: Vec2,
+    ) {
         world
             .resource_mut::<Messages<Pointer<Press>>>()
             .write(Pointer::new(
@@ -521,7 +573,7 @@ mod tests {
                         width: 400,
                         height: 300,
                     },
-                    position: Vec2::new(40.0, 50.0),
+                    position,
                 },
                 Press {
                     button,
@@ -612,5 +664,130 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(result, "select");
+    }
+
+    #[test]
+    fn authored_button_menu_uses_pointer_coordinates_and_restores_parent() {
+        let mut app = app();
+        let parent = app.world_mut().spawn(Node::default()).id();
+        let button = app.world_mut().spawn(Button).id();
+        let menu = app
+            .world_mut()
+            .spawn((
+                ContextMenu { target: button },
+                AuthoredContextMenu {
+                    target_id: Some("button".into()),
+                    target: Some(button),
+                    parent: Some(parent),
+                },
+                Node::default(),
+                Visibility::Hidden,
+            ))
+            .id();
+        app.world_mut()
+            .entity_mut(parent)
+            .add_children(&[button, menu]);
+
+        press(app.world_mut(), button, PointerButton::Secondary);
+        app.update();
+
+        assert_eq!(app.world().resource::<OpenContextMenu>().0, Some(menu));
+        assert!(app.world().get::<ChildOf>(menu).is_none());
+        let node = app.world().get::<Node>(menu).unwrap();
+        assert_eq!(node.left, Val::Px(40.0));
+        assert_eq!(node.top, Val::Px(50.0));
+        assert_eq!(
+            app.world().get::<Visibility>(menu),
+            Some(&Visibility::Visible)
+        );
+
+        press(app.world_mut(), parent, PointerButton::Primary);
+        app.update();
+
+        assert!(app.world().resource::<OpenContextMenu>().0.is_none());
+        assert_eq!(
+            app.world().get::<ChildOf>(menu).map(ChildOf::parent),
+            Some(parent)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(menu),
+            Some(&Visibility::Hidden)
+        );
+    }
+
+    #[test]
+    fn detached_menu_is_removed_with_its_component_owner() {
+        let mut app = app();
+        app.add_systems(Update, remove_orphan_context_menus);
+        let scope = app.world_mut().spawn_empty().id();
+        let parent = app.world_mut().spawn(Node::default()).id();
+        let button = app.world_mut().spawn(Button).id();
+        let menu = app
+            .world_mut()
+            .spawn((
+                ContextMenu { target: button },
+                AuthoredContextMenu {
+                    target_id: None,
+                    target: Some(button),
+                    parent: Some(parent),
+                },
+                ComponentStyleOwner(scope),
+                Node::default(),
+                Visibility::Hidden,
+            ))
+            .id();
+        app.world_mut()
+            .entity_mut(parent)
+            .add_children(&[button, menu]);
+
+        press(app.world_mut(), button, PointerButton::Secondary);
+        app.update();
+        app.world_mut().entity_mut(scope).despawn();
+        app.update();
+
+        assert!(app.world().get_entity(menu).is_err());
+        assert!(app.world().resource::<OpenContextMenu>().0.is_none());
+    }
+
+    #[test]
+    fn authored_menu_stays_inside_window_at_pointer_edge() {
+        let mut app = app();
+        app.world_mut().spawn((
+            Window {
+                resolution: (400, 300).into(),
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ));
+        let parent = app.world_mut().spawn(Node::default()).id();
+        let button = app.world_mut().spawn(Button).id();
+        let menu = app
+            .world_mut()
+            .spawn((
+                ContextMenu { target: button },
+                AuthoredContextMenu {
+                    target_id: None,
+                    target: Some(button),
+                    parent: Some(parent),
+                },
+                Node::default(),
+                Visibility::Hidden,
+            ))
+            .id();
+        app.world_mut()
+            .entity_mut(parent)
+            .add_children(&[button, menu]);
+
+        press_at(
+            app.world_mut(),
+            button,
+            PointerButton::Secondary,
+            Vec2::new(390.0, 290.0),
+        );
+        app.update();
+
+        let node = app.world().get::<Node>(menu).unwrap();
+        assert_eq!(node.left, Val::Px(214.0));
+        assert_eq!(node.top, Val::Px(248.0));
     }
 }

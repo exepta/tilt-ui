@@ -1,6 +1,7 @@
 use bevy::{
     asset::Assets,
     ecs::{entity::Entity, hierarchy::ChildOf, world::World},
+    ui::experimental::GhostNode,
 };
 use bevy_input_focus::tab_navigation::TabGroup;
 use tilt_ui_core::{ComponentId, NodeId, Template, TemplateAttribute, TemplateNodeKind};
@@ -106,12 +107,44 @@ fn validate_template_node(
         .ok_or(ComponentInstantiationError::InvalidTemplateNode { node: node_id })?;
 
     if let TemplateNodeKind::Component(name) = &node.kind {
-        let component = catalog.component_id(name.as_str()).ok_or_else(|| {
-            ComponentInstantiationError::UnknownComponent {
-                name: name.as_str().to_owned(),
+        if let Some(provider) = world
+            .get_resource::<crate::UiProviderRegistry>()
+            .and_then(|providers| providers.get(name.as_str()))
+        {
+            let rules = provider.rules();
+            let child_tags = node
+                .children
+                .iter()
+                .filter_map(|child| {
+                    template.get(*child).and_then(|node| match &node.kind {
+                        TemplateNodeKind::Element(kind) => Some(kind.tag_name()),
+                        TemplateNodeKind::Component(name) => Some(name.as_str()),
+                        TemplateNodeKind::Text(_) => None,
+                    })
+                })
+                .collect::<Vec<_>>();
+            if rules.requires_body_child && !child_tags.contains(&"body") {
+                return Err(ComponentInstantiationError::InvalidProvider {
+                    tag: name.as_str().to_owned(),
+                    reason: "a direct <body> child is required".into(),
+                });
             }
-        })?;
-        validate_component_tree(world, catalog, assets, component, stack)?;
+            if let crate::provider::ProviderChildPolicy::Only(allowed) = rules.child_policy
+                && let Some(invalid) = child_tags.iter().find(|child| !allowed.contains(child))
+            {
+                return Err(ComponentInstantiationError::InvalidProvider {
+                    tag: name.as_str().to_owned(),
+                    reason: format!("direct <{invalid}> child is not allowed"),
+                });
+            }
+        } else {
+            let component = catalog.component_id(name.as_str()).ok_or_else(|| {
+                ComponentInstantiationError::UnknownComponent {
+                    name: name.as_str().to_owned(),
+                }
+            })?;
+            validate_component_tree(world, catalog, assets, component, stack)?;
+        }
     }
     for child in &node.children {
         validate_template_node(world, template, *child, catalog, assets, stack)?;
@@ -288,20 +321,53 @@ impl TemplateInstantiationContext<'_> {
                 entity
             }
             TemplateNodeKind::Component(name) => {
-                let component = self.catalog.component_id(name.as_str()).ok_or_else(|| {
-                    ComponentInstantiationError::UnknownComponent {
-                        name: name.as_str().to_owned(),
+                if self
+                    .world
+                    .get_resource::<crate::UiProviderRegistry>()
+                    .is_some_and(|providers| providers.get(name.as_str()).is_some())
+                {
+                    let entity = self
+                        .world
+                        .spawn((
+                            GhostNode,
+                            crate::ProviderScope {
+                                tag: name.as_str().to_owned(),
+                                attributes: node
+                                    .attributes
+                                    .iter()
+                                    .filter_map(|attribute| match attribute {
+                                        TemplateAttribute::Static { name, value } => {
+                                            Some((name.clone(), value.clone()))
+                                        }
+                                        _ => None,
+                                    })
+                                    .collect(),
+                            },
+                            ComponentStyleOwner(self.owner),
+                            TemplateNodeRef { node: node_id },
+                        ))
+                        .id();
+                    self.world.entity_mut(parent).add_child(entity);
+                    for child in &node.children {
+                        self.instantiate_node(*child, entity)?;
                     }
-                })?;
-                instantiate_component_tree(
-                    self.world,
-                    self.catalog,
-                    self.assets,
-                    component,
-                    Some(parent),
-                    Some((node_id, &node.attributes)),
-                    self.stack,
-                )?
+                    entity
+                } else {
+                    let component = self.catalog.component_id(name.as_str()).ok_or_else(|| {
+                        ComponentInstantiationError::UnknownComponent {
+                            name: name.as_str().to_owned(),
+                        }
+                    })?;
+                    instantiate_component_tree(
+                        self.world,
+                        self.catalog,
+                        self.assets,
+                        component,
+                        Some(parent),
+                        Some((node_id, &node.attributes)),
+                        self.stack,
+                    )?
+                }
             }
         };
         let slot = self
@@ -479,6 +545,73 @@ mod tests {
         world.insert_resource(Assets::<UiTemplateAsset>::default());
         world.insert_resource(Assets::<UiStyleSheetAsset>::default());
         world
+    }
+
+    #[test]
+    fn registered_provider_instantiates_as_layout_neutral_scope() {
+        let mut world = world_with_assets();
+        world.init_resource::<crate::UiProviderRegistry>();
+        world
+            .resource_mut::<crate::UiProviderRegistry>()
+            .register(crate::ThemeProvider);
+        let mut store = ComponentAssetStore::default();
+        add_component_template(
+            &mut world,
+            &mut store,
+            ComponentId(0),
+            "<theme-provider theme=\"dark\"><button>Apply</button></theme-provider>",
+        );
+        let boundary =
+            instantiate_component(&mut world, catalog(), &store, ComponentId(0), None).unwrap();
+        let scope = world.get::<Children>(boundary).unwrap()[0];
+        assert!(world.get::<GhostNode>(scope).is_some());
+        assert_eq!(
+            world.get::<crate::ProviderScope>(scope).unwrap().attributes,
+            vec![("theme".into(), "dark".into())]
+        );
+        let button = world.get::<Children>(scope).unwrap()[0];
+        assert_eq!(
+            world.get::<TiltElement>(button).unwrap().kind,
+            tilt_ui_core::ElementKind::Button
+        );
+    }
+
+    #[test]
+    fn provider_child_rules_are_checked_before_instantiation() {
+        struct ButtonProvider;
+        impl crate::UiProvider for ButtonProvider {
+            fn tag(&self) -> &'static str {
+                "button-provider"
+            }
+            fn rules(&self) -> crate::ProviderRules {
+                crate::ProviderRules {
+                    requires_body_child: false,
+                    child_policy: crate::ProviderChildPolicy::Only(vec!["button"]),
+                }
+            }
+            fn resolve(
+                &self,
+                _: crate::ProviderContext<'_>,
+            ) -> Result<crate::ProviderEffect, String> {
+                Ok(crate::ProviderEffect::default())
+            }
+        }
+        let mut world = world_with_assets();
+        world.init_resource::<crate::UiProviderRegistry>();
+        world
+            .resource_mut::<crate::UiProviderRegistry>()
+            .register(ButtonProvider);
+        let mut store = ComponentAssetStore::default();
+        add_component_template(
+            &mut world,
+            &mut store,
+            ComponentId(0),
+            "<button-provider><p>No</p></button-provider>",
+        );
+        assert!(matches!(
+            instantiate_component(&mut world, catalog(), &store, ComponentId(0), None),
+            Err(crate::ComponentInstantiationError::InvalidProvider { .. })
+        ));
     }
 
     fn add_component_template(

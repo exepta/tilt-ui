@@ -309,7 +309,7 @@ fn scroll_ancestors(world: &mut World, target: Entity, delta: Vec2) {
     scroll_ancestors_with_motion(world, target, delta, false);
 }
 
-fn scroll_ancestors_with_motion(world: &mut World, target: Entity, mut delta: Vec2, smooth: bool) {
+fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, smooth: bool) {
     let active_modal = {
         let mut dialogs = world.query::<(Entity, &crate::DialogState)>();
         dialogs
@@ -334,6 +334,11 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, mut delta: Ve
             continue;
         };
         let (_, max) = scroll_geometry(world, entity, &node);
+        let owns_wheel = (delta.x != 0.0 && scrollable(parts.x_mode) && max.x > 0.0)
+            || (delta.y != 0.0 && scrollable(parts.y_mode) && max.y > 0.0);
+        if !owns_wheel {
+            continue;
+        }
         if let Some(actual) = world.get::<TextScroll>(entity).map(|scroll| scroll.0) {
             let previous = world
                 .get::<SmoothScrollTarget>(entity)
@@ -342,15 +347,9 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, mut delta: Ve
             let physical_delta = delta / node.inverse_scale_factor.max(f32::EPSILON);
             if scrollable(parts.x_mode) && max.x > 0.0 {
                 next.x = (previous.x + physical_delta.x).clamp(0.0, max.x);
-                if next.x != previous.x {
-                    delta.x -= (next.x - previous.x) * node.inverse_scale_factor;
-                }
             }
             if scrollable(parts.y_mode) && max.y > 0.0 {
                 next.y = (previous.y + physical_delta.y).clamp(0.0, max.y);
-                if next.y != previous.y {
-                    delta.y -= (next.y - previous.y) * node.inverse_scale_factor;
-                }
             }
             if next != previous {
                 if smooth && smooth_scroll_enabled(world) {
@@ -371,15 +370,9 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, mut delta: Ve
             let logical_max = max * node.inverse_scale_factor;
             if scrollable(parts.x_mode) && logical_max.x > 0.0 {
                 next.x = (previous.x + delta.x).clamp(0.0, logical_max.x);
-                if next.x != previous.x {
-                    delta.x -= next.x - previous.x;
-                }
             }
             if scrollable(parts.y_mode) && logical_max.y > 0.0 {
                 next.y = (previous.y + delta.y).clamp(0.0, logical_max.y);
-                if next.y != previous.y {
-                    delta.y -= next.y - previous.y;
-                }
             }
             if next != previous {
                 if smooth && smooth_scroll_enabled(world) {
@@ -392,9 +385,7 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, mut delta: Ve
                 }
             }
         }
-        if delta == Vec2::ZERO {
-            break;
-        }
+        break;
     }
 }
 
@@ -1049,7 +1040,13 @@ mod tests {
         assert_eq!(world.get::<ScrollPosition>(outer).unwrap().0.y, 0.0);
         scroll_ancestors(&mut world, content, Vec2::new(0.0, 60.0));
         assert_eq!(world.get::<ScrollPosition>(inner).unwrap().0.y, 100.0);
-        assert_eq!(world.get::<ScrollPosition>(outer).unwrap().0.y, 20.0);
+        assert_eq!(world.get::<ScrollPosition>(outer).unwrap().0.y, 0.0);
+        scroll_ancestors(&mut world, content, Vec2::new(0.0, 60.0));
+        assert_eq!(world.get::<ScrollPosition>(inner).unwrap().0.y, 100.0);
+        assert_eq!(world.get::<ScrollPosition>(outer).unwrap().0.y, 0.0);
+        world.insert_resource(crate::UiMotionSettings::default());
+        scroll_ancestors_with_motion(&mut world, content, Vec2::new(0.0, 60.0), true);
+        assert!(world.get::<SmoothScrollTarget>(outer).is_none());
         update_scrollbar_visuals(&mut world);
         assert_eq!(
             world.get::<Visibility>(inner_parts.y.unwrap().0),

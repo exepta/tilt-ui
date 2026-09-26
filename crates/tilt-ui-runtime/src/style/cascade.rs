@@ -7,6 +7,10 @@ use super::state::CascadedStyle;
 pub(crate) enum StyleOrigin {
     /// Built-in TiltUI defaults with the lowest precedence.
     DefaultTheme,
+    /// Selected named theme, replacing the global selection inside a provider.
+    NamedTheme,
+    /// Additional provider CSS, ordered from outer to inner scopes.
+    Provider(usize),
     /// Component-authored stylesheet declarations.
     Author,
 }

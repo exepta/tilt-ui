@@ -6,6 +6,10 @@
 /// Native Bevy asset integration for TiltUI component source files.
 pub mod assets;
 
+#[cfg(feature = "fluent")]
+/// Optional Fluent translation catalogs and locale selection.
+pub mod localization;
+
 #[cfg(feature = "component")]
 /// Runtime component instantiation for parsed TiltUI templates.
 pub mod component;
@@ -27,12 +31,22 @@ pub mod widgets;
 pub mod style;
 
 #[cfg(feature = "component")]
+/// Layout-neutral template providers and named CSS themes.
+pub mod provider;
+
+#[cfg(feature = "component")]
 /// Shared CSS overflow input and scrollbar rendering.
 pub mod scroll;
 
 #[cfg(feature = "component")]
 pub(crate) mod theme;
 
+#[cfg(feature = "component")]
+pub use provider::{
+    ProviderChildPolicy, ProviderContext, ProviderEffect, ProviderRules, ProviderScope,
+    ThemeProvider, UiProvider, UiProviderAppExt, UiProviderRegistry, UiThemeAppExt, UiThemes,
+    register_ui_theme, switch_ui_theme,
+};
 #[cfg(feature = "component")]
 pub use theme::{reset_default_theme, set_default_theme_css};
 
@@ -49,11 +63,18 @@ pub use control::{
     TiltRadioButton, TiltSwitchButton, TiltToggleButton, TiltUiControlRuntimePlugin,
     set_control_checked, set_option_selected,
 };
+#[cfg(feature = "fluent")]
+pub use localization::{
+    UiFluentArgs, UiFluentAsset, UiFluentAssetLoader, UiFluentConfig, UiFluentError,
+    UiFluentPlugin, UiFluentValue, UiLocalization,
+};
 #[cfg(feature = "component")]
 pub use style::{
     ActiveAnimations, CascadedStyle, RuntimeComputedStyle, TiltUiMediaEnvironment,
     TiltUiStyleRuntimePlugin,
 };
+#[cfg(feature = "css")]
+pub use tilt_ui_css;
 #[cfg(feature = "component")]
 pub use widgets::advanced::color_picker::{
     ColorPickerChanged, ColorPickerState, set_color_picker_open, set_color_value,

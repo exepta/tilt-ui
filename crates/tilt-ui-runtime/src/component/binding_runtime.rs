@@ -4,7 +4,7 @@ use bevy::{
     ecs::{
         component::Component,
         entity::Entity,
-        hierarchy::Children,
+        hierarchy::{ChildOf, Children},
         query::{Added, Changed, Or},
         resource::Resource,
         world::World,
@@ -18,18 +18,31 @@ use crate::{ElementClasses, ElementState, PropertyBindings, TiltText};
 use super::binding::{UiBindingStore, UiSharedValues};
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
-struct AppliedPropertyRevision(u64, u64);
+struct AppliedPropertyRevision(u64, u64, u64, u64);
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
-struct AppliedTextRevision(u64, u64);
+struct AppliedTextRevision(u64, u64, u64, u64);
 
 #[derive(Resource, Default)]
-struct LastBindingRevision(Option<(u64, u64)>);
+struct LastBindingRevision(Option<(u64, u64, u64, u64)>);
 
 pub(crate) fn apply_bindings(world: &mut World) {
+    #[cfg(feature = "fluent")]
+    let fluent_revision = (
+        world
+            .get_resource::<crate::UiLocalization>()
+            .map_or(0, |locale| locale.revision()),
+        world
+            .get_resource::<crate::UiFluentArgs>()
+            .map_or(0, |args| args.revision()),
+    );
+    #[cfg(not(feature = "fluent"))]
+    let fluent_revision = (0, 0);
     let revision = (
         world.resource::<UiBindingStore>().revision(),
         world.resource::<UiSharedValues>().revision(),
+        fluent_revision.0,
+        fluent_revision.1,
     );
     let revision_changed = world
         .get_resource::<LastBindingRevision>()
@@ -40,7 +53,8 @@ pub(crate) fn apply_bindings(world: &mut World) {
         query
             .iter(world)
             .filter(|(_, _, applied)| {
-                applied.map(|applied| (applied.0, applied.1)) != Some(revision)
+                applied.map(|applied| (applied.0, applied.1, applied.2, applied.3))
+                    != Some(revision)
             })
             .map(|(entity, bindings, _)| (entity, bindings.bindings.clone()))
             .collect::<Vec<_>>()
@@ -59,9 +73,9 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 apply_property(world, entity, &binding.name, value);
             }
         }
-        world
-            .entity_mut(entity)
-            .insert(AppliedPropertyRevision(revision.0, revision.1));
+        world.entity_mut(entity).insert(AppliedPropertyRevision(
+            revision.0, revision.1, revision.2, revision.3,
+        ));
     }
     let texts = if revision_changed {
         let mut query = world.query::<(Entity, &TiltText, Option<&AppliedTextRevision>)>();
@@ -69,7 +83,8 @@ pub(crate) fn apply_bindings(world: &mut World) {
             .iter(world)
             .filter(|(_, text, applied)| {
                 text.value.contains("{{")
-                    && applied.map(|applied| (applied.0, applied.1)) != Some(revision)
+                    && applied.map(|applied| (applied.0, applied.1, applied.2, applied.3))
+                        != Some(revision)
             })
             .map(|(entity, text, _)| (entity, text.value.clone()))
             .collect::<Vec<_>>()
@@ -82,6 +97,7 @@ pub(crate) fn apply_bindings(world: &mut World) {
             .map(|(entity, text)| (entity, text.value.clone()))
             .collect::<Vec<_>>()
     };
+    let mut translated_options = Vec::new();
     for (entity, source) in texts {
         let value = interpolate(world, &source);
         if let Some(mut text) = world.get_mut::<Text>(entity) {
@@ -89,9 +105,42 @@ pub(crate) fn apply_bindings(world: &mut World) {
                 text.0 = value;
             }
         }
-        world
-            .entity_mut(entity)
-            .insert(AppliedTextRevision(revision.0, revision.1));
+        world.entity_mut(entity).insert(AppliedTextRevision(
+            revision.0, revision.1, revision.2, revision.3,
+        ));
+        let mut parent = world.get::<ChildOf>(entity).map(ChildOf::parent);
+        while let Some(ancestor) = parent {
+            if world.get::<crate::OptionData>(ancestor).is_some() {
+                if !translated_options.contains(&ancestor) {
+                    translated_options.push(ancestor);
+                }
+                break;
+            }
+            parent = world.get::<ChildOf>(ancestor).map(ChildOf::parent);
+        }
+    }
+    for option in translated_options {
+        let label = world
+            .get::<Children>(option)
+            .map(|children| {
+                children
+                    .iter()
+                    .filter_map(|child| world.get::<Text>(*child))
+                    .map(|text| text.0.trim())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
+        if let Some(mut data) = world.get_mut::<crate::OptionData>(option) {
+            data.label = label;
+        }
+        let popup = world.get::<ChildOf>(option).map(ChildOf::parent);
+        let choice = popup.and_then(|popup| world.get::<ChildOf>(popup).map(ChildOf::parent));
+        if let Some(choice) = choice
+            && world.get::<crate::ChoiceBoxParts>(choice).is_some()
+        {
+            crate::widgets::controls::choice_box::refresh_value(world, choice);
+        }
     }
     if revision_changed {
         world.insert_resource(LastBindingRevision(Some(revision)));
@@ -100,6 +149,18 @@ pub(crate) fn apply_bindings(world: &mut World) {
 
 fn resolve(world: &World, expression: &str) -> Option<Value> {
     let expression = expression.trim();
+    #[cfg(feature = "fluent")]
+    if let Some(key) = expression.strip_prefix("i18n.") {
+        let localization = world.get_resource::<crate::UiLocalization>()?;
+        let args = world
+            .get_resource::<crate::UiFluentArgs>()
+            .and_then(|values| values.for_message(key));
+        return Some(Value::String(
+            localization
+                .translate(key, args.as_ref())
+                .unwrap_or_else(|| key.to_owned()),
+        ));
+    }
     if let Some(literal) = expression
         .strip_prefix('"')
         .and_then(|value| value.strip_suffix('"'))
@@ -201,6 +262,23 @@ fn apply_property(world: &mut World, entity: Entity, name: &str, value: Value) {
                 entity,
                 (!value.is_null()).then(|| value_text(&value)),
             );
+        }
+        "alt" => {
+            if let Some(mut metadata) = world.get_mut::<crate::ImageMetadata>(entity) {
+                metadata.alt = (!value.is_null()).then(|| value_text(&value));
+            }
+        }
+        "placeholder" => {
+            if let Some(parts) = world
+                .get::<crate::widgets::state::EditableTextParts>(entity)
+                .copied()
+                && let Some(mut text) = world.get_mut::<Text>(parts.placeholder)
+            {
+                text.0 = value_text(&value);
+            }
+        }
+        "title" => {
+            crate::widgets::advanced::dialog::set_dialog_title(world, entity, value_text(&value));
         }
         "href" => {
             crate::set_link_href(world, entity, value_text(&value));
@@ -364,5 +442,122 @@ mod tests {
             .id();
         apply_bindings(&mut world);
         assert_eq!(world.get::<Text>(entity).unwrap().0, "Current");
+    }
+
+    #[cfg(feature = "fluent")]
+    #[test]
+    fn fluent_bindings_follow_language_and_argument_changes() {
+        let mut world = World::new();
+        world.init_resource::<UiBindingStore>();
+        world.init_resource::<UiSharedValues>();
+        let mut localization = crate::UiLocalization::new("en-US").unwrap();
+        localization
+            .insert_ftl("en-US", "welcome = Hello, { $name }!")
+            .unwrap();
+        localization
+            .insert_ftl("de-DE", "welcome = Hallo, { $name }!")
+            .unwrap();
+        world.insert_resource(localization);
+        let mut args = crate::UiFluentArgs::default();
+        args.set("welcome", "name", "Ada");
+        world.insert_resource(args);
+        let entity = world
+            .spawn((
+                TiltText {
+                    value: "{{ i18n.welcome }}".into(),
+                },
+                Text::new(""),
+            ))
+            .id();
+
+        apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(entity).unwrap().0, "Hello, Ada!");
+        world
+            .resource_mut::<crate::UiLocalization>()
+            .set_locale("de-DE")
+            .unwrap();
+        apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(entity).unwrap().0, "Hallo, Ada!");
+        world
+            .resource_mut::<crate::UiFluentArgs>()
+            .set("welcome", "name", "Bea");
+        apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(entity).unwrap().0, "Hallo, Bea!");
+    }
+
+    #[cfg(feature = "fluent")]
+    #[test]
+    fn translated_option_and_placeholder_follow_the_locale() {
+        use crate::widgets::state::EditableTextParts;
+
+        let mut world = World::new();
+        world.init_resource::<UiBindingStore>();
+        world.init_resource::<UiSharedValues>();
+        let mut localization = crate::UiLocalization::new("en-US").unwrap();
+        localization
+            .insert_ftl("en-US", "fruit = Apple\nhint = Search")
+            .unwrap();
+        localization
+            .insert_ftl("de-DE", "fruit = Apfel\nhint = Suchen")
+            .unwrap();
+        world.insert_resource(localization);
+        world.init_resource::<crate::UiFluentArgs>();
+
+        let selected_text = world.spawn(Text::new("")).id();
+        let popup = world.spawn_empty().id();
+        let choice = world
+            .spawn(crate::ChoiceBoxParts {
+                value: selected_text,
+                popup,
+                open: false,
+            })
+            .id();
+        world.entity_mut(choice).add_child(popup);
+        let option = world
+            .spawn((
+                crate::OptionData {
+                    value: "apple".into(),
+                    label: String::new(),
+                },
+                crate::ControlChecked(true),
+            ))
+            .id();
+        world.entity_mut(popup).add_child(option);
+        let option_text = world
+            .spawn((
+                TiltText {
+                    value: "{{ i18n.fruit }}".into(),
+                },
+                Text::new(""),
+            ))
+            .id();
+        world.entity_mut(option).add_child(option_text);
+
+        let hint = world.spawn(Text::new("")).id();
+        world.spawn((
+            EditableTextParts {
+                value: hint,
+                placeholder: hint,
+                selection: hint,
+                cursor: hint,
+            },
+            PropertyBindings {
+                bindings: vec![PropertyBinding {
+                    name: "placeholder".into(),
+                    expression: "i18n.hint".into(),
+                }],
+            },
+        ));
+        apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(selected_text).unwrap().0, "Apple");
+        assert_eq!(world.get::<Text>(hint).unwrap().0, "Search");
+
+        world
+            .resource_mut::<crate::UiLocalization>()
+            .set_locale("de-DE")
+            .unwrap();
+        apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(selected_text).unwrap().0, "Apfel");
+        assert_eq!(world.get::<Text>(hint).unwrap().0, "Suchen");
     }
 }

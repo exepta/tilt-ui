@@ -39,10 +39,11 @@ Static `disabled` and `checked` attributes initialize their corresponding
 values during materialization. Missing state is treated as all false.
 
 The built-in default theme is one CSS source parsed once at style-plugin setup.
-It participates as the `DefaultTheme` cascade origin, below component-authored
-`Author` declarations. Origin precedence is resolved before specificity, source
-order, and declaration order, so authored CSS overrides the default theme even
-when its selector is less specific. Applications can opt out with
+The cascade order is `DefaultTheme`, selected named theme, provider CSS from
+outer to inner scopes, then component-authored `Author` declarations. Origin
+precedence is resolved before specificity, source order, and declaration order,
+so authored CSS overrides a theme even when its selector is less specific.
+Applications can opt out of the bundled defaults with
 `TiltUiStyleRuntimePlugin::default().with_default_theme(false)`.
 
 Generated control parts are selector pseudo-elements rather than ordinary

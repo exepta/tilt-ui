@@ -5,8 +5,16 @@ pub use inventory;
 pub use serde;
 pub use serde_json;
 pub use tilt_ui_core::*;
+#[cfg(feature = "css")]
+pub use tilt_ui_runtime::tilt_ui_css;
 pub use tilt_ui_runtime::{
     DEFAULT_TILT_UI_ASSET_PATH, TILT_UI_ASSET_SOURCE, TiltUiAssetSourcePlugin, TiltUiAssetsPlugin,
+};
+
+#[cfg(feature = "fluent")]
+pub use tilt_ui_runtime::{
+    UiFluentArgs, UiFluentAsset, UiFluentAssetLoader, UiFluentConfig, UiFluentError,
+    UiFluentPlugin, UiFluentValue, UiLocalization,
 };
 
 /// Re-exports procedural macros implemented by `tilt-ui-macros`.
@@ -16,7 +24,7 @@ pub use tilt_ui_macros::*;
 #[cfg(feature = "component")]
 mod plugin;
 #[cfg(feature = "component")]
-pub use plugin::{TiltUiCameraMode, TiltUiPlugin};
+pub use plugin::{TiltUiCameraMode, TiltUiPlugin, UiFrameRate};
 
 /// Common public TiltUI runtime imports.
 #[cfg(feature = "component")]
@@ -54,26 +62,29 @@ pub use tilt_ui_runtime::component::ComponentUpdateRegistration;
 
 #[cfg(feature = "component")]
 pub use tilt_ui_runtime::{
-    BeuStore, CascadedStyle, ComponentAssetHandles, ComponentAssetStore, ComponentCatalog,
-    ComponentInitRegistration, ComponentInstance, ComponentInstantiationError, ComponentRoot,
-    ComponentStyleOwner, ContextMenu, ControlActivated, ControlChecked, ControlCheckedChanged,
-    ControlPart, ControlPartKind, ControlTabIndex, DialogClosed, DialogConfig, DialogKind,
-    DialogLayout, DialogRenderer, DialogResult, DialogSpawned, DialogState, EditableText,
-    EditableTextChanged, EditableTextCommitted, EditableTextOptions, ElementClasses, ElementId,
-    ElementState, EventBinding, EventBindings, FailedComponentInstantiation, FieldSetSelection,
-    FileInputOptions, FileInputSelected, FileInputSelection, FormButton, FormSettings,
-    FormSubmitted, FormValidationFailed, HtmlChange, HtmlClick, HtmlEvent, HtmlHandlerRegistration,
-    HtmlSubmit, LoadedComponentAssets, NumericParts, NumericRange, NumericValueChanged,
-    PendingComponent, PropertyBinding, PropertyBindings, RangeOrientation, RouteTarget, Router,
-    Routes, RoutesRegistration, RuntimeComputedStyle, SelectableStaticText,
-    SharedValueRegistration, ShowDialog, SliderChanged, SliderCommitted, SliderSettings,
-    StaticAttribute, StaticAttributes, TableCellInfo, TableInfo, TableSection, TemplateNodeRef,
-    TiltButton, TiltCheckbox, TiltControl, TiltElement, TiltRadioButton, TiltSwitchButton,
-    TiltText, TiltToggleButton, TiltUiCodePlugin, TiltUiComponentRuntimePlugin,
-    TiltUiComponentRuntimeSet, TiltUiControlRuntimePlugin, TiltUiRouterPlugin,
-    TiltUiStyleRuntimePlugin, UiBindingStore, UiMotionSettings, UiSharedValues,
-    UiStoreRegistration, WidgetLayoutOverride, close_dialog, instantiate_component, open_dialog,
-    reset_default_theme, set_control_checked, set_default_theme_css, set_editable_readonly,
-    set_editable_text, set_numeric_value, set_progress_value, set_slider_value, set_slider_values,
-    set_text_area_size, spawn_component, spawn_dialog,
+    BeuStore, CascadedStyle, ChoiceBoxParts, ComponentAssetHandles, ComponentAssetStore,
+    ComponentCatalog, ComponentInitRegistration, ComponentInstance, ComponentInstantiationError,
+    ComponentRoot, ComponentStyleOwner, ContextMenu, ControlActivated, ControlChecked,
+    ControlCheckedChanged, ControlPart, ControlPartKind, ControlTabIndex, DialogClosed,
+    DialogConfig, DialogKind, DialogLayout, DialogRenderer, DialogResult, DialogSpawned,
+    DialogState, EditableText, EditableTextChanged, EditableTextCommitted, EditableTextOptions,
+    ElementClasses, ElementId, ElementState, EventBinding, EventBindings,
+    FailedComponentInstantiation, FieldSetSelection, FileInputOptions, FileInputSelected,
+    FileInputSelection, FormButton, FormSettings, FormSubmitted, FormValidationFailed, HtmlChange,
+    HtmlClick, HtmlEvent, HtmlHandlerRegistration, HtmlSubmit, LoadedComponentAssets, NumericParts,
+    NumericRange, NumericValueChanged, OptionData, OptionSelectionChanged, PendingComponent,
+    PropertyBinding, PropertyBindings, ProviderChildPolicy, ProviderContext, ProviderEffect,
+    ProviderRules, ProviderScope, RangeOrientation, RouteTarget, Router, Routes,
+    RoutesRegistration, RuntimeComputedStyle, SelectableStaticText, SharedValueRegistration,
+    ShowDialog, SliderChanged, SliderCommitted, SliderSettings, StaticAttribute, StaticAttributes,
+    TableCellInfo, TableInfo, TableSection, TemplateNodeRef, ThemeProvider, TiltButton,
+    TiltCheckbox, TiltControl, TiltElement, TiltRadioButton, TiltSwitchButton, TiltText,
+    TiltToggleButton, TiltUiCodePlugin, TiltUiComponentRuntimePlugin, TiltUiComponentRuntimeSet,
+    TiltUiControlRuntimePlugin, TiltUiRouterPlugin, TiltUiStyleRuntimePlugin, UiBindingStore,
+    UiMotionSettings, UiProvider, UiProviderAppExt, UiProviderRegistry, UiSharedValues,
+    UiStoreRegistration, UiThemeAppExt, UiThemes, WidgetLayoutOverride, close_dialog,
+    instantiate_component, open_dialog, register_ui_theme, reset_default_theme,
+    set_control_checked, set_default_theme_css, set_editable_readonly, set_editable_text,
+    set_numeric_value, set_option_selected, set_progress_value, set_slider_value,
+    set_slider_values, set_text_area_size, spawn_component, spawn_dialog, switch_ui_theme,
 };

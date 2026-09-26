@@ -65,6 +65,8 @@ impl Plugin for TiltUiComponentRuntimePlugin {
 
         app.insert_resource(self.catalog)
             .init_resource::<ComponentAssetStore>()
+            .init_resource::<crate::UiThemes>()
+            .init_resource::<crate::UiProviderRegistry>()
             .add_systems(Startup, prepare_component_assets)
             .add_systems(
                 Update,
@@ -77,6 +79,16 @@ impl Plugin for TiltUiComponentRuntimePlugin {
             ));
         if !app.is_plugin_added::<super::handlers::TiltUiCodePlugin>() {
             app.add_plugins(super::handlers::TiltUiCodePlugin);
+        }
+        if app
+            .world()
+            .resource::<crate::UiProviderRegistry>()
+            .get("theme-provider")
+            .is_none()
+        {
+            app.world_mut()
+                .resource_mut::<crate::UiProviderRegistry>()
+                .register(crate::ThemeProvider);
         }
         crate::widgets::structure::form::install(app);
         crate::widgets::advanced::dialog::install(app);

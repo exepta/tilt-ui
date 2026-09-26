@@ -46,12 +46,91 @@ in `build.rs` via `tilt_ui_build::build_from(&UiSourceRoot::new(path))`.
 `Camera2d`; `without_camera()` leaves camera creation to the application.
 Mark a manually created camera with Bevy's `IsDefaultUiCamera`.
 
+Frame pacing is optional. Without a setting, Bevy's normal window loop applies;
+the showcase starts at a 60-FPS target. Choose a preset or a positive custom
+value on the same plugin:
+
+```rust
+use tilt_ui::UiFrameRate;
+
+let plugin = TiltUiPlugin::new(tilt_ui_component_catalog())
+    .with_ui_fps(UiFrameRate::Fps45);
+// For example: UiFrameRate::custom(144).expect("positive FPS")
+```
+
+Change the `UiFrameRate` resource to switch targets at runtime. TiltUI shares
+Bevy's update/render loop, so this caps the whole app, including updates
+triggered by input. Explicit FPS targets use non-VSync presentation where
+supported; heavy work or a platform fallback may still lower the achieved FPS.
+
 The [component showcase](examples/component-showcase/src-ui/pages/showcase.component.rs)
 demonstrates `#[component_init]`, `#[component_update]`, `#[html_shared]`,
 and `#[html_fn]`, including a Rust-driven animated progress bar. These
 functions register automatically from the discovered component source; `main.rs`
 does not register a component-specific plugin. Run it with
 `cargo run -p tilt-ui-example-component-showcase`.
+The showcase has English/German language and light/dark theme selectors in its
+header, plus a 30/45/60/custom FPS control below it. Set
+`TILT_UI_SHOWCASE_THEME=dark` to start with dark surfaces; set
+`TILT_UI_SHOWCASE_LANG=de-DE` to start directly in German; use
+`TILT_UI_SHOWCASE_SIZE=390x844` to inspect its narrow layout.
+
+## Providers and themes
+
+Register named CSS themes before the first frame, then switch by name from
+component logic. The bundled default theme remains the lowest cascade layer;
+named themes sit above it and below component CSS.
+
+```rust
+use tilt_ui::{UiThemeAppExt, switch_ui_theme};
+
+app.register_ui_theme_css("light", include_str!("../src-ui/themes/light.css"))?;
+app.register_ui_theme_css("dark", include_str!("../src-ui/themes/dark.css"))?;
+switch_ui_theme(app.world_mut(), "light")?;
+```
+
+`<theme-provider theme="dark">...</theme-provider>` pins a subtree to a named
+theme. Without `theme`, it follows the active global theme, or uses its
+`default` attribute when no theme is active. Provider nodes are layout-neutral
+and also affect nested components. Custom tags implement `UiProvider` and are
+registered with `app.register_ui_provider(provider)`; their `ProviderEffect`
+may select a theme or supply parsed CSS for their subtree. An unknown theme
+returns an error without changing the current selection.
+
+## Localization (optional)
+
+Enable the `fluent` feature on `tilt-ui` to load Fluent `.ftl` catalogs from
+the configured `src-ui` directory. No `.properties` parser is included.
+
+```toml
+tilt-ui = { version = "0.1", features = ["fluent"] }
+```
+
+For example, place `locales/en-US.ftl` and `locales/de-DE.ftl` under `src-ui/`:
+
+```ftl
+welcome = Hello, { $name }!
+```
+
+Configure them on the same `TiltUiPlugin` used above:
+
+```rust
+use tilt_ui::{TiltUiPlugin, UiFluentConfig};
+
+let fluent = UiFluentConfig::new("en-US")?
+    .with_catalog("en-US", "locales/en-US.ftl")?
+    .with_catalog("de-DE", "locales/de-DE.ftl")?;
+let plugin = TiltUiPlugin::new(tilt_ui_component_catalog())
+    .with_localization(fluent);
+```
+
+Use `{{ i18n.welcome }}` in template text or `[text]="i18n.welcome"`
+on an element; Fluent attributes use `{{ i18n.welcome.tooltip }}`. Set Fluent arguments from component logic with
+`ResMut<UiFluentArgs>::set("welcome", "name", "Ada")`, and switch language with
+`ResMut<UiLocalization>::set_locale("de-DE")`. Text updates automatically.
+Language lookup tries the selected locale, its base language, then the
+configured fallback. Missing translations display their message ID; invalid
+catalog reloads leave the last valid catalog in place.
 
 ## Text interaction
 

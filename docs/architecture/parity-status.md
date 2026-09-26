@@ -9,16 +9,16 @@ fieldset, table, route, binding, and hot-reload foundations were added.
   values work; option groups and file values need full form serialization.
 - [ ] Route keepalive, path parameters, links that navigate `Router`, and
   component-local outlet behavior beyond the single global route table.
-- [ ] All old HTML event types (`mousedown`, wheel, key, drag, touch, focus,
-  scroll, init) and their precise payloads. Click/change/submit are wired.
+- [x] Old HTML event families (`mousedown`, wheel, key, drag, touch, focus,
+  scroll, init) route to Rust handlers with event data; click/change/submit remain wired.
 - [ ] Full expression evaluation, `innerHtml`/`innerBindings`, `@use`, scoped
   controller state, and complex reactive collection rendering. Simple paths,
   property setters, and text interpolation are wired.
-- [ ] File-backed localization with Fluent/properties, locale selection,
-  variables, and live language switching.
+- [x] Optional file-backed Fluent localization with locale selection,
+  variables, fallback, and live language switching. Properties is intentionally omitted.
 - [ ] General system/UI dialogs, modal controls, result payloads, and backdrop
   behavior. File-input dialogs already exist separately.
-- [ ] Scoped theme providers. A global default-theme CSS setter is available.
+- [x] Scoped theme providers, extensible provider registration, and named theme switching.
 - [ ] CSS parity: authored grid tracks/placement, custom properties, `calc`,
   images/gradients, shadows, outlines, cursor/pointer-events/z-index,
   additional typography, `!important`, visual subtree opacity, motion fill

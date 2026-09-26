@@ -4,12 +4,13 @@ use bevy::{
     app::{App, Plugin, Update},
     asset::Assets,
     ecs::{
+        change_detection::DetectChanges,
         component::Component,
         entity::Entity,
         hierarchy::ChildOf,
         query::Changed,
         resource::Resource,
-        system::{Commands, Query, ResMut},
+        system::{Commands, Query, Res, ResMut},
         world::World,
     },
     prelude::IntoScheduleConfigs,
@@ -22,6 +23,7 @@ use crate::{
     ComponentAssetHandles, ComponentStyleOwner, ElementClasses, ElementId, ElementState,
     StaticAttributes, StyleDirty, TiltControlSystems, TiltUiComponentRuntimeSet, UiStyleSheetAsset,
 };
+use crate::{ProviderContext, ProviderEffect, ProviderScope, UiProviderRegistry, UiThemes};
 
 use super::{
     apply::resolve_and_apply_tree,
@@ -86,6 +88,7 @@ impl Plugin for TiltUiStyleRuntimePlugin {
         app.add_systems(
             Update,
             (
+                mark_theme_changes,
                 invalidate_responsive_styles,
                 mark_ready_author_styles,
                 mark_changed_style_owners,
@@ -99,12 +102,32 @@ impl Plugin for TiltUiStyleRuntimePlugin {
     }
 }
 
+fn mark_theme_changes(
+    mut commands: Commands<'_, '_>,
+    themes: Option<Res<'_, UiThemes>>,
+    providers: Option<Res<'_, UiProviderRegistry>>,
+    scopes: Query<'_, '_, Entity, bevy::ecs::query::With<ComponentAssetHandles>>,
+) {
+    if !themes.as_ref().is_some_and(|themes| themes.is_changed())
+        && !providers
+            .as_ref()
+            .is_some_and(|providers| providers.is_changed())
+    {
+        return;
+    }
+    for owner in &scopes {
+        commands.entity(owner).insert(StyleDirty);
+    }
+}
+
 fn invalidate_responsive_styles(
     mut commands: Commands<'_, '_>,
     mut environment: ResMut<'_, TiltUiMediaEnvironment>,
     windows: Query<'_, '_, &Window, (bevy::ecs::query::With<PrimaryWindow>, Changed<Window>)>,
     stylesheets: bevy::ecs::system::Res<'_, Assets<UiStyleSheetAsset>>,
     default_theme: Option<bevy::ecs::system::Res<'_, DefaultThemeStyleSheet>>,
+    themes: Option<bevy::ecs::system::Res<'_, UiThemes>>,
+    providers: Query<'_, '_, &ProviderScope>,
     scopes: Query<'_, '_, (Entity, &ComponentAssetHandles, Option<&MediaMatchState>)>,
 ) {
     let Some(window) = windows.iter().next() else {
@@ -118,7 +141,15 @@ fn invalidate_responsive_styles(
         return;
     }
     environment.0 = Some(next);
+    let provider_media_possible = !providers.is_empty();
+    let named_theme_has_media = themes
+        .as_ref()
+        .is_some_and(|themes| themes.has_media_rules());
     for (owner, handles, old_state) in &scopes {
+        if provider_media_possible || named_theme_has_media {
+            commands.entity(owner).insert(StyleDirty);
+            continue;
+        }
         let Some(stylesheet) = stylesheets
             .get(&handles.stylesheet)
             .map(UiStyleSheetAsset::stylesheet)
@@ -210,6 +241,14 @@ fn apply_dirty_styles(world: &mut World) {
     let default_theme = world
         .get_resource::<DefaultThemeStyleSheet>()
         .map(|theme| theme.0.clone());
+    let themes = world
+        .get_resource::<UiThemes>()
+        .cloned()
+        .unwrap_or_default();
+    let providers = world
+        .get_resource::<UiProviderRegistry>()
+        .cloned()
+        .unwrap_or_default();
     let environment = world
         .get_resource::<TiltUiMediaEnvironment>()
         .and_then(|environment| environment.0)
@@ -223,6 +262,8 @@ fn apply_dirty_styles(world: &mut World) {
             owner,
             &stylesheet_handle,
             default_theme.as_deref(),
+            &themes,
+            &providers,
             environment,
             None,
         );
@@ -249,6 +290,8 @@ fn apply_dirty_styles(world: &mut World) {
             owner,
             &stylesheet_handle,
             default_theme.as_deref(),
+            &themes,
+            &providers,
             environment,
             Some(&changed),
         );
@@ -260,6 +303,8 @@ fn restyle_scope(
     owner: Entity,
     stylesheet_handle: &bevy::asset::Handle<UiStyleSheetAsset>,
     default_theme: Option<&tilt_ui_css::StyleSheet>,
+    themes: &UiThemes,
+    providers: &UiProviderRegistry,
     environment: tilt_ui_css::MediaEnvironment,
     changed: Option<&HashSet<Entity>>,
 ) -> Option<tilt_ui_css::StyleSheet> {
@@ -267,7 +312,12 @@ fn restyle_scope(
         .resource::<Assets<UiStyleSheetAsset>>()
         .get(stylesheet_handle)
         .map(|asset| asset.stylesheet().clone());
-    if default_theme.is_none() && stylesheet.is_none() {
+    let has_provider_scopes = world.query::<&ProviderScope>().iter(world).next().is_some();
+    if default_theme.is_none()
+        && stylesheet.is_none()
+        && themes.active().is_none()
+        && !has_provider_scopes
+    {
         return stylesheet;
     }
     let mut view = if changed.is_some() {
@@ -286,8 +336,14 @@ fn restyle_scope(
         |changed| view.affected_by(changed),
     );
     let mut overflow_changed = false;
+    let mut provider_cache = HashMap::new();
     for entity in affected {
         let mut cascade = Cascade::default();
+        let (selected_theme, extra_styles) = if has_provider_scopes {
+            provider_layers(world, entity, themes, providers, &mut provider_cache)
+        } else {
+            (themes.active().map(str::to_owned), Vec::new())
+        };
         apply_stylesheet(
             &mut cascade,
             &view,
@@ -296,6 +352,24 @@ fn restyle_scope(
             StyleOrigin::DefaultTheme,
             environment,
         );
+        apply_stylesheet(
+            &mut cascade,
+            &view,
+            entity,
+            selected_theme.as_deref().and_then(|name| themes.get(name)),
+            StyleOrigin::NamedTheme,
+            environment,
+        );
+        for (index, sheet) in &extra_styles {
+            apply_stylesheet(
+                &mut cascade,
+                &view,
+                entity,
+                Some(sheet),
+                StyleOrigin::Provider(*index),
+                environment,
+            );
+        }
         apply_stylesheet(
             &mut cascade,
             &view,
@@ -321,6 +395,11 @@ fn restyle_scope(
                 continue;
             }
             let mut cascade = Cascade::default();
+            let (selected_theme, extra_styles) = if has_provider_scopes {
+                provider_layers(world, entity, themes, providers, &mut provider_cache)
+            } else {
+                (themes.active().map(str::to_owned), Vec::new())
+            };
             apply_stylesheet(
                 &mut cascade,
                 &view,
@@ -329,6 +408,24 @@ fn restyle_scope(
                 StyleOrigin::DefaultTheme,
                 environment,
             );
+            apply_stylesheet(
+                &mut cascade,
+                &view,
+                entity,
+                selected_theme.as_deref().and_then(|name| themes.get(name)),
+                StyleOrigin::NamedTheme,
+                environment,
+            );
+            for (index, sheet) in &extra_styles {
+                apply_stylesheet(
+                    &mut cascade,
+                    &view,
+                    entity,
+                    Some(sheet),
+                    StyleOrigin::Provider(*index),
+                    environment,
+                );
+            }
             apply_stylesheet(
                 &mut cascade,
                 &view,
@@ -344,6 +441,68 @@ fn restyle_scope(
     reconcile_scope(world, owner, stylesheet.as_ref(), default_theme);
     world.entity_mut(owner).insert(StyleSelectorCache(view));
     stylesheet
+}
+
+fn provider_layers(
+    world: &World,
+    entity: Entity,
+    themes: &UiThemes,
+    providers: &UiProviderRegistry,
+    cache: &mut HashMap<Entity, ProviderEffect>,
+) -> (
+    Option<String>,
+    Vec<(usize, std::sync::Arc<tilt_ui_css::StyleSheet>)>,
+) {
+    let mut scopes = Vec::new();
+    let mut current = Some(entity);
+    while let Some(node) = current {
+        if world.get::<ProviderScope>(node).is_some() {
+            scopes.push(node);
+        }
+        current = world.get::<ChildOf>(node).map(|parent| parent.0);
+    }
+    scopes.reverse();
+    let mut theme = themes.active().map(str::to_owned);
+    let mut sheets = Vec::new();
+    for scope in scopes {
+        let effect = cache.entry(scope).or_insert_with(|| {
+            let Some(node) = world.get::<ProviderScope>(scope) else {
+                return ProviderEffect::default();
+            };
+            let Some(provider) = providers.get(&node.tag) else {
+                return ProviderEffect::default();
+            };
+            match provider.resolve(ProviderContext {
+                attributes: &node.attributes,
+                active_theme: themes.active(),
+                themes,
+            }) {
+                Ok(mut effect) => {
+                    if let Some(name) = &effect.theme
+                        && themes.get(name).is_none()
+                    {
+                        bevy::log::warn!(
+                            "provider <{}> requested unknown UI theme {name:?}",
+                            node.tag
+                        );
+                        effect.theme = None;
+                    }
+                    effect
+                }
+                Err(error) => {
+                    bevy::log::warn!("provider <{}> failed: {error}", node.tag);
+                    ProviderEffect::default()
+                }
+            }
+        });
+        if let Some(name) = &effect.theme {
+            theme = Some(name.clone());
+        }
+        for sheet in &effect.stylesheets {
+            sheets.push((sheets.len(), sheet.clone()));
+        }
+    }
+    (theme, sheets)
 }
 
 fn apply_stylesheet(
@@ -397,7 +556,8 @@ mod tests {
         ecs::world::World,
         text::{TextColor, TextFont},
         time::Time,
-        ui::{BackgroundColor, Node, Val},
+        ui::{BackgroundColor, BorderColor, Node, Val},
+        window::{PrimaryWindow, Window},
     };
     use std::time::Duration;
     use tilt_ui_core::ElementKind;
@@ -406,9 +566,30 @@ mod tests {
     use super::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin};
     use crate::{
         ComponentAssetHandles, ComponentStyleOwner, ControlChecked, ElementClasses, ElementId,
-        ElementState, StyleDirty, TiltElement, TiltText, UiStyleSheetAsset, UiTemplateAsset,
-        set_control_checked,
+        ElementState, ProviderContext, ProviderEffect, ProviderScope, StyleDirty, ThemeProvider,
+        TiltElement, TiltText, UiProvider, UiProviderRegistry, UiStyleSheetAsset, UiTemplateAsset,
+        UiThemes, register_ui_theme, set_control_checked, switch_ui_theme,
     };
+
+    #[derive(Clone, Copy)]
+    struct AccentProvider;
+
+    impl UiProvider for AccentProvider {
+        fn tag(&self) -> &'static str {
+            "accent-provider"
+        }
+
+        fn resolve(&self, context: ProviderContext<'_>) -> Result<ProviderEffect, String> {
+            let color = context.attr("color").unwrap_or("#000000");
+            Ok(ProviderEffect {
+                stylesheets: vec![std::sync::Arc::new(
+                    parse_stylesheet(&format!("button {{ border-color: {color}; }}"))
+                        .map_err(|error| error.to_string())?,
+                )],
+                ..Default::default()
+            })
+        }
+    }
 
     fn stylesheet(world: &mut World, source: &str) -> Handle<UiStyleSheetAsset> {
         world
@@ -443,6 +624,208 @@ mod tests {
         app.insert_resource(Assets::<UiStyleSheetAsset>::default());
         app.add_plugins(TiltUiStyleRuntimePlugin::default());
         app
+    }
+
+    #[test]
+    fn named_themes_and_nested_providers_restyle_without_rebuilding() {
+        let mut app = app();
+        app.init_resource::<UiProviderRegistry>();
+        app.world_mut()
+            .resource_mut::<UiProviderRegistry>()
+            .register(ThemeProvider);
+        app.world_mut()
+            .resource_mut::<UiProviderRegistry>()
+            .register(AccentProvider);
+        register_ui_theme(
+            app.world_mut(),
+            "light",
+            "button { background-color: #ffffff; }",
+        )
+        .unwrap();
+        register_ui_theme(
+            app.world_mut(),
+            "dark",
+            "button { background-color: #111111; }",
+        )
+        .unwrap();
+        switch_ui_theme(app.world_mut(), "light").unwrap();
+        let handle = stylesheet(app.world_mut(), "");
+        let boundary = owner(app.world_mut(), handle);
+        let outside = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(outside);
+        let scoped = app
+            .world_mut()
+            .spawn(ProviderScope {
+                tag: "theme-provider".into(),
+                attributes: vec![("theme".into(), "dark".into())],
+            })
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(scoped);
+        let accent = app
+            .world_mut()
+            .spawn(ProviderScope {
+                tag: "accent-provider".into(),
+                attributes: vec![("color".into(), "#ff0000".into())],
+            })
+            .id();
+        app.world_mut().entity_mut(scoped).add_child(accent);
+        let inside = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(accent).add_child(inside);
+        let nested_handle = stylesheet(app.world_mut(), "");
+        let nested_boundary = owner(app.world_mut(), nested_handle);
+        app.world_mut()
+            .entity_mut(scoped)
+            .add_child(nested_boundary);
+        let nested_button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(nested_boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut()
+            .entity_mut(nested_boundary)
+            .add_child(nested_button);
+        app.update();
+        assert_eq!(
+            app.world().get::<BackgroundColor>(outside).unwrap().0,
+            Color::srgb(1.0, 1.0, 1.0)
+        );
+        assert_eq!(
+            app.world().get::<BackgroundColor>(inside).unwrap().0,
+            Color::srgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0)
+        );
+        assert_eq!(
+            app.world().get::<BackgroundColor>(nested_button).unwrap().0,
+            Color::srgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0)
+        );
+        switch_ui_theme(app.world_mut(), "dark").unwrap();
+        app.update();
+        assert_eq!(
+            app.world().get::<BackgroundColor>(outside).unwrap().0,
+            Color::srgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0)
+        );
+        assert_eq!(
+            app.world().get::<BorderColor>(inside).unwrap().left,
+            Color::srgb(1.0, 0.0, 0.0)
+        );
+        assert!(switch_ui_theme(app.world_mut(), "missing").is_err());
+        assert_eq!(
+            app.world().get::<BackgroundColor>(inside).unwrap().0,
+            Color::srgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0)
+        );
+        switch_ui_theme(app.world_mut(), "light").unwrap();
+        app.update();
+        assert_eq!(
+            app.world().get::<BackgroundColor>(outside).unwrap().0,
+            Color::srgb(1.0, 1.0, 1.0)
+        );
+        assert_eq!(
+            app.world().get::<BackgroundColor>(nested_button).unwrap().0,
+            Color::srgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0)
+        );
+        app.world_mut()
+            .resource_mut::<UiThemes>()
+            .select("dark")
+            .unwrap();
+        app.update();
+        assert_eq!(
+            app.world().get::<BackgroundColor>(outside).unwrap().0,
+            Color::srgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0)
+        );
+    }
+
+    #[test]
+    fn named_theme_applies_while_author_css_is_unavailable() {
+        let mut app = app();
+        register_ui_theme(
+            app.world_mut(),
+            "plain",
+            "button { background-color: #123456; }",
+        )
+        .unwrap();
+        switch_ui_theme(app.world_mut(), "plain").unwrap();
+        let boundary = owner(app.world_mut(), Handle::<UiStyleSheetAsset>::default());
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(button);
+        app.update();
+        assert_eq!(
+            app.world().get::<BackgroundColor>(button).unwrap().0,
+            Color::srgb(18.0 / 255.0, 52.0 / 255.0, 86.0 / 255.0)
+        );
+    }
+
+    #[test]
+    fn named_theme_media_rules_restyle_on_window_resize() {
+        let mut app = app();
+        register_ui_theme(
+            app.world_mut(),
+            "responsive",
+            "button { width: 100px; } @media (max-width: 800px) { button { width: 200px; } }",
+        )
+        .unwrap();
+        switch_ui_theme(app.world_mut(), "responsive").unwrap();
+        let mut window = Window::default();
+        window.resolution.set(900.0, 600.0);
+        let window = app.world_mut().spawn((window, PrimaryWindow)).id();
+        let handle = stylesheet(app.world_mut(), "");
+        let boundary = owner(app.world_mut(), handle);
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(button);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(100.0)
+        );
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(700.0, 600.0);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(200.0)
+        );
     }
 
     #[test]
@@ -857,6 +1240,49 @@ mod tests {
         assert_eq!(
             app.world().get::<Node>(checkbox).unwrap().width,
             Val::Px(20.0)
+        );
+    }
+
+    #[test]
+    fn checkbox_mark_is_hidden_until_checked_in_the_default_theme() {
+        let mut app = themed_app();
+        let handle = stylesheet(app.world_mut(), "");
+        let boundary = owner(app.world_mut(), handle);
+        let checkbox = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Checkbox,
+                },
+                ComponentStyleOwner(boundary),
+            ))
+            .id();
+        crate::render::materialize_element(app.world_mut(), checkbox, ElementKind::Checkbox, &[]);
+        app.world_mut().entity_mut(boundary).add_child(checkbox);
+        let mark = app
+            .world_mut()
+            .query::<(bevy::ecs::entity::Entity, &crate::ControlPart)>()
+            .iter(app.world())
+            .find(|(_, part)| part.owner == checkbox && part.kind == crate::ControlPartKind::Mark)
+            .map(|(entity, _)| entity)
+            .unwrap();
+
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(mark).unwrap().display,
+            bevy::ui::Display::None
+        );
+        assert!(set_control_checked(app.world_mut(), checkbox, true));
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(mark).unwrap().display,
+            bevy::ui::Display::Flex
+        );
+        assert!(set_control_checked(app.world_mut(), checkbox, false));
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(mark).unwrap().display,
+            bevy::ui::Display::None
         );
     }
 

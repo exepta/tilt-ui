@@ -292,30 +292,64 @@ pub(crate) fn resolve_targets(world: &mut World, scope: Entity) {
     }
 }
 
+fn month_label(world: &World, month: u8) -> String {
+    let months = [
+        ("month-january", "January"),
+        ("month-february", "February"),
+        ("month-march", "March"),
+        ("month-april", "April"),
+        ("month-may", "May"),
+        ("month-june", "June"),
+        ("month-july", "July"),
+        ("month-august", "August"),
+        ("month-september", "September"),
+        ("month-october", "October"),
+        ("month-november", "November"),
+        ("month-december", "December"),
+    ];
+    let (key, fallback) = months[usize::from(month.saturating_sub(1)).min(11)];
+    #[cfg(not(feature = "fluent"))]
+    let _ = (world, key);
+    #[cfg(feature = "fluent")]
+    if let Some(value) = world
+        .get_resource::<crate::UiLocalization>()
+        .and_then(|locale| locale.translate(key, None))
+    {
+        return value;
+    }
+    fallback.to_owned()
+}
+
+#[cfg(feature = "fluent")]
+pub(crate) fn refresh_localized_calendar_labels(world: &mut World) {
+    let entries = {
+        let mut query = world.query::<&DatePickerState>();
+        query
+            .iter(world)
+            .map(|state| {
+                (
+                    state.month_text,
+                    state.displayed_month,
+                    state.displayed_year,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    for (text, month, year) in entries {
+        let label = format!("{} {year}", month_label(world, month));
+        if let Some(mut text) = world.get_mut::<Text>(text) {
+            text.0 = label;
+        }
+    }
+}
+
 fn refresh_calendar(world: &mut World, entity: Entity) {
     let Some(state) = world.get::<DatePickerState>(entity).cloned() else {
         return;
     };
-    let months = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
+    let month = month_label(world, state.displayed_month);
     if let Some(mut label) = world.get_mut::<Text>(state.month_text) {
-        label.0 = format!(
-            "{} {}",
-            months[usize::from(state.displayed_month - 1)],
-            state.displayed_year
-        );
+        label.0 = format!("{month} {}", state.displayed_year);
     }
     let offset = monday_offset(state.displayed_year, state.displayed_month);
     let count = days_in_month(state.displayed_year, state.displayed_month);
@@ -502,6 +536,26 @@ mod tests {
         assert_eq!(days_in_month(2000, 2), 29);
         assert_eq!(days_in_month(1900, 2), 28);
         assert_eq!(monday_offset(2024, 1), 0);
+    }
+
+    #[cfg(feature = "fluent")]
+    #[test]
+    fn calendar_month_follows_the_selected_locale() {
+        let mut world = bevy::ecs::world::World::new();
+        let mut localization = crate::UiLocalization::new("en-US").unwrap();
+        localization
+            .insert_ftl("en-US", "month-march = March")
+            .unwrap();
+        localization
+            .insert_ftl("de-DE", "month-march = März")
+            .unwrap();
+        world.insert_resource(localization);
+        assert_eq!(super::month_label(&world, 3), "March");
+        world
+            .resource_mut::<crate::UiLocalization>()
+            .set_locale("de-DE")
+            .unwrap();
+        assert_eq!(super::month_label(&world, 3), "März");
     }
 
     #[test]

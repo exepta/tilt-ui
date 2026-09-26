@@ -11,6 +11,15 @@ pub enum ComponentInstantiationError {
         name: String,
     },
 
+    /// A registered provider rejected its direct children.
+    #[error("invalid <{tag}> provider: {reason}")]
+    InvalidProvider {
+        /// Provider tag name.
+        tag: String,
+        /// Failed structural rule.
+        reason: String,
+    },
+
     /// Generated metadata did not contain the requested component identifier.
     #[error("component metadata is missing for component {component:?}")]
     ComponentMetadataMissing {

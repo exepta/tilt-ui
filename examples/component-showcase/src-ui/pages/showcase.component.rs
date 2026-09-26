@@ -1,11 +1,14 @@
 //! State and behavior for the widget showcase component.
 
+use bevy::diagnostic::FrameCount;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use tilt_ui::{
-    DialogClosed, DialogConfig, DialogState, EditableTextCommitted, ElementId, HtmlClick,
-    HtmlEvent, ShowDialog, SliderChanged, SliderCommitted, component_init, component_update,
-    html_fn, html_shared, open_dialog, spawn_component,
+    ChoiceBoxParts, ControlChecked, DialogClosed, DialogConfig, DialogState, EditableTextChanged,
+    EditableTextCommitted, ElementId, HtmlClick, HtmlEvent, OptionData, OptionSelectionChanged,
+    ShowDialog, SliderChanged, SliderCommitted, UiFrameRate, UiLocalization, UiThemes,
+    component_init, component_update, html_fn, html_shared, open_dialog, register_ui_theme,
+    set_option_selected, spawn_component, switch_ui_theme,
 };
 
 use super::tilt_ui_component_id;
@@ -16,16 +19,42 @@ struct ShowcaseState {
     progress: f32,
     progress_label: u32,
     slider_value: u32,
+    event_name: String,
+    event_detail: String,
+    custom_fps: u32,
+    custom_fps_disabled: bool,
+    current_fps: String,
     #[serde(skip)]
     started_at: f32,
 }
 
 #[component_init]
-fn show_page(mut commands: Commands) {
+fn show_page(mut commands: Commands, mut localization: ResMut<UiLocalization>) {
+    if let Ok(locale) = std::env::var("TILT_UI_SHOWCASE_LANG") {
+        if let Err(error) = localization.set_locale(&locale) {
+            warn!("Invalid showcase language {locale:?}: {error}");
+        }
+    }
+    let start_theme = std::env::var("TILT_UI_SHOWCASE_THEME").unwrap_or_else(|_| "light".into());
+    commands.queue(move |world: &mut World| {
+        register_ui_theme(world, "light", include_str!("../themes/light.css"))
+            .expect("valid light theme");
+        register_ui_theme(world, "dark", include_str!("../themes/dark.css"))
+            .expect("valid dark theme");
+        if let Err(error) = switch_ui_theme(world, &start_theme) {
+            warn!("Invalid showcase theme {start_theme:?}: {error}");
+            switch_ui_theme(world, "light").expect("registered light theme");
+        }
+    });
     commands.insert_resource(ShowcaseState {
         progress: 40.0,
         progress_label: 40,
         slider_value: 75,
+        event_name: "init".into(),
+        event_detail: String::new(),
+        custom_fps: 120,
+        custom_fps_disabled: true,
+        current_fps: "--".into(),
         started_at: -2.666,
     });
     spawn_component(
@@ -55,6 +84,217 @@ fn reflect_slider_value(
     }
 }
 
+#[component_update]
+fn change_language(
+    mut changes: MessageReader<OptionSelectionChanged>,
+    ids: Query<(Entity, &ElementId)>,
+    choices: Query<&ChoiceBoxParts>,
+    options: Query<(&OptionData, &ControlChecked)>,
+    children: Query<&Children>,
+    mut localization: ResMut<UiLocalization>,
+    mut commands: Commands,
+) {
+    for change in changes.read() {
+        if change.selected
+            && ids
+                .get(change.control)
+                .is_ok_and(|(_, id)| id.0 == "language-choice")
+        {
+            if let Err(error) = localization.set_locale(&change.value) {
+                warn!("Could not select showcase language: {error}");
+            }
+        }
+    }
+    let selected_locale = localization.locale().to_string();
+    let Some((control, _)) = ids.iter().find(|(_, id)| id.0 == "language-choice") else {
+        return;
+    };
+    let Ok(choice) = choices.get(control) else {
+        return;
+    };
+    let Ok(entries) = children.get(choice.popup) else {
+        return;
+    };
+    for option in entries {
+        let Ok((data, checked)) = options.get(*option) else {
+            continue;
+        };
+        if data.value == selected_locale && !checked.0 {
+            let option = *option;
+            commands.queue(move |world: &mut World| {
+                set_option_selected(world, option, true);
+            });
+            break;
+        }
+    }
+}
+
+#[component_update]
+fn change_theme(
+    mut changes: MessageReader<OptionSelectionChanged>,
+    ids: Query<(Entity, &ElementId)>,
+    choices: Query<&ChoiceBoxParts>,
+    options: Query<(&OptionData, &ControlChecked)>,
+    children: Query<&Children>,
+    themes: Res<UiThemes>,
+    mut commands: Commands,
+    mut synced: Local<Option<(Entity, String)>>,
+) {
+    let mut user_selected = false;
+    for change in changes.read() {
+        if change.selected
+            && ids
+                .get(change.control)
+                .is_ok_and(|(_, id)| id.0 == "theme-choice")
+        {
+            user_selected = true;
+            let name = change.value.clone();
+            commands.queue(move |world: &mut World| {
+                if let Err(error) = switch_ui_theme(world, &name) {
+                    warn!("Could not select showcase theme: {error}");
+                }
+            });
+        }
+    }
+    if user_selected {
+        return;
+    }
+    let Some(active) = themes.active() else {
+        return;
+    };
+    if synced
+        .as_ref()
+        .is_some_and(|(entity, name)| name == active && ids.get(*entity).is_ok())
+    {
+        return;
+    }
+    let Some((control, _)) = ids.iter().find(|(_, id)| id.0 == "theme-choice") else {
+        return;
+    };
+    let Ok(choice) = choices.get(control) else {
+        return;
+    };
+    let Ok(entries) = children.get(choice.popup) else {
+        return;
+    };
+    for option in entries {
+        let Ok((data, checked)) = options.get(*option) else {
+            continue;
+        };
+        if data.value == active {
+            if !checked.0 {
+                let option = *option;
+                commands.queue(move |world: &mut World| {
+                    set_option_selected(world, option, true);
+                });
+            }
+            *synced = Some((control, active.to_owned()));
+            break;
+        }
+    }
+}
+
+#[component_update]
+fn change_ui_fps(
+    mut selections: MessageReader<OptionSelectionChanged>,
+    mut edits: MessageReader<EditableTextChanged>,
+    ids: Query<&ElementId>,
+    mut frame_rate: ResMut<UiFrameRate>,
+    mut state: ResMut<ShowcaseState>,
+) {
+    for selection in selections.read() {
+        if !selection.selected
+            || !ids
+                .get(selection.control)
+                .is_ok_and(|id| id.0 == "fps-choice")
+        {
+            continue;
+        }
+        let next = match selection.value.as_str() {
+            "30" => Some(UiFrameRate::Fps30),
+            "45" => Some(UiFrameRate::Fps45),
+            "60" => Some(UiFrameRate::Fps60),
+            "custom" => UiFrameRate::custom(state.custom_fps),
+            _ => None,
+        };
+        if let Some(next) = next {
+            *frame_rate = next;
+            state.custom_fps_disabled = selection.value != "custom";
+        }
+    }
+    for edit in edits.read() {
+        if state.custom_fps_disabled || !ids.get(edit.entity).is_ok_and(|id| id.0 == "fps-custom") {
+            continue;
+        }
+        if let Ok(fps) = edit.value.parse::<u32>()
+            && (1..=1000).contains(&fps)
+        {
+            state.custom_fps = fps;
+            *frame_rate = UiFrameRate::custom(fps).expect("positive FPS");
+        }
+    }
+}
+
+#[component_update]
+fn reflect_current_fps(
+    time: Res<Time<Real>>,
+    frame_count: Res<FrameCount>,
+    frame_rate: Res<UiFrameRate>,
+    mut state: ResMut<ShowcaseState>,
+    mut sample: Local<Option<(u32, f64)>>,
+) {
+    if frame_rate.is_changed() {
+        *sample = Some((frame_count.0, time.elapsed_secs_f64()));
+        state.current_fps = "--".into();
+        return;
+    }
+    if let Some(fps) = sampled_fps(&mut sample, frame_count.0, time.elapsed_secs_f64()) {
+        let current = fps.to_string();
+        if state.current_fps != current {
+            state.current_fps = current;
+        }
+    }
+}
+
+fn sampled_fps(sample: &mut Option<(u32, f64)>, frame_count: u32, now: f64) -> Option<u32> {
+    let Some((previous_count, previous_time)) = *sample else {
+        *sample = Some((frame_count, now));
+        return None;
+    };
+    let elapsed = now - previous_time;
+    if elapsed < 0.5 {
+        return None;
+    }
+    *sample = Some((frame_count, now));
+    Some((f64::from(frame_count.wrapping_sub(previous_count)) / elapsed).round() as u32)
+}
+
+#[component_update]
+fn localize_window_title(
+    localization: Res<UiLocalization>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+) {
+    if !localization.is_changed() {
+        return;
+    }
+    let title = localization
+        .translate("window-title", None)
+        .unwrap_or_else(|| "TiltUI widget showcase".into());
+    for mut window in &mut windows {
+        window.title = title.clone();
+    }
+}
+
+fn rust_dialog(localization: &UiLocalization) -> DialogConfig {
+    let title = localization
+        .translate("dialog-rust-title", None)
+        .unwrap_or_else(|| "Continue?".into());
+    let body = localization
+        .translate("dialog-rust-body", None)
+        .unwrap_or_else(|| "This dialog was created in Rust.".into());
+    DialogConfig::question(title, body)
+}
+
 #[html_fn("reset_progress")]
 fn reset_progress(In(_event): In<HtmlEvent>, time: Res<Time>, mut state: ResMut<ShowcaseState>) {
     state.progress = 0.0;
@@ -62,11 +302,28 @@ fn reset_progress(In(_event): In<HtmlEvent>, time: Res<Time>, mut state: ResMut<
     state.started_at = time.elapsed_secs();
 }
 
+#[html_fn("track_event")]
+fn track_event(In(event): In<HtmlEvent>, mut state: ResMut<ShowcaseState>) {
+    state.event_name = event.kind.to_owned();
+    state.event_detail = event
+        .data
+        .get("text")
+        .or_else(|| event.data.get("key_code"))
+        .or_else(|| event.data.get("distance_x"))
+        .or_else(|| event.data.get("y"))
+        .cloned()
+        .unwrap_or_default();
+}
+
 #[html_fn("open_rust_dialog")]
-fn open_rust_dialog(In(click): In<HtmlClick>, mut dialogs: MessageWriter<ShowDialog>) {
+fn open_rust_dialog(
+    In(click): In<HtmlClick>,
+    mut dialogs: MessageWriter<ShowDialog>,
+    localization: Res<UiLocalization>,
+) {
     dialogs.write(ShowDialog {
         parent: click.target,
-        config: DialogConfig::question("Continue?", "This dialog was created in Rust."),
+        config: rust_dialog(&localization),
     });
 }
 
@@ -100,6 +357,7 @@ fn capture_showcase(
     dialogs: Query<(Entity, &ElementId), With<DialogState>>,
     elements: Query<(Entity, &ElementId)>,
     mut requests: MessageWriter<ShowDialog>,
+    localization: Res<UiLocalization>,
 ) {
     if !*dialog_preview_opened
         && time.elapsed_secs() >= 1.5
@@ -109,7 +367,7 @@ fn capture_showcase(
         if let Some((parent, _)) = elements.iter().find(|(_, id)| id.0 == "open-info-dialog") {
             requests.write(ShowDialog {
                 parent,
-                config: DialogConfig::question("Continue?", "This dialog was created in Rust."),
+                config: rust_dialog(&localization),
             });
             *dialog_preview_opened = true;
         }
@@ -139,6 +397,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn current_fps_uses_recent_frames_after_a_rate_change() {
+        let mut sample = None;
+        assert_eq!(sampled_fps(&mut sample, 0, 0.0), None);
+        assert_eq!(sampled_fps(&mut sample, 30, 0.5), Some(60));
+        assert_eq!(sampled_fps(&mut sample, 33, 1.1), Some(5));
+    }
+
+    #[test]
     fn slider_label_follows_slider_changes() {
         let mut app = App::new();
         app.add_message::<SliderChanged>()
@@ -146,6 +412,11 @@ mod tests {
                 progress: 40.0,
                 progress_label: 40,
                 slider_value: 75,
+                event_name: String::new(),
+                event_detail: String::new(),
+                custom_fps: 120,
+                custom_fps_disabled: true,
+                current_fps: "--".into(),
                 started_at: 0.0,
             })
             .add_systems(Update, reflect_slider_value);
@@ -159,5 +430,198 @@ mod tests {
             });
         app.update();
         assert_eq!(app.world().resource::<ShowcaseState>().slider_value, 42);
+    }
+
+    #[test]
+    fn both_showcase_catalogs_are_valid() {
+        let mut localization = UiLocalization::new("en-US").unwrap();
+        localization
+            .insert_ftl("en-US", include_str!("../locales/en-US.ftl"))
+            .unwrap();
+        localization
+            .insert_ftl("de-DE", include_str!("../locales/de-DE.ftl"))
+            .unwrap();
+        assert_eq!(
+            localization.translate("site-title", None).as_deref(),
+            Some("UI Widget Library")
+        );
+        localization.set_locale("de-DE").unwrap();
+        assert_eq!(
+            localization.translate("site-title", None).as_deref(),
+            Some("UI-Baukasten")
+        );
+        assert_eq!(
+            localization.translate("dialog-rust-body", None).as_deref(),
+            Some("Dieser Dialog wurde in Rust erstellt.")
+        );
+    }
+
+    #[test]
+    fn both_named_showcase_themes_parse() {
+        let mut world = World::new();
+        register_ui_theme(&mut world, "light", include_str!("../themes/light.css")).unwrap();
+        register_ui_theme(&mut world, "dark", include_str!("../themes/dark.css")).unwrap();
+        switch_ui_theme(&mut world, "dark").unwrap();
+        assert_eq!(world.resource::<tilt_ui::UiThemes>().active(), Some("dark"));
+    }
+
+    #[test]
+    fn language_choice_event_switches_the_locale() {
+        let mut app = App::new();
+        app.add_message::<OptionSelectionChanged>()
+            .insert_resource(UiLocalization::new("en-US").unwrap())
+            .add_systems(Update, change_language);
+        let control = app
+            .world_mut()
+            .spawn(ElementId("language-choice".into()))
+            .id();
+        let option = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<OptionSelectionChanged>>()
+            .write(OptionSelectionChanged {
+                control,
+                option,
+                value: "de-DE".into(),
+                selected: true,
+            });
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<UiLocalization>()
+                .locale()
+                .to_string(),
+            "de-DE"
+        );
+    }
+
+    #[test]
+    fn theme_choice_event_switches_the_named_theme() {
+        let mut app = App::new();
+        app.add_message::<OptionSelectionChanged>()
+            .add_systems(Update, change_theme);
+        register_ui_theme(app.world_mut(), "light", "button { color: #ffffff; }").unwrap();
+        register_ui_theme(app.world_mut(), "dark", "button { color: #111111; }").unwrap();
+        switch_ui_theme(app.world_mut(), "light").unwrap();
+        let control = app.world_mut().spawn(ElementId("theme-choice".into())).id();
+        let option = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<OptionSelectionChanged>>()
+            .write(OptionSelectionChanged {
+                control,
+                option,
+                value: "dark".into(),
+                selected: true,
+            });
+        app.update();
+        assert_eq!(
+            app.world().resource::<tilt_ui::UiThemes>().active(),
+            Some("dark")
+        );
+    }
+
+    #[test]
+    fn theme_choice_mounting_after_theme_selection_shows_active_theme() {
+        let mut app = App::new();
+        app.add_message::<OptionSelectionChanged>()
+            .add_systems(Update, change_theme);
+        register_ui_theme(app.world_mut(), "light", "body { color: #ffffff; }").unwrap();
+        register_ui_theme(app.world_mut(), "dark", "body { color: #111111; }").unwrap();
+        switch_ui_theme(app.world_mut(), "dark").unwrap();
+        app.update();
+
+        let value = app.world_mut().spawn_empty().id();
+        let popup = app.world_mut().spawn_empty().id();
+        let control = app
+            .world_mut()
+            .spawn((
+                ElementId("theme-choice".into()),
+                tilt_ui::TiltElement {
+                    kind: tilt_ui::ElementKind::ChoiceBox,
+                },
+                ChoiceBoxParts {
+                    value,
+                    popup,
+                    open: false,
+                },
+            ))
+            .id();
+        app.world_mut().entity_mut(control).add_child(popup);
+        let light = app
+            .world_mut()
+            .spawn((
+                OptionData {
+                    value: "light".into(),
+                    label: "Light".into(),
+                },
+                ControlChecked(true),
+            ))
+            .id();
+        let dark = app
+            .world_mut()
+            .spawn((
+                OptionData {
+                    value: "dark".into(),
+                    label: "Dark".into(),
+                },
+                ControlChecked(false),
+            ))
+            .id();
+        app.world_mut().entity_mut(popup).add_child(light);
+        app.world_mut().entity_mut(popup).add_child(dark);
+        app.update();
+
+        assert!(!app.world().get::<ControlChecked>(light).unwrap().0);
+        assert!(app.world().get::<ControlChecked>(dark).unwrap().0);
+    }
+
+    #[test]
+    fn fps_choice_switches_presets_and_accepts_custom_input() {
+        let mut app = App::new();
+        app.add_message::<OptionSelectionChanged>()
+            .add_message::<EditableTextChanged>()
+            .insert_resource(UiFrameRate::Fps60)
+            .insert_resource(ShowcaseState {
+                progress: 0.0,
+                progress_label: 0,
+                slider_value: 75,
+                event_name: String::new(),
+                event_detail: String::new(),
+                custom_fps: 120,
+                custom_fps_disabled: true,
+                current_fps: "--".into(),
+                started_at: 0.0,
+            })
+            .add_systems(Update, change_ui_fps);
+        let choice = app.world_mut().spawn(ElementId("fps-choice".into())).id();
+        let input = app.world_mut().spawn(ElementId("fps-custom".into())).id();
+        let option = app.world_mut().spawn_empty().id();
+        let select = |app: &mut App, value: &str| {
+            app.world_mut()
+                .resource_mut::<bevy::ecs::message::Messages<OptionSelectionChanged>>()
+                .write(OptionSelectionChanged {
+                    control: choice,
+                    option,
+                    value: value.into(),
+                    selected: true,
+                });
+            app.update();
+        };
+
+        select(&mut app, "45");
+        assert_eq!(*app.world().resource::<UiFrameRate>(), UiFrameRate::Fps45);
+        assert!(app.world().resource::<ShowcaseState>().custom_fps_disabled);
+        select(&mut app, "custom");
+        assert_eq!(app.world().resource::<UiFrameRate>().fps(), 120);
+        assert!(!app.world().resource::<ShowcaseState>().custom_fps_disabled);
+
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<EditableTextChanged>>()
+            .write(EditableTextChanged {
+                entity: input,
+                name: None,
+                value: "144".into(),
+            });
+        app.update();
+        assert_eq!(app.world().resource::<UiFrameRate>().fps(), 144);
     }
 }

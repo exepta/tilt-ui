@@ -6,18 +6,35 @@ use bevy::{
     app::{App, Plugin, Update},
     ecs::{
         entity::Entity,
+        hierarchy::ChildOf,
         message::{Message, MessageCursor, MessageReader, MessageWriter, Messages},
-        system::{In, SystemId},
+        observer::On,
+        query::{Added, Changed},
+        system::{In, Query, SystemId},
         world::World,
     },
-    prelude::IntoScheduleConfigs,
+    input::{ButtonState, keyboard::KeyboardInput},
+    prelude::{DetectChanges, IntoScheduleConfigs},
+    ui::{ScrollPosition, widget::TextScroll},
+};
+use bevy_input_focus::{FocusGained, FocusLost, InputFocus};
+use bevy_picking::{
+    events::{
+        Drag, DragEnd, DragStart, Enter, Leave, Move, Out, Over, Pointer, Press, Release, Scroll,
+    },
+    pointer::PointerId,
 };
 
 use crate::{ControlActivated, ControlCheckedChanged, EditableTextChanged, FormSubmitted};
 
-use super::{EventBindings, StaticAttributes};
+use super::{EventBindings, StaticAttributes, TiltElement};
 
 /// A template event delivered to a Rust `#[html_fn]` handler.
+///
+/// Templates can bind `onkeydown="handle_key"` or `(keydown)="handle_key()"`.
+/// Pointer events expose `x`/`y` and optional `delta_x`/`delta_y`, drag
+/// events additionally expose `distance_x`/`distance_y`, keyboard events
+/// expose `key_code`/`key`/`text`/`repeat`, and scroll events expose `x`/`y`.
 #[derive(Message, Debug, Clone, PartialEq, Eq)]
 pub struct HtmlEvent {
     /// Entity on which the event originated.
@@ -28,7 +45,7 @@ pub struct HtmlEvent {
     pub value: Option<String>,
     /// Submit button for a form submission.
     pub submitter: Option<Entity>,
-    /// Named values collected from a submitted form.
+    /// Named event data (form fields, pointer coordinates, key details, or scroll position).
     pub data: BTreeMap<String, String>,
     /// Name of the registered Rust handler.
     pub handler: String,
@@ -145,6 +162,8 @@ pub(super) fn install(app: &mut App) {
     app.add_message::<HtmlEvent>()
         .add_message::<FormSubmitted>()
         .init_resource::<HandlerCursor>()
+        .add_observer(forward_focus_gained)
+        .add_observer(forward_focus_lost)
         .add_systems(
             Update,
             (
@@ -165,6 +184,34 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
+            (
+                forward_initialization,
+                forward_keyboard,
+                forward_scroll_position,
+                forward_text_scroll,
+                forward_over,
+                forward_out,
+                forward_enter,
+                forward_leave,
+            )
+                .after(super::TiltUiComponentRuntimeSet::Instantiate)
+                .before(dispatch_html_events),
+        )
+        .add_systems(
+            Update,
+            (
+                forward_press,
+                forward_release,
+                forward_move,
+                forward_drag_start,
+                forward_drag,
+                forward_drag_end,
+                forward_wheel,
+            )
+                .before(dispatch_html_events),
+        )
+        .add_systems(
+            Update,
             dispatch_html_events
                 .after(forward_activations)
                 .after(forward_checked)
@@ -181,18 +228,399 @@ pub(super) fn install(app: &mut App) {
     app.insert_resource(systems);
 }
 
+type HandlerQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Option<&'static StaticAttributes>,
+        Option<&'static EventBindings>,
+        Option<&'static ChildOf>,
+    ),
+>;
+
+fn emit_bound(
+    target: Entity,
+    kind: &'static str,
+    data: BTreeMap<String, String>,
+    elements: &HandlerQuery,
+    events: &mut MessageWriter<HtmlEvent>,
+) {
+    let mut current = Some(target);
+    while let Some(entity) = current {
+        let Ok((attributes, bindings, parent)) = elements.get(entity) else {
+            break;
+        };
+        if let Some(handler) = handler_for(kind, attributes, bindings).or_else(|| {
+            (kind == "focus")
+                .then(|| handler_for("foucs", attributes, bindings))
+                .flatten()
+        }) {
+            events.write(HtmlEvent {
+                target,
+                kind,
+                value: None,
+                submitter: None,
+                data,
+                handler,
+            });
+            break;
+        }
+        // Bevy already emits separate enter/leave messages for ancestors.
+        if matches!(kind, "mouseenter" | "mouseleave") {
+            break;
+        }
+        current = parent.map(ChildOf::parent);
+    }
+}
+
+fn has_bound_handler(target: Entity, kind: &str, elements: &HandlerQuery) -> bool {
+    let mut current = Some(target);
+    while let Some(entity) = current {
+        let Ok((attributes, bindings, parent)) = elements.get(entity) else {
+            break;
+        };
+        if handler_for(kind, attributes, bindings).is_some() {
+            return true;
+        }
+        if matches!(kind, "mouseenter" | "mouseleave") {
+            break;
+        }
+        current = parent.map(ChildOf::parent);
+    }
+    false
+}
+
+fn pointer_alias(kind: &str, pointer_id: PointerId) -> Option<&'static str> {
+    match (kind, pointer_id) {
+        ("mousedown", PointerId::Touch(_)) => Some("touchstart"),
+        ("mouseup", PointerId::Touch(_)) => Some("touchend"),
+        ("mousemove", PointerId::Touch(_)) => Some("touchmove"),
+        ("dragend", _) => Some("dragstop"),
+        _ => None,
+    }
+}
+
+fn forward_initialization(
+    elements: Query<Entity, Added<TiltElement>>,
+    handlers: HandlerQuery,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    for entity in &elements {
+        // Initialization belongs to the authored element, not an ancestor.
+        if let Ok((attributes, bindings, _)) = handlers.get(entity) {
+            if let Some(handler) = handler_for("init", attributes, bindings) {
+                events.write(HtmlEvent {
+                    target: entity,
+                    kind: "init",
+                    value: None,
+                    submitter: None,
+                    data: BTreeMap::new(),
+                    handler,
+                });
+            }
+        }
+    }
+}
+
+fn forward_focus_gained(
+    focus: On<FocusGained>,
+    handlers: HandlerQuery,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    if focus.entity != focus.original_event_target() {
+        return;
+    }
+    emit_bound(
+        focus.entity,
+        "focus",
+        BTreeMap::new(),
+        &handlers,
+        &mut events,
+    );
+}
+
+fn forward_focus_lost(
+    focus: On<FocusLost>,
+    handlers: HandlerQuery,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    if focus.entity != focus.original_event_target() {
+        return;
+    }
+    emit_bound(
+        focus.entity,
+        "blur",
+        BTreeMap::new(),
+        &handlers,
+        &mut events,
+    );
+}
+
+fn forward_keyboard(
+    mut source: MessageReader<KeyboardInput>,
+    focus: bevy::ecs::system::Res<InputFocus>,
+    handlers: HandlerQuery,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    let Some(target) = focus.get() else { return };
+    for key in source.read() {
+        let kind = if key.state == ButtonState::Pressed {
+            "keydown"
+        } else {
+            "keyup"
+        };
+        if !has_bound_handler(target, kind, &handlers) {
+            continue;
+        }
+        let mut data = BTreeMap::new();
+        data.insert("key_code".into(), format!("{:?}", key.key_code));
+        data.insert("key".into(), format!("{:?}", key.logical_key));
+        data.insert("repeat".into(), key.repeat.to_string());
+        if let Some(text) = &key.text {
+            data.insert("text".into(), text.to_string());
+        }
+        emit_bound(target, kind, data, &handlers, &mut events);
+    }
+}
+
+fn forward_scroll_position(
+    positions: Query<
+        (Entity, bevy::ecs::change_detection::Ref<ScrollPosition>),
+        Changed<ScrollPosition>,
+    >,
+    handlers: HandlerQuery,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    for (entity, position) in &positions {
+        if !position.is_added() {
+            let mut data = BTreeMap::new();
+            data.insert("x".into(), position.0.x.to_string());
+            data.insert("y".into(), position.0.y.to_string());
+            emit_bound(entity, "scroll", data, &handlers, &mut events);
+        }
+    }
+}
+
+fn forward_text_scroll(
+    positions: Query<(Entity, bevy::ecs::change_detection::Ref<TextScroll>), Changed<TextScroll>>,
+    handlers: HandlerQuery,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    for (entity, position) in &positions {
+        if !position.is_added() {
+            let mut data = BTreeMap::new();
+            data.insert("x".into(), position.0.x.to_string());
+            data.insert("y".into(), position.0.y.to_string());
+            emit_bound(entity, "scroll", data, &handlers, &mut events);
+        }
+    }
+}
+
+macro_rules! pointer_forwarder {
+    ($name:ident, $event:ty, $kind:literal, $pointer:ident, $data:ident, $handlers:ident, $events:ident, $extra:block) => {
+        fn $name(
+            mut source: MessageReader<Pointer<$event>>,
+            $handlers: HandlerQuery,
+            mut $events: MessageWriter<HtmlEvent>,
+        ) {
+            for $pointer in source.read() {
+                if !has_bound_handler($pointer.entity, $kind, &$handlers)
+                    && pointer_alias($kind, $pointer.pointer_id)
+                        .is_none_or(|alias| !has_bound_handler($pointer.entity, alias, &$handlers))
+                {
+                    continue;
+                }
+                let mut $data = BTreeMap::new();
+                $data.insert("x".into(), $pointer.pointer_location.position.x.to_string());
+                $data.insert("y".into(), $pointer.pointer_location.position.y.to_string());
+                $extra
+                emit_bound($pointer.entity, $kind, $data, &$handlers, &mut $events);
+            }
+        }
+    };
+}
+
+pointer_forwarder!(
+    forward_over,
+    Over,
+    "mouseover",
+    pointer,
+    data,
+    handlers,
+    events,
+    {}
+);
+pointer_forwarder!(
+    forward_out,
+    Out,
+    "mouseout",
+    pointer,
+    data,
+    handlers,
+    events,
+    {}
+);
+pointer_forwarder!(
+    forward_enter,
+    Enter,
+    "mouseenter",
+    pointer,
+    data,
+    handlers,
+    events,
+    {}
+);
+pointer_forwarder!(
+    forward_leave,
+    Leave,
+    "mouseleave",
+    pointer,
+    data,
+    handlers,
+    events,
+    {}
+);
+pointer_forwarder!(
+    forward_press,
+    Press,
+    "mousedown",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("button".into(), format!("{:?}", pointer.event.button));
+        if matches!(pointer.pointer_id, PointerId::Touch(_)) {
+            emit_bound(
+                pointer.entity,
+                "touchstart",
+                data.clone(),
+                &handlers,
+                &mut events,
+            );
+        }
+    }
+);
+pointer_forwarder!(
+    forward_release,
+    Release,
+    "mouseup",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("button".into(), format!("{:?}", pointer.event.button));
+        if matches!(pointer.pointer_id, PointerId::Touch(_)) {
+            emit_bound(
+                pointer.entity,
+                "touchend",
+                data.clone(),
+                &handlers,
+                &mut events,
+            );
+        }
+    }
+);
+pointer_forwarder!(
+    forward_move,
+    Move,
+    "mousemove",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("delta_x".into(), pointer.event.delta.x.to_string());
+        data.insert("delta_y".into(), pointer.event.delta.y.to_string());
+        if matches!(pointer.pointer_id, PointerId::Touch(_)) {
+            emit_bound(
+                pointer.entity,
+                "touchmove",
+                data.clone(),
+                &handlers,
+                &mut events,
+            );
+        }
+    }
+);
+pointer_forwarder!(
+    forward_drag_start,
+    DragStart,
+    "dragstart",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("button".into(), format!("{:?}", pointer.event.button));
+    }
+);
+pointer_forwarder!(
+    forward_drag,
+    Drag,
+    "drag",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("button".into(), format!("{:?}", pointer.event.button));
+        data.insert("delta_x".into(), pointer.event.delta.x.to_string());
+        data.insert("delta_y".into(), pointer.event.delta.y.to_string());
+        data.insert("distance_x".into(), pointer.event.distance.x.to_string());
+        data.insert("distance_y".into(), pointer.event.distance.y.to_string());
+    }
+);
+pointer_forwarder!(
+    forward_drag_end,
+    DragEnd,
+    "dragend",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("button".into(), format!("{:?}", pointer.event.button));
+        data.insert("distance_x".into(), pointer.event.distance.x.to_string());
+        data.insert("distance_y".into(), pointer.event.distance.y.to_string());
+        emit_bound(
+            pointer.entity,
+            "dragstop",
+            data.clone(),
+            &handlers,
+            &mut events,
+        );
+    }
+);
+pointer_forwarder!(
+    forward_wheel,
+    Scroll,
+    "wheel",
+    pointer,
+    data,
+    handlers,
+    events,
+    {
+        data.insert("delta_x".into(), pointer.event.x.to_string());
+        data.insert("delta_y".into(), pointer.event.y.to_string());
+        data.insert("unit".into(), format!("{:?}", pointer.event.unit));
+    }
+);
+
 fn handler_for(
     event: &str,
     static_attributes: Option<&StaticAttributes>,
     bindings: Option<&EventBindings>,
 ) -> Option<String> {
-    let authored = format!("on{event}");
     let handler = bindings
         .and_then(|bindings| {
             bindings
                 .bindings
                 .iter()
-                .find(|binding| binding.name == event || binding.name == authored)
+                .find(|binding| {
+                    binding.name == event || binding.name.strip_prefix("on") == Some(event)
+                })
                 .map(|binding| binding.expression.clone())
         })
         .or_else(|| {
@@ -200,7 +628,7 @@ fn handler_for(
                 attributes
                     .attributes
                     .iter()
-                    .find(|attribute| attribute.name == authored)
+                    .find(|attribute| attribute.name.strip_prefix("on") == Some(event))
                     .map(|attribute| attribute.value.clone())
             })
         });
@@ -325,5 +753,205 @@ fn dispatch_html_events(world: &mut World) {
         if let Some(system) = system {
             let _ = world.run_system_with(system, event);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{
+        camera::NormalizedRenderTarget,
+        input::keyboard::{Key, KeyCode},
+        math::Vec2,
+    };
+    use bevy_input_focus::FocusCause;
+    use bevy_picking::{
+        events::Drag,
+        pointer::{Location, PointerButton},
+    };
+
+    fn attributes(name: &str, handler: &str) -> StaticAttributes {
+        StaticAttributes {
+            attributes: vec![super::super::StaticAttribute {
+                name: name.into(),
+                value: handler.into(),
+            }],
+        }
+    }
+
+    #[test]
+    fn keyboard_events_use_the_focused_element_and_include_key_data() {
+        let mut app = App::new();
+        app.add_message::<KeyboardInput>()
+            .add_message::<HtmlEvent>()
+            .add_systems(Update, forward_keyboard);
+        let target = app
+            .world_mut()
+            .spawn(attributes("onkeydown", "handle_key()"))
+            .id();
+        app.insert_resource(InputFocus::from_entity(target));
+        app.world_mut()
+            .resource_mut::<Messages<KeyboardInput>>()
+            .write(KeyboardInput {
+                key_code: KeyCode::KeyA,
+                logical_key: Key::Character("a".into()),
+                state: ButtonState::Pressed,
+                text: Some("a".into()),
+                repeat: false,
+                window: target,
+            });
+        app.update();
+        let events: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<HtmlEvent>>()
+            .drain()
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "keydown");
+        assert_eq!(events[0].target, target);
+        assert_eq!(events[0].handler, "handle_key");
+        assert_eq!(events[0].data.get("text").map(String::as_str), Some("a"));
+    }
+
+    #[test]
+    fn focus_observer_routes_to_bound_parent() {
+        let mut app = App::new();
+        app.add_message::<HtmlEvent>()
+            .add_observer(forward_focus_gained);
+        let parent = app
+            .world_mut()
+            .spawn(attributes("onfocus", "on_focus"))
+            .id();
+        let child = app.world_mut().spawn_empty().id();
+        app.world_mut().entity_mut(parent).add_child(child);
+        app.world_mut().trigger(FocusGained {
+            entity: child,
+            cause: FocusCause::Navigated,
+        });
+        let events: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<HtmlEvent>>()
+            .drain()
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].target, child);
+        assert_eq!(events[0].kind, "focus");
+    }
+
+    #[test]
+    fn drag_and_real_scroll_position_forward_payloads() {
+        let mut app = App::new();
+        app.add_message::<Pointer<Drag>>()
+            .add_message::<HtmlEvent>()
+            .add_systems(Update, (forward_drag, forward_scroll_position));
+        let target = app
+            .world_mut()
+            .spawn((
+                StaticAttributes {
+                    attributes: vec![
+                        super::super::StaticAttribute {
+                            name: "ondrag".into(),
+                            value: "on_drag".into(),
+                        },
+                        super::super::StaticAttribute {
+                            name: "onscroll".into(),
+                            value: "on_scroll".into(),
+                        },
+                    ],
+                },
+                ScrollPosition(Vec2::ZERO),
+            ))
+            .id();
+        app.update();
+        app.world_mut()
+            .get_mut::<ScrollPosition>(target)
+            .unwrap()
+            .0
+            .y = 28.0;
+        app.world_mut()
+            .resource_mut::<Messages<Pointer<Drag>>>()
+            .write(Pointer::new(
+                PointerId::Mouse,
+                Location {
+                    target: NormalizedRenderTarget::None {
+                        width: 100,
+                        height: 100,
+                    },
+                    position: Vec2::new(12.0, 16.0),
+                },
+                Drag {
+                    button: PointerButton::Primary,
+                    distance: Vec2::new(0.0, 8.0),
+                    delta: Vec2::new(0.0, 3.0),
+                },
+                target,
+            ));
+        app.update();
+        let events: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<HtmlEvent>>()
+            .drain()
+            .collect();
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events
+                .iter()
+                .find(|event| event.kind == "drag")
+                .unwrap()
+                .data["distance_y"],
+            "8"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .find(|event| event.kind == "scroll")
+                .unwrap()
+                .data["y"],
+            "28"
+        );
+    }
+
+    #[test]
+    fn event_binding_syntax_and_init_fire_once() {
+        let bindings = EventBindings {
+            bindings: vec![super::super::EventBinding {
+                name: "mouseover".into(),
+                expression: "on_hover()".into(),
+            }],
+        };
+        assert_eq!(
+            handler_for("mouseover", None, Some(&bindings)).as_deref(),
+            Some("on_hover")
+        );
+
+        let mut app = App::new();
+        app.add_message::<HtmlEvent>()
+            .add_systems(Update, forward_initialization);
+        let entity = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: tilt_ui_core::ElementKind::Div,
+                },
+                attributes("oninit", "on_init"),
+            ))
+            .id();
+        app.update();
+        let first: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<HtmlEvent>>()
+            .drain()
+            .collect();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].target, entity);
+        assert_eq!(first[0].kind, "init");
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<Messages<HtmlEvent>>()
+                .drain()
+                .count(),
+            0
+        );
     }
 }

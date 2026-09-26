@@ -1,0 +1,76 @@
+.showcase-page, .showcase-section { background-color: #0D1117; }
+.showcase-card { background-color: #161B22; border-color: #30363D; }
+.site-title headline, .section-heading headline, .card-name { color: #E6EDF3; }
+.site-title p, .site-footer p, .site-aside p, .section-heading p { color: #8B949E; }
+.language-picker p, .theme-picker p { color: #C9D1D9; }
+.fps-toolbar p { color: #C9D1D9; }
+.showcase-card p, .showcase-card headline { color: #E6EDF3; }
+.showcase-card .card-name { color: #E6EDF3; }
+
+.browser-demo, .div-demo, .mini-form, .mini-fieldset, .scroll-demo, .theme-demo,
+.event-target, .event-scroll, .event-status { background-color: #0D1117; border-color: #30363D; }
+.browser-bar, .mini-table table-cell[data-table-kind="head"] { background-color: #21262D; }
+.browser-demo > p, .div-demo p, .mini-form p, .mini-fieldset p,
+.paragraph-demo, .headline-demo, .cell-table table-cell,
+.slider-demo p, .progress-demo p, .scroll-demo p, .theme-demo p,
+.event-target p, .event-scroll p, .event-status p { color: #E6EDF3; }
+.mail-demo p, .site-aside p + p { color: #8B949E; }
+table { background-color: #0D1117; border-color: #30363D; }
+table-cell { color: #E6EDF3; border-color: #30363D; }
+divider { background-color: #30363D; }
+
+input, textarea, choice-box, list-box, date-picker, color-picker, field-set {
+    background-color: #0D1117;
+    border-color: #30363D;
+    color: #E6EDF3;
+}
+input:hover, textarea:hover, choice-box:hover, list-box:hover { border-color: #6E7681; }
+input::value, textarea::value, choice-box::value, choice-box::indicator,
+date-picker::value, date-picker::indicator { color: #E6EDF3; }
+input::placeholder, textarea::placeholder { color: #8B949E; }
+input::cursor, textarea::cursor { background-color: #E6EDF3; }
+input::selection, textarea::selection { background-color: #264F78; }
+input:readonly, textarea:readonly, input:disabled, textarea:disabled,
+choice-box:disabled, list-box:disabled { background-color: #161B22; }
+checkbox, radio-button, switch-button { color: #E6EDF3; }
+checkbox::indicator, radio-button::indicator { background-color: #0D1117; border-color: #6E7681; }
+checkbox:checked::indicator { background-color: #A833EA; border-color: #A833EA; }
+radio-button:checked::indicator { border-color: #A833EA; }
+switch-button::track { background-color: #30363D; border-color: #30363D; }
+switch-button:checked::track { background-color: #A833EA; border-color: #A833EA; }
+toggle-button { background-color: #21262D; border-color: #30363D; color: #E6EDF3; }
+toggle-button:hover { background-color: #30363D; }
+toggle-button:active { background-color: #161B22; }
+toggle-button:checked { background-color: #A833EA; border-color: #A833EA; color: #FFFFFF; }
+toggle-button:checked:hover { background-color: #C14CF5; }
+toggle-button:checked:active { background-color: #932AD4; }
+toggle-button:disabled { background-color: #161B22; background-image: none; border-color: #30363D; color: #8B949E; }
+button:disabled { background-color: #21262D; background-image: none; border-color: #30363D; color: #8B949E; }
+.help-anchor { background-color: #21262D; border-color: #A833EA; color: #E6EDF3; }
+.help-anchor:hover { background-color: #30363D; background-image: none; }
+.theme-demo { background-image: none; color: #E6EDF3; }
+
+choice-box::popup, date-picker::popup, color-picker::popup, context-menu {
+    background-color: #161B22;
+    border-color: #30363D;
+}
+option { background-color: #161B22; color: #E6EDF3; }
+option:hover, date-picker::hovered-day { background-color: #21262D; }
+option:checked { background-color: #30363D; color: #E6EDF3; }
+date-picker::day, date-picker::calendar-previous, date-picker::calendar-next { color: #E6EDF3; }
+date-picker::disabled-day { color: #6E7681; }
+color-picker::format { background-color: #21262D; color: #C9D1D9; }
+color-picker::selected-format { background-color: #30363D; color: #E6EDF3; }
+context-menu button { background-color: #161B22; color: #E6EDF3; }
+context-menu button:hover { background-color: #21262D; }
+
+dialog { background-color: #010409CC; }
+dialog::popup { background-color: #161B22; border-width: 1px; border-color: #30363D; }
+dialog::label { color: #E6EDF3; }
+dialog p, dialog::value { color: #C9D1D9; }
+dialog::indicator { background-color: #161B22; color: #8B949E; }
+
+*::scrollbar-y-track, *::scrollbar-x-track, scrollbar::track { background-color: #21262D; }
+*::scrollbar-y-thumb, *::scrollbar-x-thumb, scrollbar::thumb { background-color: #6E7681; }
+tooltip, tooltip::indicator { background-color: #30363D; color: #E6EDF3; }
+hyperlink, hyperlink::indicator { color: #58A6FF; }
