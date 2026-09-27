@@ -10,7 +10,7 @@ use std::{
 use bevy::{
     app::{App, First, Last, Plugin, PostStartup},
     asset::AssetServer,
-    camera::{Camera, Camera2d},
+    camera::{Camera, Camera2d, Hdr, visibility::RenderLayers},
     ecs::{
         query::Added,
         resource::Resource,
@@ -112,7 +112,11 @@ fn configure_frame_presentation(mut windows: Query<&mut Window, Added<Window>>) 
 }
 
 #[derive(Resource, Clone)]
-struct CameraSetup(TiltUiCameraMode);
+struct CameraSetup {
+    mode: TiltUiCameraMode,
+    render_layers: Option<RenderLayers>,
+    hdr: bool,
+}
 
 /// Installs the TiltUI asset source, asset loaders, component runtime, and controls.
 ///
@@ -123,6 +127,8 @@ pub struct TiltUiPlugin {
     catalog: ComponentCatalog,
     source_root: PathBuf,
     camera: TiltUiCameraMode,
+    render_layers: Option<RenderLayers>,
+    hdr: bool,
     frame_rate: Option<UiFrameRate>,
     #[cfg(feature = "fluent")]
     fluent: Option<UiFluentConfig>,
@@ -135,6 +141,8 @@ impl TiltUiPlugin {
             catalog,
             source_root: PathBuf::from(tilt_ui_runtime::DEFAULT_TILT_UI_ASSET_PATH),
             camera: TiltUiCameraMode::default(),
+            render_layers: None,
+            hdr: false,
             frame_rate: None,
             #[cfg(feature = "fluent")]
             fluent: None,
@@ -156,6 +164,18 @@ impl TiltUiPlugin {
     /// Uses this Bevy camera configuration if TiltUI creates the UI camera.
     pub fn with_camera(self, camera: Camera) -> Self {
         self.with_camera_mode(TiltUiCameraMode::Automatic(camera))
+    }
+
+    /// Applies render layers to a camera created by TiltUI.
+    pub fn with_render_layers(mut self, layers: RenderLayers) -> Self {
+        self.render_layers = Some(layers);
+        self
+    }
+
+    /// Enables or disables HDR on a camera created by TiltUI.
+    pub fn with_hdr(mut self, enabled: bool) -> Self {
+        self.hdr = enabled;
+        self
     }
 
     /// Leaves camera creation to the application.
@@ -199,8 +219,12 @@ impl Plugin for TiltUiPlugin {
                 .add_systems(First, configure_frame_presentation)
                 .add_systems(Last, pace_ui_frames);
         }
-        app.insert_resource(CameraSetup(self.camera.clone()))
-            .add_systems(PostStartup, ensure_ui_camera);
+        app.insert_resource(CameraSetup {
+            mode: self.camera.clone(),
+            render_layers: self.render_layers.clone(),
+            hdr: self.hdr,
+        })
+        .add_systems(PostStartup, ensure_ui_camera);
     }
 
     fn finish(&self, app: &mut App) {
@@ -229,8 +253,14 @@ fn ensure_ui_camera(
     if !existing.is_empty() {
         return;
     }
-    if let TiltUiCameraMode::Automatic(camera) = &setup.0 {
-        commands.spawn((Camera2d, camera.clone(), IsDefaultUiCamera));
+    if let TiltUiCameraMode::Automatic(camera) = &setup.mode {
+        let mut entity = commands.spawn((Camera2d, camera.clone(), IsDefaultUiCamera));
+        if let Some(layers) = &setup.render_layers {
+            entity.insert(layers.clone());
+        }
+        if setup.hdr {
+            entity.insert(Hdr);
+        }
     }
 }
 
@@ -241,8 +271,8 @@ mod tests {
     use bevy::{
         app::{App, First, Last, PostStartup},
         asset::{AssetPlugin, Assets},
-        camera::{Camera, Camera2d},
-        prelude::With,
+        camera::{Camera, Camera2d, Hdr, visibility::RenderLayers},
+        prelude::{Entity, With},
         ui::IsDefaultUiCamera,
         window::{PresentMode, Window},
         winit::{UpdateMode, WinitSettings},
@@ -303,14 +333,37 @@ mod tests {
     #[test]
     fn automatic_camera_respects_an_existing_default_camera() {
         let mut app = App::new();
-        app.insert_resource(CameraSetup(TiltUiCameraMode::Automatic(Camera::default())))
-            .add_systems(PostStartup, ensure_ui_camera);
+        app.insert_resource(CameraSetup {
+            mode: TiltUiCameraMode::Automatic(Camera::default()),
+            render_layers: None,
+            hdr: false,
+        })
+        .add_systems(PostStartup, ensure_ui_camera);
         app.world_mut().spawn((Camera2d, IsDefaultUiCamera));
         app.update();
         let mut cameras = app
             .world_mut()
             .query_filtered::<(), With<IsDefaultUiCamera>>();
         assert_eq!(cameras.iter(app.world()).count(), 1);
+    }
+
+    #[test]
+    fn automatic_camera_receives_render_layers_and_hdr() {
+        let mut app = App::new();
+        let layers = RenderLayers::from_layers(&[1, 2]);
+        app.insert_resource(CameraSetup {
+            mode: TiltUiCameraMode::Automatic(Camera::default()),
+            render_layers: Some(layers.clone()),
+            hdr: true,
+        })
+        .add_systems(PostStartup, ensure_ui_camera);
+        app.update();
+        let mut cameras = app
+            .world_mut()
+            .query_filtered::<(Entity, &RenderLayers, &Hdr), With<IsDefaultUiCamera>>();
+        let entries = cameras.iter(app.world()).collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(*entries[0].1, layers);
     }
 
     #[test]

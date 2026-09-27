@@ -862,6 +862,14 @@ mod tests {
             });
     }
 
+    fn shortcut_key() -> Key {
+        if cfg!(target_os = "macos") {
+            Key::Super
+        } else {
+            Key::Control
+        }
+    }
+
     #[test]
     fn text_input_queues_layout_aware_edits_and_commits_enter() {
         let mut app = App::new();
@@ -1066,7 +1074,7 @@ mod tests {
             .set(entity, FocusCause::Pressed);
         app.world_mut()
             .resource_mut::<ButtonInput<Key>>()
-            .press(Key::Control);
+            .press(shortcut_key());
         key(
             app.world_mut(),
             KeyCode::KeyA,
@@ -1083,7 +1091,7 @@ mod tests {
         );
         app.world_mut()
             .resource_mut::<ButtonInput<Key>>()
-            .release(Key::Control);
+            .release(shortcut_key());
         key(
             app.world_mut(),
             KeyCode::KeyX,
@@ -1143,7 +1151,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<ButtonInput<Key>>()
-            .press(Key::Control);
+            .press(shortcut_key());
         key(
             app.world_mut(),
             KeyCode::KeyZ,
@@ -1178,7 +1186,7 @@ mod tests {
         let entity = focused_editor(&mut app, false, false);
         app.world_mut()
             .resource_mut::<ButtonInput<Key>>()
-            .press(Key::Control);
+            .press(shortcut_key());
         for (code, character) in [
             (KeyCode::KeyA, "a"),
             (KeyCode::KeyC, "c"),

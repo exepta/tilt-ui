@@ -1,6 +1,7 @@
 .showcase-page { background-color: #F5F5FF; }
 .showcase-section, .showcase-card { background-color: #FFFFFF; }
 .showcase-card { border-color: #E8E7F7; }
+#runtime-content { color: #252149; }
 .site-title headline { color: #17183D; }
 .site-title p, .site-footer p { color: #6F719A; }
 .site-aside p, .language-picker p, .theme-picker p { color: #4B4D7B; }

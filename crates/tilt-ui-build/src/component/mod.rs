@@ -1,5 +1,6 @@
 //! Build-time component discovery, validation, and manifest generation.
 
+mod definition;
 mod discovered;
 mod discovery;
 mod error;

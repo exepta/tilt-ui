@@ -38,9 +38,10 @@ public TiltUI semantic model.
 
 ## Camera Ownership
 
-TiltUI does not create cameras automatically. Applications must provide a Bevy
-UI camera because camera, window, and render-target ownership is application
-specific.
+TiltUI creates a default UI camera automatically. Applications can configure
+its `Camera`, render layers, and HDR through `TiltUiPlugin::with_camera`,
+`with_render_layers`, and `with_hdr`. An application that manages its own UI
+camera can use `without_camera` and mark its camera as the default UI camera:
 
 ```rust
 fn setup(mut commands: Commands) {
@@ -50,7 +51,7 @@ fn setup(mut commands: Commands) {
 
 ## CSS Runtime
 
-Component `.component.css` files are discovered, loaded, parsed, matched, and
-applied by the component-scoped CSS runtime. See
+Component CSS files are discovered, loaded, parsed, matched, and applied in
+their declared order by the component-scoped CSS runtime. See
 [CSS Runtime](css-runtime.md) for scope isolation, cascade, inheritance,
 invalidation, Bevy mappings, and current limitations.

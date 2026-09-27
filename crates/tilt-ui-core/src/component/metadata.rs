@@ -16,4 +16,6 @@ pub struct ComponentMetadata {
     pub template_asset_path: &'static str,
     /// Bevy asset path for the component stylesheet.
     pub stylesheet_asset_path: &'static str,
+    /// All CSS asset paths in authored cascade order. Empty means no author CSS.
+    pub stylesheet_asset_paths: &'static [&'static str],
 }

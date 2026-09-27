@@ -9,6 +9,16 @@ use super::{NodeId, TemplateNode};
 pub struct Template {
     pub roots: Vec<NodeId>,
     pub nodes: Vec<TemplateNode>,
+    /// Shared value imports declared with `@use` in this template.
+    pub uses: Vec<TemplateUse>,
+}
+
+/// Imports one registered shared resource under an alias or as direct fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateUse {
+    pub target: String,
+    pub alias: String,
+    pub wildcard: bool,
 }
 
 impl Template {
@@ -50,6 +60,7 @@ mod tests {
 
         Template {
             roots: vec![root],
+            uses: vec![],
             nodes: vec![
                 TemplateNode {
                     kind: TemplateNodeKind::Element(ElementKind::Div),
@@ -146,10 +157,12 @@ mod tests {
         let empty = Template {
             roots: Vec::new(),
             nodes: Vec::new(),
+            uses: vec![],
         };
         let multiple = Template {
             roots: vec![NodeId(0), NodeId(1)],
             nodes: Vec::new(),
+            uses: vec![],
         };
 
         assert!(empty.roots().is_empty());

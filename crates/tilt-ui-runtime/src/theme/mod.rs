@@ -95,6 +95,7 @@ mod tests {
             .spawn(ComponentAssetHandles {
                 template: Handle::<UiTemplateAsset>::default(),
                 stylesheet: Handle::<UiStyleSheetAsset>::default(),
+                additional_stylesheets: Vec::new(),
             })
             .id();
         set_default_theme_css(&mut world, "button { color: #FF0000; }").unwrap();

@@ -60,8 +60,8 @@ pub use control::{
     ContextMenu, ControlActivated, ControlChecked, ControlCheckedChanged, ControlPart,
     ControlPartKind, ControlTabIndex, FieldSetSelection, OptionSelectionChanged,
     SelectableStaticText, TiltButton, TiltCheckbox, TiltControl, TiltControlSystems,
-    TiltRadioButton, TiltSwitchButton, TiltToggleButton, TiltUiControlRuntimePlugin,
-    set_control_checked, set_option_selected,
+    TiltRadioButton, TiltSwitchButton, TiltToggleButton, TiltUiControlRuntimePlugin, UiCursor,
+    set_control_checked, set_option_selected, set_ui_cursor,
 };
 #[cfg(feature = "fluent")]
 pub use localization::{
@@ -103,9 +103,9 @@ pub use widgets::content::divider::DividerAxis;
 #[cfg(feature = "component")]
 pub use widgets::content::headline::HeadlineLevel;
 #[cfg(feature = "component")]
-pub use widgets::content::image::ImageMetadata;
-#[cfg(feature = "component")]
 pub use widgets::content::image::set_image_source;
+#[cfg(feature = "component")]
+pub use widgets::content::image::{ImageMetadata, ImagePreviewInput};
 #[cfg(feature = "component")]
 pub use widgets::controls::choice_box::{ChoiceBoxParts, set_choice_open};
 #[cfg(feature = "component")]

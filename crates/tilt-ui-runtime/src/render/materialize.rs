@@ -1,5 +1,4 @@
 use bevy::{
-    asset::AssetServer,
     ecs::{entity::Entity, world::World},
     ui::{
         Checkable, Checked, FocusPolicy, Interaction, InteractionDisabled, Node,
@@ -173,7 +172,7 @@ pub(crate) fn materialize_element(
             }
         }
         ElementRenderKind::Image => {
-            let image = image_node(attributes, world.get_resource::<AssetServer>());
+            let image = image_node(world, attributes);
             world.entity_mut(entity).insert(image);
             crate::widgets::content::image::materialize_metadata(world, entity, attributes);
             if kind == ElementKind::Avatar {

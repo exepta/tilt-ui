@@ -4,7 +4,7 @@
 .site-title p, .site-footer p, .site-aside p, .section-heading p { color: #8B949E; }
 .language-picker p, .theme-picker p { color: #C9D1D9; }
 .fps-toolbar p { color: #C9D1D9; }
-.showcase-card p, .showcase-card headline { color: #E6EDF3; }
+.showcase-card p, .showcase-card headline, #runtime-content { color: #E6EDF3; }
 .showcase-card .card-name { color: #E6EDF3; }
 
 .browser-demo, .div-demo, .mini-form, .mini-fieldset, .scroll-demo, .theme-demo,

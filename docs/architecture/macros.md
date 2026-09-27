@@ -12,9 +12,13 @@ the `tilt-ui` facade:
   its type name and lowercase initial alias.
 - `#[beu_routes]` registers a function returning `Routes`.
 - `#[ui_component]` and `#[beu_registry]` are optional compatibility markers.
-  `tilt-ui-build` discovers `.component.rs`, `.component.html`, and
-  `.component.css` triplets under the configured source root and generates
-  their metadata; no component-specific Bevy plugin is needed.
+  `tilt-ui-build` discovers `.component.rs` sources under the configured source
+  root. Without a definition, it uses the matching `.component.html` and
+  `.component.css` files. A const or static struct literal can instead provide
+  `template_name`, `template_file`, and `styles` (an ordered array of CSS file
+  names). The template can use another `.html` name; styles can include
+  additional shared CSS files or be empty. No
+  component-specific Bevy plugin is needed.
 
 For example:
 
@@ -41,10 +45,13 @@ fn save(In(event): In<HtmlSubmit>) {
 `<form action="save"><input name="title" /><button type="submit">Save</button></form>`
 dispatches to that handler after submit validation succeeds. Static `onclick`
 and `onchange`, plus `(click)` and `(change)` bindings, dispatch through the
-same registry. Property bindings currently resolve literals and simple JSON
-paths such as `[disabled]="profile.busy"`; text supports `{{ profile.name }}`.
-Arbitrary Rust/JavaScript expressions and the old `@use` directive are not
-implemented.
+same registry. Property and text bindings resolve JSON paths, literals,
+arithmetic, comparisons, boolean operators, array indexing, and ternaries;
+for example `[disabled]="profile.busy || profile.items.length == 0"` and
+`{{ profile.count + 1 }}`. A template can import a registered shared resource
+with `@use "ProfileState" as profile;` or its fields with `as *`.
+Arbitrary Rust/JavaScript function calls and collection rendering are outside
+this expression subset.
 
 `tilt-ui` retains `include_components!` as a declarative `macro_rules!`
 facade helper. It includes the build-generated component manifest into the

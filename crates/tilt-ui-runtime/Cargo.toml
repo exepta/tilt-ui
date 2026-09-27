@@ -11,9 +11,9 @@ description = "Bevy runtime integration for TiltUI"
 path = "src/lib.rs"
 
 [features]
-default = ["component", "file-dialog"]
+default = ["component", "file-dialog", "svg"]
 
-component = ["html", "css", "bevy/bevy_ui", "bevy/ghost_nodes", "bevy/ui_picking", "bevy/system_clipboard", "bevy/default_font"]
+component = ["html", "css", "bevy/bevy_ui", "bevy/ghost_nodes", "bevy/ui_picking", "bevy/system_clipboard", "bevy/default_font", "dep:bevy_window"]
 
 html = [
     "dep:tilt-ui-html",
@@ -26,6 +26,7 @@ css = [
 hot-reload = ["bevy/file_watcher"]
 file-dialog = ["dep:rfd", "dep:wasm-bindgen-futures"]
 fluent = ["component", "dep:fluent-bundle", "dep:unic-langid"]
+svg = ["dep:resvg"]
 
 [dependencies]
 bevy = { workspace = true, features = ["bevy_asset", "bevy_log"] }
@@ -55,6 +56,13 @@ bevy_picking = "0.19"
 rfd = { version = "0.17", optional = true, features = ["file-handle-inner"] }
 fluent-bundle = { version = "0.16", optional = true }
 unic-langid = { version = "0.9", optional = true }
+resvg = { version = "0.47", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { version = "0.4", optional = true }
+
+[dependencies.bevy_window]
+version = "0.19"
+optional = true
+default-features = false
+features = ["custom_cursor"]

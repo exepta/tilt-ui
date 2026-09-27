@@ -13,6 +13,21 @@ use tilt_ui::{
 
 use super::tilt_ui_component_id;
 
+// Legacy-style metadata is optional; the build script also accepts convention-only components.
+#[allow(dead_code)]
+struct ShowcaseComponentMetadata {
+    template_name: &'static str,
+    template_file: &'static str,
+    styles: &'static [&'static str],
+}
+
+#[allow(dead_code)]
+const SHOWCASE_COMPONENT: ShowcaseComponentMetadata = ShowcaseComponentMetadata {
+    template_name: "showcase",
+    template_file: "showcase.component.html",
+    styles: &["showcase.component.css", "showcase-runtime.css"],
+};
+
 #[html_shared]
 #[derive(Resource, serde::Serialize)]
 struct ShowcaseState {
@@ -624,4 +639,95 @@ mod tests {
         app.update();
         assert_eq!(app.world().resource::<UiFrameRate>().fps(), 144);
     }
+}
+
+fn replace_showcase_content(world: &mut World, button: Entity, mode: u8) {
+    let target = world
+        .get::<tilt_ui::ComponentStyleOwner>(button)
+        .and_then(|owner| world.get::<tilt_ui::ComponentElementIds>(owner.0))
+        .and_then(|ids| ids.get("runtime-content"));
+    let Some(target) = target else {
+        return;
+    };
+    let result = match mode {
+        0 => tilt_ui::set_inner_text(world, target, "<p>{{ literal }}</p>"),
+        1 => tilt_ui::set_inner_html(
+            world,
+            target,
+            "<p>{{ i18n.runtime-html-result }}</p><button onclick=\"reset_progress\">{{ i18n.reset-progress }}</button>",
+        ),
+        _ => tilt_ui::set_inner_bindings(
+            world,
+            target,
+            "{{ i18n.widget-progress-bar }}: {{ demo.progress_label + 5 }}%",
+        ),
+    };
+    if let Err(error) = result {
+        warn!("Could not replace showcase content: {error}");
+    }
+}
+
+#[html_fn("runtime_text")]
+fn runtime_text(In(click): In<HtmlClick>, mut commands: Commands) {
+    commands.queue(move |world: &mut World| replace_showcase_content(world, click.target, 0));
+}
+
+#[html_fn("runtime_html")]
+fn runtime_html(In(click): In<HtmlClick>, mut commands: Commands) {
+    commands.queue(move |world: &mut World| replace_showcase_content(world, click.target, 1));
+}
+
+#[html_fn("runtime_bindings")]
+fn runtime_bindings(In(click): In<HtmlClick>, mut commands: Commands) {
+    commands.queue(move |world: &mut World| replace_showcase_content(world, click.target, 2));
+}
+
+#[html_fn("system_cursor")]
+fn system_cursor(In(event): In<HtmlEvent>, mut commands: Commands) {
+    commands.entity(event.target).insert(tilt_ui::UiCursor(
+        bevy::window::SystemCursorIcon::Crosshair.into(),
+    ));
+}
+
+#[html_fn("custom_cursor")]
+fn custom_cursor(
+    In(event): In<HtmlEvent>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+) {
+    use bevy::window::{CursorIcon, CustomCursor, CustomCursorImage};
+    use bevy::{
+        asset::RenderAssetUsages,
+        render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    };
+    let mut pixels = vec![0; 24 * 24 * 4];
+    for y in 0_usize..24 {
+        for x in 0_usize..24 {
+            let radius = x.abs_diff(12) + y.abs_diff(12);
+            if (7..=10).contains(&radius) || (x == 12 && y == 12) {
+                let index = (y * 24 + x) * 4;
+                pixels[index..index + 4].copy_from_slice(&[168, 85, 247, 255]);
+            }
+        }
+    }
+    let handle = images.add(Image::new(
+        Extent3d {
+            width: 24,
+            height: 24,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::all(),
+    ));
+    commands
+        .entity(event.target)
+        .insert(tilt_ui::UiCursor(CursorIcon::Custom(CustomCursor::Image(
+            CustomCursorImage {
+                handle,
+                hotspot: (12, 12),
+                ..default()
+            },
+        ))));
 }

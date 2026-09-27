@@ -1,3 +1,4 @@
+@use "ShowcaseState" as demo;
 <body class="showcase-page">
     <div class="site-header">
         <div class="site-title"><h1>{{ i18n.site-title }}</h1><p>{{ i18n.site-subtitle }}</p></div>
@@ -31,6 +32,7 @@
             <div class="showcase-card"><div class="card-preview"><p class="paragraph-demo">{{ i18n.paragraph-demo }}</p></div><p class="card-name">{{ i18n.widget-paragraph }}</p></div>
             <div class="showcase-card"><div class="card-preview"><h3 class="headline-demo">{{ i18n.headline-demo }}</h3></div><p class="card-name">{{ i18n.widget-headline }}</p></div>
             <div class="showcase-card"><div class="card-preview"><img class="sample-image" src="tilt-ui://media/mountain-lake.png" alt="Purple mountain lake illustration" [alt]="i18n.image-alt" /></div><p class="card-name">{{ i18n.widget-image }}</p></div>
+            <div class="showcase-card"><div class="card-preview"><div class="image-preview-demo"><input id="image-preview-file" type="file" extensions="[png, jpg, jpeg, svg]" /><img class="sample-image preview-image" src="tilt-ui://media/mountain-lake.png" preview="image-preview-file" alt="Selected image preview" [alt]="i18n.image-preview-alt" /></div></div><p class="card-name">{{ i18n.widget-image-preview }}</p></div>
             <div class="showcase-card"><div class="card-preview"><div class="avatar-wrap"><avatar src="tilt-ui://media/ganyu.jpg" alt="Alex Morgan" /><div class="presence-dot"></div></div></div><p class="card-name">{{ i18n.widget-avatar }}</p></div>
             <div class="showcase-card"><div class="card-preview"><div id="mail-anchor" class="mail-demo"><p>✉</p></div><badge for="mail-anchor" value="2" /></div><p class="card-name">{{ i18n.widget-badge }}</p></div>
             <div class="showcase-card"><div class="card-preview"><divider class="sample-divider" /></div><p class="card-name">{{ i18n.widget-divider }}</p></div>
@@ -79,6 +81,14 @@
             <div class="showcase-card"><div class="card-preview"><input class="sample-input" [placeholder]="i18n.events-keyboard" onfocus="track_event" onblur="track_event" onkeydown="track_event" onkeyup="track_event" /></div><p class="card-name">{{ i18n.events-keyboard-label }}</p></div>
             <div class="showcase-card"><div class="card-preview"><div class="event-scroll" onwheel="track_event" onscroll="track_event"><p>{{ i18n.events-scroll }}</p><p>{{ i18n.events-scroll }}</p><p>{{ i18n.events-scroll }}</p></div></div><p class="card-name">{{ i18n.events-scroll-label }}</p></div>
             <div class="showcase-card"><div class="card-preview"><div class="event-status" oninit="track_event"><p>{{ i18n.events-last }}</p><p>{{ showcaseState.event_name }}</p><p>{{ showcaseState.event_detail }}</p></div></div><p class="card-name">{{ i18n.events-status-label }}</p></div>
+        </div>
+    </div>
+    <div class="showcase-section">
+        <div class="section-heading"><div class="section-index">6</div><h2>{{ i18n.runtime-title }}</h2><p>{{ i18n.runtime-subtitle }}</p></div>
+        <div class="card-row runtime-row">
+            <div class="showcase-card"><div class="card-preview"><div class="runtime-demo"><div class="runtime-actions"><button onclick="runtime_text">Text</button><button onclick="runtime_html">HTML</button><button onclick="runtime_bindings">Bindings</button></div><div id="runtime-content"><p>{{ i18n.runtime-initial }} {{ demo.progress_label + 5 }}</p></div></div></div><p class="card-name">{{ i18n.runtime-content-label }}</p></div>
+            <div class="showcase-card"><div class="card-preview"><button oninit="system_cursor">{{ i18n.cursor-hover }}</button></div><p class="card-name">{{ i18n.cursor-system }}</p></div>
+            <div class="showcase-card"><div class="card-preview"><button oninit="custom_cursor">{{ i18n.cursor-hover }}</button></div><p class="card-name">{{ i18n.cursor-custom }}</p></div>
         </div>
     </div>
     <dialog id="demo-info-dialog" trigger="open-info-dialog" title="Your changes are ready" [title]="i18n.dialog-info-title" type="info">

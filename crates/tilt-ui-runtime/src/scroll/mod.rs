@@ -194,6 +194,9 @@ fn wheel_scroll(
     let (Some(wheels), Some(hover)) = (wheels.as_mut(), hover) else {
         return;
     };
+    // Trackpads can deliver many small events in one frame. Resolving the UI
+    // stack and walking ancestors for every event scales with event count.
+    let mut batches: Vec<(PointerId, Entity, Entity, Vec2, Vec2)> = Vec::new();
     for wheel in wheels.read() {
         let target = hover
             .get(&wheel.pointer_id)
@@ -209,6 +212,25 @@ fn wheel_scroll(
         let target = wheel.entity;
         let position = wheel.pointer_location.position;
         let camera = wheel.hit.camera;
+        if let Some(batch) =
+            batches
+                .iter_mut()
+                .find(|(pointer, entity, hit_camera, hit_position, _)| {
+                    *pointer == wheel.pointer_id
+                        && *entity == target
+                        && *hit_camera == camera
+                        && *hit_position == position
+                })
+        {
+            batch.4 += delta;
+        } else {
+            batches.push((wheel.pointer_id, target, camera, position, delta));
+        }
+    }
+    for (_, target, camera, position, delta) in batches {
+        if delta == Vec2::ZERO {
+            continue;
+        }
         commands.queue(move |world: &mut World| {
             let target = frontmost_scroll_target(world, target, position, camera).unwrap_or(target);
             scroll_ancestors_with_motion(world, target, delta, true);
@@ -339,6 +361,13 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
         if !owns_wheel {
             continue;
         }
+        // A full-page body can travel several screens in one wheel burst.
+        // Easing that movement makes the page trail the user's input.
+        let smooth = smooth
+            && smooth_scroll_enabled(world)
+            && !world
+                .get::<TiltElement>(entity)
+                .is_some_and(|element| element.kind == tilt_ui_core::ElementKind::Body);
         if let Some(actual) = world.get::<TextScroll>(entity).map(|scroll| scroll.0) {
             let previous = world
                 .get::<SmoothScrollTarget>(entity)
@@ -352,7 +381,7 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
                 next.y = (previous.y + physical_delta.y).clamp(0.0, max.y);
             }
             if next != previous {
-                if smooth && smooth_scroll_enabled(world) {
+                if smooth {
                     world.entity_mut(entity).insert(SmoothScrollTarget(next));
                 } else {
                     world.entity_mut(entity).remove::<SmoothScrollTarget>();
@@ -375,7 +404,7 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
                 next.y = (previous.y + delta.y).clamp(0.0, logical_max.y);
             }
             if next != previous {
-                if smooth && smooth_scroll_enabled(world) {
+                if smooth {
                     world.entity_mut(entity).insert(SmoothScrollTarget(next));
                 } else {
                     world.entity_mut(entity).remove::<SmoothScrollTarget>();
@@ -436,10 +465,18 @@ fn animate_wheel_scroll(world: &mut World) {
             world.entity_mut(entity).remove::<SmoothScrollTarget>();
             continue;
         };
+        // Keep the visible content near the latest wheel target. Long bursts
+        // should move now instead of leaving seconds of eased travel queued.
+        let max_lag = if text {
+            node.content_box().size()
+        } else {
+            node.size() * node.inverse_scale_factor
+        };
+        let leading = target - (target - actual).clamp(-max_lag, max_lag);
         let next = if (target - actual).length_squared() < 0.25 {
             target
         } else {
-            actual.lerp(target, amount)
+            leading.lerp(target, amount)
         };
         if text {
             if let Some(mut scroll) = world.get_mut::<TextScroll>(entity) {
@@ -931,6 +968,67 @@ mod tests {
         assert_eq!(world.get::<ScrollPosition>(owner).unwrap().0.y, 75.0);
     }
 
+    #[test]
+    fn rapid_nested_wheel_burst_does_not_leave_multiple_viewports_of_lag() {
+        let mut world = World::new();
+        world.init_resource::<UiMotionSettings>();
+        let body = world
+            .spawn((
+                ScrollPosition::default(),
+                ScrollbarParts {
+                    y_mode: Some(CssOverflow::Auto),
+                    ..Default::default()
+                },
+                ComputedNode {
+                    size: Vec2::new(200.0, 100.0),
+                    content_size: Vec2::new(200.0, 2100.0),
+                    inverse_scale_factor: 1.0,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        for _ in 0..20 {
+            scroll_ancestors_with_motion(&mut world, body, Vec2::new(0.0, 56.0), true);
+        }
+        assert_eq!(world.get::<ScrollPosition>(body).unwrap().0.y, 0.0);
+        animate_wheel_scroll(&mut world);
+        let position = world.get::<ScrollPosition>(body).unwrap().0.y;
+        assert!(
+            position >= 1020.0 && position <= 1120.0,
+            "position: {position}"
+        );
+        assert_eq!(world.get::<SmoothScrollTarget>(body).unwrap().0.y, 1120.0);
+    }
+
+    #[test]
+    fn body_wheel_burst_applies_immediately_without_an_animation_queue() {
+        let mut world = World::new();
+        world.init_resource::<UiMotionSettings>();
+        let body = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Body,
+                },
+                ScrollPosition::default(),
+                ScrollbarParts {
+                    y_mode: Some(CssOverflow::Auto),
+                    ..Default::default()
+                },
+                ComputedNode {
+                    size: Vec2::new(200.0, 100.0),
+                    content_size: Vec2::new(200.0, 2100.0),
+                    inverse_scale_factor: 1.0,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        for _ in 0..20 {
+            scroll_ancestors_with_motion(&mut world, body, Vec2::new(0.0, 56.0), true);
+        }
+        assert_eq!(world.get::<ScrollPosition>(body).unwrap().0.y, 1120.0);
+        assert!(world.get::<SmoothScrollTarget>(body).is_none());
+    }
+
     fn native_cursor_recenter(mut editors: Query<&mut TextScroll>) {
         for mut scroll in &mut editors {
             scroll.0 = Vec2::ZERO;
@@ -1276,7 +1374,7 @@ mod tests {
     }
 
     #[test]
-    fn picked_wheel_event_scrolls_only_the_targeted_container() {
+    fn batched_wheel_events_scroll_only_the_targeted_container() {
         let mut app = App::new();
         app.add_message::<Pointer<Scroll>>()
             .insert_resource(HoverMap::default())
@@ -1311,28 +1409,30 @@ mod tests {
             .entry(PointerId::Mouse)
             .or_default()
             .insert(child, hit.clone());
-        app.world_mut()
-            .resource_mut::<bevy::ecs::message::Messages<Pointer<Scroll>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 100,
-                        height: 100,
+        for _ in 0..2 {
+            app.world_mut()
+                .resource_mut::<bevy::ecs::message::Messages<Pointer<Scroll>>>()
+                .write(Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 100,
+                            height: 100,
+                        },
+                        position: Vec2::ZERO,
                     },
-                    position: Vec2::ZERO,
-                },
-                Scroll {
-                    unit: MouseScrollUnit::Pixel,
-                    x: 0.0,
-                    y: -24.0,
-                    hit,
-                    phase: TouchPhase::Moved,
-                },
-                child,
-            ));
+                    Scroll {
+                        unit: MouseScrollUnit::Pixel,
+                        x: 0.0,
+                        y: -24.0,
+                        hit: hit.clone(),
+                        phase: TouchPhase::Moved,
+                    },
+                    child,
+                ));
+        }
         app.update();
-        assert_eq!(app.world().get::<ScrollPosition>(owner).unwrap().0.y, 24.0);
+        assert_eq!(app.world().get::<ScrollPosition>(owner).unwrap().0.y, 48.0);
     }
 
     #[test]

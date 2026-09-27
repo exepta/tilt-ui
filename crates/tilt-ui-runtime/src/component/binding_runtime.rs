@@ -1,11 +1,11 @@
-//! Applies simple reactive property paths and text interpolation to materialized UI.
+//! Applies reactive property expressions and text interpolation to materialized UI.
 
 use bevy::{
     ecs::{
         component::Component,
         entity::Entity,
         hierarchy::{ChildOf, Children},
-        query::{Added, Changed, Or},
+        query::{Added, Changed, Or, Without},
         resource::Resource,
         world::World,
     },
@@ -67,8 +67,11 @@ pub(crate) fn apply_bindings(world: &mut World) {
             .collect::<Vec<_>>()
     };
     for (entity, bindings) in properties {
+        if world.get_entity(entity).is_err() {
+            continue;
+        }
         for binding in bindings {
-            let value = resolve(world, &binding.expression);
+            let value = resolve(world, entity, &binding.expression);
             if let Some(value) = value {
                 apply_property(world, entity, &binding.name, value);
             }
@@ -78,7 +81,7 @@ pub(crate) fn apply_bindings(world: &mut World) {
         ));
     }
     let texts = if revision_changed {
-        let mut query = world.query::<(Entity, &TiltText, Option<&AppliedTextRevision>)>();
+        let mut query = world.query_filtered::<(Entity, &TiltText, Option<&AppliedTextRevision>), Without<super::content::LiteralInnerText>>();
         query
             .iter(world)
             .filter(|(_, text, applied)| {
@@ -89,8 +92,10 @@ pub(crate) fn apply_bindings(world: &mut World) {
             .map(|(entity, text, _)| (entity, text.value.clone()))
             .collect::<Vec<_>>()
     } else {
-        let mut query =
-            world.query_filtered::<(Entity, &TiltText), Or<(Changed<TiltText>, Added<Text>)>>();
+        let mut query = world.query_filtered::<(Entity, &TiltText), (
+            Or<(Changed<TiltText>, Added<Text>)>,
+            Without<super::content::LiteralInnerText>,
+        )>();
         query
             .iter(world)
             .filter(|(_, text)| text.value.contains("{{"))
@@ -99,7 +104,7 @@ pub(crate) fn apply_bindings(world: &mut World) {
     };
     let mut translated_options = Vec::new();
     for (entity, source) in texts {
-        let value = interpolate(world, &source);
+        let value = interpolate(world, entity, &source);
         if let Some(mut text) = world.get_mut::<Text>(entity) {
             if text.0 != value {
                 text.0 = value;
@@ -147,10 +152,13 @@ pub(crate) fn apply_bindings(world: &mut World) {
     }
 }
 
-fn resolve(world: &World, expression: &str) -> Option<Value> {
+fn resolve(world: &World, entity: Entity, expression: &str) -> Option<Value> {
     let expression = expression.trim();
     #[cfg(feature = "fluent")]
-    if let Some(key) = expression.strip_prefix("i18n.") {
+    if let Some(key) = expression.strip_prefix("i18n.").filter(|key| {
+        key.chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    }) {
         let localization = world.get_resource::<crate::UiLocalization>()?;
         let args = world
             .get_resource::<crate::UiFluentArgs>()
@@ -161,44 +169,82 @@ fn resolve(world: &World, expression: &str) -> Option<Value> {
                 .unwrap_or_else(|| key.to_owned()),
         ));
     }
-    if let Some(literal) = expression
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-    {
-        return Some(Value::String(literal.to_owned()));
+    // Most showcase bindings are simple paths and update every frame. Resolve
+    // them without tokenizing an expression on each shared-state revision.
+    if let Some((root, path)) = simple_path(expression) {
+        let mut value = lookup_root(world, entity, root)?;
+        for segment in path {
+            value = match value {
+                Value::Object(map) => map.get(segment)?.clone(),
+                Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?.clone(),
+                _ => return None,
+            };
+        }
+        return Some(value);
     }
-    if expression == "true" {
-        return Some(Value::Bool(true));
-    }
-    if expression == "false" {
-        return Some(Value::Bool(false));
-    }
-    if expression == "null" {
-        return Some(Value::Null);
-    }
-    if let Ok(number) = expression.parse::<i64>() {
-        return Some(number.into());
-    }
-    if let Ok(number) = expression.parse::<f64>() {
-        return serde_json::Number::from_f64(number).map(Value::Number);
-    }
-    let mut path = expression.split('.');
-    let root = path.next()?;
-    let mut value = world
-        .resource::<UiBindingStore>()
-        .json(root)
-        .or_else(|| world.resource::<UiSharedValues>().get(root))?;
-    for segment in path {
-        value = match value {
-            Value::Object(map) => map.get(segment)?,
-            Value::Array(array) => array.get(segment.parse::<usize>().ok()?)?,
-            _ => return None,
-        };
-    }
-    Some(value.clone())
+    super::expression::evaluate(expression, |root| lookup_root(world, entity, root))
 }
 
-fn interpolate(world: &World, source: &str) -> String {
+fn simple_path(expression: &str) -> Option<(&str, impl Iterator<Item = &str>)> {
+    let mut segments = expression.split('.');
+    let root = segments.next()?;
+    if !root.starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_')
+        || !root
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        || !segments.clone().all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+    {
+        return None;
+    }
+    Some((root, segments))
+}
+
+fn lookup_root(world: &World, entity: Entity, root: &str) -> Option<Value> {
+    if let Some(value) = world
+        .resource::<UiBindingStore>()
+        .json(root)
+        .or_else(|| world.resource::<UiSharedValues>().get(root))
+    {
+        return Some(value.clone());
+    }
+    let owner = world.get::<crate::ComponentStyleOwner>(entity)?.0;
+    let shared = world.resource::<UiSharedValues>();
+    let mut current = Some(entity);
+    while let Some(node) = current {
+        if let Some(imports) = world.get::<super::TemplateImports>(node) {
+            for import in &imports.0 {
+                let target = import.target.rsplit("::").next().unwrap_or(&import.target);
+                let Some(value) = shared.get(&import.target).or_else(|| shared.get(target)) else {
+                    continue;
+                };
+                if import.wildcard {
+                    if let Value::Object(fields) = value {
+                        if let Some(field) = fields.get(root) {
+                            return Some(field.clone());
+                        }
+                    }
+                } else if import.alias == root {
+                    return Some(value.clone());
+                }
+            }
+        }
+        if node == owner {
+            break;
+        }
+        current = world
+            .get::<super::content::TemplateParent>(node)
+            .map(|parent| parent.0)
+            .or_else(|| world.get::<ChildOf>(node).map(ChildOf::parent));
+    }
+    None
+}
+
+fn interpolate(world: &World, entity: Entity, source: &str) -> String {
     let mut output = String::new();
     let mut rest = source;
     while let Some(start) = rest.find("{{") {
@@ -209,7 +255,7 @@ fn interpolate(world: &World, source: &str) -> String {
             return output;
         };
         let expression = &after_start[..end];
-        if let Some(value) = resolve(world, expression) {
+        if let Some(value) = resolve(world, entity, expression) {
             output.push_str(&value_text(&value));
         }
         rest = &after_start[end + 2..];
@@ -290,21 +336,26 @@ fn apply_property(world: &mut World, entity: Entity, name: &str, value: Value) {
                 .collect();
             world.entity_mut(entity).insert(ElementClasses { classes });
         }
+        "innerHtml" | "innerHTML" => {
+            if let Err(error) = super::set_inner_html(world, entity, value_text(&value)) {
+                bevy::log::warn!("Could not apply {name}: {error}");
+            }
+        }
         "text" | "innerText" | "textContent" => {
-            let target = if world.get::<Text>(entity).is_some() {
-                Some(entity)
-            } else {
-                world.get::<Children>(entity).and_then(|children| {
+            if let Some(mut text) = world.get_mut::<Text>(entity) {
+                text.0 = value_text(&value);
+            } else if super::set_inner_text(world, entity, value_text(&value)).is_err() {
+                // Retain the legacy label binding for specialized controls whose
+                // generated anatomy cannot be replaced by the content setters.
+                let target = world.get::<Children>(entity).and_then(|children| {
                     children
                         .iter()
                         .copied()
                         .find(|child| world.get::<Text>(*child).is_some())
-                })
-            };
-            if let Some(target) = target
-                && let Some(mut text) = world.get_mut::<Text>(target)
-            {
-                text.0 = value_text(&value);
+                });
+                if let Some(target) = target {
+                    world.get_mut::<Text>(target).unwrap().0 = value_text(&value);
+                }
             }
         }
         _ => {}

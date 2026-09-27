@@ -55,6 +55,7 @@ pub(crate) fn instantiate_component_into_boundary(
         .insert(ComponentAssetHandles {
             template: loaded.template,
             stylesheet: loaded.stylesheet,
+            additional_stylesheets: loaded.additional_stylesheets,
         })
         .insert(ComponentElementIds::default())
         .insert(StyleDirty);
@@ -62,6 +63,9 @@ pub(crate) fn instantiate_component_into_boundary(
         world.entity_mut(boundary).insert(TabGroup::default());
     }
     let template = template_for_component(world, assets, component)?;
+    world
+        .entity_mut(boundary)
+        .insert(super::TemplateImports(template.uses.clone()));
     let mut stack = vec![component];
     instantiate_template_nodes(
         world, &template, catalog, assets, boundary, boundary, &mut stack,
@@ -94,7 +98,7 @@ fn validate_component_tree(
     Ok(())
 }
 
-fn validate_template_node(
+pub(super) fn validate_template_node(
     world: &World,
     template: &Template,
     node_id: NodeId,
@@ -172,6 +176,7 @@ fn instantiate_component_tree(
             ComponentAssetHandles {
                 template: loaded.template,
                 stylesheet: loaded.stylesheet,
+                additional_stylesheets: loaded.additional_stylesheets,
             },
             ComponentElementIds::default(),
         ))
@@ -187,13 +192,16 @@ fn instantiate_component_tree(
     }
 
     let template = template_for_component(world, assets, component)?;
+    world
+        .entity_mut(boundary)
+        .insert(super::TemplateImports(template.uses.clone()));
     stack.push(component);
     instantiate_template_nodes(world, &template, catalog, assets, boundary, boundary, stack)?;
     stack.pop();
     Ok(boundary)
 }
 
-fn instantiate_template_nodes(
+pub(super) fn instantiate_template_nodes(
     world: &mut World,
     template: &Template,
     catalog: ComponentCatalog,
@@ -218,6 +226,7 @@ fn instantiate_template_nodes(
     crate::widgets::advanced::date_picker::resolve_targets(context.world, owner);
     crate::widgets::advanced::dialog::resolve_targets(context.world, owner);
     crate::widgets::content::badge::resolve_targets(context.world, owner);
+    crate::widgets::content::image::resolve_preview_targets(context.world, owner);
     crate::control::context_menu::resolve_targets(context.world, owner);
     crate::widgets::advanced::hyperlink::finalize_icons(context.world);
     Ok(context.entities)
@@ -370,6 +379,9 @@ impl TemplateInstantiationContext<'_> {
                 }
             }
         };
+        self.world
+            .entity_mut(entity)
+            .insert(super::content::TemplateParent(parent));
         let slot = self
             .entities
             .get_mut(node_id.0 as usize)
@@ -494,6 +506,7 @@ mod tests {
             kind: ComponentKind::Page,
             template_asset_path: "tilt-ui://pages/main.component.html",
             stylesheet_asset_path: "tilt-ui://pages/main.component.css",
+            stylesheet_asset_paths: &["tilt-ui://pages/main.component.css"],
         },
         ComponentMetadata {
             id: ComponentId(1),
@@ -501,6 +514,7 @@ mod tests {
             kind: ComponentKind::Component,
             template_asset_path: "tilt-ui://components/app-header.component.html",
             stylesheet_asset_path: "tilt-ui://components/app-header.component.css",
+            stylesheet_asset_paths: &["tilt-ui://components/app-header.component.css"],
         },
         ComponentMetadata {
             id: ComponentId(2),
@@ -508,6 +522,7 @@ mod tests {
             kind: ComponentKind::Component,
             template_asset_path: "tilt-ui://components/component-a.component.html",
             stylesheet_asset_path: "tilt-ui://components/component-a.component.css",
+            stylesheet_asset_paths: &["tilt-ui://components/component-a.component.css"],
         },
         ComponentMetadata {
             id: ComponentId(3),
@@ -515,6 +530,7 @@ mod tests {
             kind: ComponentKind::Component,
             template_asset_path: "tilt-ui://components/component-b.component.html",
             stylesheet_asset_path: "tilt-ui://components/component-b.component.css",
+            stylesheet_asset_paths: &["tilt-ui://components/component-b.component.css"],
         },
         ComponentMetadata {
             id: ComponentId(4),
@@ -522,6 +538,7 @@ mod tests {
             kind: ComponentKind::Component,
             template_asset_path: "tilt-ui://components/component-c.component.html",
             stylesheet_asset_path: "tilt-ui://components/component-c.component.css",
+            stylesheet_asset_paths: &["tilt-ui://components/component-c.component.css"],
         },
     ];
 
@@ -635,6 +652,7 @@ mod tests {
             LoadedComponentAssets {
                 template,
                 stylesheet,
+                additional_stylesheets: Vec::new(),
             },
         );
     }

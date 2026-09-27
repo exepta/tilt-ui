@@ -273,11 +273,15 @@ fn animation_frames<'a>(
     match source {
         KeyframesSource::Author => {
             let handles = world.get::<ComponentAssetHandles>(owner)?;
-            let stylesheet = world
-                .resource::<bevy::asset::Assets<UiStyleSheetAsset>>()
-                .get(&handles.stylesheet)?
-                .stylesheet();
-            keyframes(stylesheet, name).map(|rule| rule.frames.as_slice())
+            let assets = world.resource::<bevy::asset::Assets<UiStyleSheetAsset>>();
+            handles
+                .additional_stylesheets
+                .iter()
+                .rev()
+                .chain(std::iter::once(&handles.stylesheet))
+                .filter_map(|handle| assets.get(handle))
+                .find_map(|asset| keyframes(asset.stylesheet(), name))
+                .map(|rule| rule.frames.as_slice())
         }
         KeyframesSource::DefaultTheme => world
             .get_resource::<crate::theme::DefaultThemeStyleSheet>()

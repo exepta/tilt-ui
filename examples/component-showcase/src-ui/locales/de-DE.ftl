@@ -45,6 +45,7 @@ content-subtitle = Text-, Medien- und Inhaltselemente
 paragraph-demo = So sieht Fließtext in deiner Anwendung aus: klar, lesbar und einheitlich.
 headline-demo = Moderne Apps, ganz einfach
 image-alt = Illustration eines violetten Bergsees
+image-preview-alt = Vorschau des ausgewählten Bildes
 
 controls-title = Bedienelemente
 controls-subtitle = Interaktive Eingaben und Auswahlen
@@ -115,6 +116,7 @@ widget-table-cell = Tabellenzelle
 widget-paragraph = Absatz
 widget-headline = Überschrift
 widget-image = Bild
+widget-image-preview = Bildvorschau
 widget-avatar = Avatar
 widget-badge = Badge
 widget-divider = Trennlinie
@@ -142,3 +144,12 @@ widget-rust-dialog = Rust-Dialog
 
 footer-primary = UI-Baukasten | Ein modernes Designsystem für starke Produkte.
 footer-secondary = Bessere Erlebnisse gestalten.
+
+runtime-title = Laufzeit-Inhalt & Cursor
+runtime-subtitle = Inhalte austauschen und eigene Mauszeiger verwenden
+runtime-initial = Wähle Text, HTML oder Bindings.
+runtime-content-label = Inhalt zur Laufzeit
+runtime-html-result = Neu erzeugtes HTML mit aktivem Button
+cursor-hover = Hier bewegen
+cursor-system = System-Cursor: Fadenkreuz
+cursor-custom = Eigener Cursor: violette Raute

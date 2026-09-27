@@ -24,6 +24,18 @@ pub enum ComponentBuildError {
         source: std::io::Error,
     },
 
+    /// A component logic file could not be read while extracting metadata.
+    #[error("failed to read component metadata in `{}`: {source}", path.display())]
+    ReadComponentDefinition {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// A legacy component definition is malformed or references an invalid asset.
+    #[error("invalid component metadata in `{}`: {reason}", path.display())]
+    InvalidComponentDefinition { path: PathBuf, reason: String },
+
     /// A source entry could not be inspected.
     #[error("failed to inspect component source `{}`: {source}", path.display())]
     InspectPath {

@@ -19,6 +19,7 @@ component = [
     "html",
     "css",
     "tilt-ui-runtime/component",
+    "dep:bevy_winit",
 ]
 
 html = [
@@ -43,3 +44,10 @@ bevy = { workspace = true, features = ["bevy_winit", "x11"] }
 inventory.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+# Enable the image cursor backend alongside the facade's window integration.
+[dependencies.bevy_winit]
+version = "0.19"
+optional = true
+default-features = false
+features = ["custom_cursor"]

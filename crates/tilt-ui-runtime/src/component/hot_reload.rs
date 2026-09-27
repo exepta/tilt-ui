@@ -68,7 +68,11 @@ fn rebuild_changed_components(world: &mut World) {
             .iter(world)
             .filter_map(|(entity, instance, handles)| {
                 (templates.contains(&handles.template.id())
-                    || stylesheets.contains(&handles.stylesheet.id()))
+                    || stylesheets.contains(&handles.stylesheet.id())
+                    || handles
+                        .additional_stylesheets
+                        .iter()
+                        .any(|handle| stylesheets.contains(&handle.id())))
                 .then_some((
                     entity,
                     instance.component,
@@ -124,6 +128,7 @@ mod tests {
                 ComponentAssetHandles {
                     template: template.clone(),
                     stylesheet,
+                    additional_stylesheets: Vec::new(),
                 },
             ))
             .id();
@@ -141,5 +146,36 @@ mod tests {
             ComponentId(7)
         );
         assert!(world.get::<StyleDirty>(boundary).is_some());
+    }
+
+    #[test]
+    fn modifying_a_secondary_stylesheet_marks_its_component_dirty() {
+        let mut world = World::new();
+        world.insert_resource(bevy::asset::Assets::<UiStyleSheetAsset>::default());
+        world.init_resource::<Messages<AssetEvent<UiTemplateAsset>>>();
+        world.init_resource::<Messages<AssetEvent<UiStyleSheetAsset>>>();
+        world.init_resource::<TemplateEvents>();
+        world.init_resource::<StylesheetEvents>();
+        let second = world
+            .resource_mut::<bevy::asset::Assets<UiStyleSheetAsset>>()
+            .add(UiStyleSheetAsset::new(Default::default()));
+        let owner = world
+            .spawn((
+                ComponentInstance {
+                    component: ComponentId(0),
+                },
+                ComponentAssetHandles {
+                    template: Handle::default(),
+                    stylesheet: Handle::default(),
+                    additional_stylesheets: vec![second.clone()],
+                },
+            ))
+            .id();
+        world
+            .resource_mut::<Messages<AssetEvent<UiStyleSheetAsset>>>()
+            .write(AssetEvent::Modified { id: second.id() });
+        rebuild_changed_components(&mut world);
+        assert!(world.get::<StyleDirty>(owner).is_some());
+        assert!(world.get::<PendingComponent>(owner).is_none());
     }
 }

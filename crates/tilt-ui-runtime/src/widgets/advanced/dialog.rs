@@ -176,6 +176,9 @@ pub struct DialogState {
 struct DialogTriggers(Vec<Entity>);
 
 #[derive(Component)]
+struct DialogTargetsResolved;
+
+#[derive(Component)]
 struct DialogCloseButton;
 
 #[derive(Component)]
@@ -490,6 +493,14 @@ pub fn spawn_dialog(world: &mut World, parent: Entity, config: DialogConfig) -> 
 }
 
 pub(crate) fn resolve_targets(world: &mut World, scope: Entity) {
+    // Runtime fragments resolve the scope repeatedly; discard removed dialogs.
+    let live = world
+        .query_filtered::<Entity, bevy::ecs::query::With<DialogState>>()
+        .iter(world)
+        .collect::<std::collections::HashSet<_>>();
+    for mut triggers in world.query::<&mut DialogTriggers>().iter_mut(world) {
+        triggers.0.retain(|dialog| live.contains(dialog));
+    }
     let entries = {
         let mut query = world.query::<(Entity, &DialogState, &ComponentStyleOwner)>();
         query
@@ -506,6 +517,7 @@ pub(crate) fn resolve_targets(world: &mut World, scope: Entity) {
             css.open = open;
         }
         if open
+            && world.get::<DialogTargetsResolved>(dialog).is_none()
             && world
                 .get::<DialogState>(dialog)
                 .is_some_and(|state| state.renderer == DialogRenderer::Bevy)
@@ -527,13 +539,16 @@ pub(crate) fn resolve_targets(world: &mut World, scope: Entity) {
             .and_then(|id| world.get::<ComponentElementIds>(scope)?.get(id))
         {
             if let Some(mut triggers) = world.get_mut::<DialogTriggers>(target) {
-                triggers.0.push(dialog);
+                if !triggers.0.contains(&dialog) {
+                    triggers.0.push(dialog);
+                }
             } else {
                 world
                     .entity_mut(target)
                     .insert(DialogTriggers(vec![dialog]));
             }
         }
+        world.entity_mut(dialog).insert(DialogTargetsResolved);
     }
 }
 
@@ -959,6 +974,44 @@ mod tests {
         app.world_mut().entity_mut(body).add_child(dialog);
         resolve_targets(app.world_mut(), scope);
         (app, dialog, trigger)
+    }
+
+    #[test]
+    fn resolving_after_content_updates_keeps_focus_and_unique_live_triggers() {
+        let (mut app, dialog, trigger) = setup();
+        let scope = app.world().get::<ComponentStyleOwner>(dialog).unwrap().0;
+        app.world_mut().insert_resource(InputFocus::default());
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(trigger, bevy_input_focus::FocusCause::Navigated);
+        open_dialog(app.world_mut(), dialog);
+        let previous = app
+            .world()
+            .get::<DialogState>(dialog)
+            .unwrap()
+            .previous_focus;
+        resolve_targets(app.world_mut(), scope);
+        resolve_targets(app.world_mut(), scope);
+        assert_eq!(
+            app.world()
+                .get::<DialogState>(dialog)
+                .unwrap()
+                .previous_focus,
+            previous
+        );
+        assert_eq!(
+            app.world().get::<super::DialogTriggers>(trigger).unwrap().0,
+            vec![dialog]
+        );
+        app.world_mut().despawn(dialog);
+        resolve_targets(app.world_mut(), scope);
+        assert!(
+            app.world()
+                .get::<super::DialogTriggers>(trigger)
+                .unwrap()
+                .0
+                .is_empty()
+        );
     }
 
     #[test]

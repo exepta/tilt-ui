@@ -10,6 +10,8 @@ pub struct LoadedComponentAssets {
     pub template: Handle<UiTemplateAsset>,
     /// Handle to the component's parsed CSS stylesheet asset.
     pub stylesheet: Handle<UiStyleSheetAsset>,
+    /// Further author stylesheets in cascade order.
+    pub additional_stylesheets: Vec<Handle<UiStyleSheetAsset>>,
 }
 
 /// Stores loaded component asset handles by deterministic `ComponentId` index.

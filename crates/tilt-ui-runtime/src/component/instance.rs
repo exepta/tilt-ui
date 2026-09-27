@@ -51,6 +51,8 @@ pub struct ComponentAssetHandles {
     pub template: Handle<UiTemplateAsset>,
     /// Handle to the parsed component stylesheet asset.
     pub stylesheet: Handle<UiStyleSheetAsset>,
+    /// Further author stylesheets in cascade order.
+    pub additional_stylesheets: Vec<Handle<UiStyleSheetAsset>>,
 }
 
 /// Marks a component boundary awaiting its template asset before instantiation.

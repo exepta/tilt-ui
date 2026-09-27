@@ -114,13 +114,24 @@ fn prepare_component_assets(
     catalog: Res<'_, ComponentCatalog>,
     asset_server: Res<'_, AssetServer>,
     mut assets: bevy::ecs::system::ResMut<'_, ComponentAssetStore>,
+    mut stylesheets: bevy::ecs::system::ResMut<'_, bevy::asset::Assets<UiStyleSheetAsset>>,
 ) {
     for metadata in catalog.components() {
         assets.insert(
             metadata.id,
             LoadedComponentAssets {
                 template: asset_server.load(metadata.template_asset_path),
-                stylesheet: asset_server.load(metadata.stylesheet_asset_path),
+                stylesheet: if metadata.stylesheet_asset_paths.is_empty() {
+                    stylesheets.add(UiStyleSheetAsset::new(Default::default()))
+                } else {
+                    asset_server.load(metadata.stylesheet_asset_path)
+                },
+                additional_stylesheets: metadata
+                    .stylesheet_asset_paths
+                    .iter()
+                    .skip(1)
+                    .map(|path| asset_server.load(*path))
+                    .collect(),
             },
         );
     }

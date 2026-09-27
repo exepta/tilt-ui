@@ -19,6 +19,10 @@ pub struct DiscoveredComponent {
     pub template_path: PathBuf,
     /// Absolute path to the component CSS stylesheet source file.
     pub stylesheet_path: PathBuf,
+    /// CSS paths in the order authored by metadata (or the conventional CSS file).
+    pub stylesheet_paths: Vec<PathBuf>,
+    /// Asset paths for every component stylesheet in cascade order.
+    pub stylesheet_asset_paths: Vec<String>,
     /// Valid Rust module identifier generated for the logic module.
     pub module_identifier: String,
     /// TiltUI asset-source path for the HTML template.

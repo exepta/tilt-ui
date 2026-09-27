@@ -37,7 +37,7 @@ pub fn discover_components(
 
     collect_directory(&root_path, &root_path, &mut collected)?;
 
-    validate_components(collected)
+    validate_components(collected, &root_path)
 }
 
 fn collect_directory(
@@ -138,6 +138,7 @@ mod tests {
         fs,
         path::{Path, PathBuf},
         process,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -153,6 +154,8 @@ mod tests {
         path: PathBuf,
     }
 
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
     impl TemporaryDirectory {
         fn new() -> Self {
             let timestamp = SystemTime::now()
@@ -160,8 +163,9 @@ mod tests {
                 .expect("system clock after epoch")
                 .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "tilt-ui-component-test-{}-{timestamp}",
-                process::id()
+                "tilt-ui-component-test-{}-{timestamp}-{}",
+                process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
             ));
             fs::create_dir(&path).expect("temporary directory");
             Self { path }
@@ -250,6 +254,56 @@ mod tests {
                 .iter()
                 .any(|component| component.template_asset_path
                     == "tilt-ui://features/reports/chart.component.html")
+        );
+    }
+
+    #[test]
+    fn legacy_metadata_names_component_and_loads_ordered_styles() {
+        let temporary = TemporaryDirectory::new();
+        let root = temporary.root();
+        write_triplet(
+            &root,
+            "components",
+            "help",
+            r#"
+            struct Definition { template_name: &'static str, template_file: &'static str, styles: &'static [&'static str] }
+            const HELP: Definition = Definition {
+                template_name: "app-help",
+                template_file: "help-content.component.html",
+                styles: &["help.component.css", "help-extra.css"],
+            };
+        "#,
+        );
+        fs::write(
+            root.path().join("components/help-extra.css"),
+            "div { color: red; }",
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("components/help-content.component.html"),
+            "<div />",
+        )
+        .unwrap();
+        fs::remove_file(root.path().join("components/help.component.html")).unwrap();
+        let components = discover_components(&root).unwrap();
+        assert_eq!(components[0].name, "app-help");
+        assert_eq!(
+            components[0].template_asset_path,
+            "tilt-ui://components/help-content.component.html"
+        );
+        assert_eq!(
+            components[0].stylesheet_asset_paths,
+            [
+                "tilt-ui://components/help.component.css",
+                "tilt-ui://components/help-extra.css",
+            ]
+        );
+        let generated = generate_manifest(&components);
+        assert!(generated.contains("stylesheet_asset_paths: &[\"tilt-ui://components/help.component.css\", \"tilt-ui://components/help-extra.css\"]"));
+        assert!(
+            cargo_rebuild_directives(root.path(), &components)
+                .iter()
+                .any(|line| line.ends_with("help-extra.css"))
         );
     }
 

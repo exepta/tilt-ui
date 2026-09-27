@@ -3,8 +3,10 @@
 mod assets;
 mod binding;
 pub(crate) mod binding_runtime;
+mod content;
 mod element;
 mod error;
+mod expression;
 mod handlers;
 #[cfg(feature = "hot-reload")]
 mod hot_reload;
@@ -18,13 +20,14 @@ pub use assets::{ComponentAssetStore, LoadedComponentAssets};
 pub use binding::{
     BeuStore, SharedValueRegistration, UiBindingStore, UiSharedValues, UiStoreRegistration,
 };
+pub use content::{InnerContentError, set_inner_bindings, set_inner_html, set_inner_text};
 pub use element::{
     ComponentElementIds, ComponentStyleOwner, ElementClasses, ElementId, ElementState,
     EventBinding, EventBindings, PropertyBinding, PropertyBindings, StaticAttribute,
     StaticAttributes, TemplateNodeRef, TiltElement, TiltText,
 };
 pub(crate) use element::{
-    boolean_attribute_value, has_boolean_static_attribute, static_attribute_value,
+    TemplateImports, boolean_attribute_value, has_boolean_static_attribute, static_attribute_value,
 };
 pub use error::ComponentInstantiationError;
 pub use handlers::{

@@ -27,7 +27,7 @@ impl AssetLoader for UiStyleSheetAssetLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["component.css"]
+        &["component.css", "css"]
     }
 }
 
@@ -46,10 +46,10 @@ mod tests {
     use crate::assets::stylesheet::UiStyleSheetAssetLoaderError;
 
     #[test]
-    fn claims_only_component_css_files() {
+    fn claims_component_and_shared_css_files() {
         let loader = UiStyleSheetAssetLoader;
 
-        assert_eq!(loader.extensions(), ["component.css"]);
+        assert_eq!(loader.extensions(), ["component.css", "css"]);
     }
 
     #[test]

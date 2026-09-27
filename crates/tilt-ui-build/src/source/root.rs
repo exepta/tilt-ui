@@ -73,6 +73,7 @@ mod tests {
         fs,
         path::{Path, PathBuf},
         process,
+        sync::atomic::{AtomicU64, Ordering},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -82,14 +83,19 @@ mod tests {
         path: PathBuf,
     }
 
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
     impl TemporaryDirectory {
         fn new() -> Self {
             let timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let path = std::env::temp_dir()
-                .join(format!("tilt-ui-build-test-{}-{timestamp}", process::id()));
+            let path = std::env::temp_dir().join(format!(
+                "tilt-ui-build-test-{}-{timestamp}-{}",
+                process::id(),
+                NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
+            ));
             fs::create_dir(&path).unwrap();
             Self { path }
         }

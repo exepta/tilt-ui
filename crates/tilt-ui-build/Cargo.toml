@@ -14,3 +14,4 @@ path = "src/lib.rs"
 thiserror.workspace = true
 tilt-ui-core.workspace = true
 tilt-ui-html.workspace = true
+syn = { version = "2", features = ["full"] }

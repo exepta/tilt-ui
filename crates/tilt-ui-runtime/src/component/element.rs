@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, btree_map::Entry};
 
 use bevy::ecs::{component::Component, entity::Entity};
-use tilt_ui_core::{ElementKind, NodeId, TemplateAttribute};
+use tilt_ui_core::{ElementKind, NodeId, TemplateAttribute, TemplateUse};
 
 /// Represents a built-in TiltUI element instantiated from a template node.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +23,10 @@ pub struct TiltText {
     /// Literal text value from the template.
     pub value: String,
 }
+
+/// Imports declared by the template owning this component boundary.
+#[derive(Component, Debug, Clone)]
+pub(crate) struct TemplateImports(pub Vec<TemplateUse>);
 
 /// Associates a materialized node with the component instance that owns its style scope.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]

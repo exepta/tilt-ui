@@ -70,12 +70,19 @@ pub fn generate_manifest(components: &[DiscoveredComponent]) -> String {
             ComponentKind::Page => "Page",
             ComponentKind::Component => "Component",
         };
+        let paths = component
+            .stylesheet_asset_paths
+            .iter()
+            .map(|path| rust_string(path))
+            .collect::<Vec<_>>()
+            .join(", ");
         output.push_str(&format!(
-            "    ComponentMetadata {{ id: ComponentId({}), name: {}, kind: ComponentKind::{kind}, template_asset_path: {}, stylesheet_asset_path: {} }},\n",
+            "    ComponentMetadata {{ id: ComponentId({}), name: {}, kind: ComponentKind::{kind}, template_asset_path: {}, stylesheet_asset_path: {}, stylesheet_asset_paths: &[{}] }},\n",
             component.id.0,
             rust_string(&component.name),
             rust_string(&component.template_asset_path),
             rust_string(&component.stylesheet_asset_path),
+            paths,
         ));
     }
     output.push_str("];\n\n");
@@ -112,11 +119,10 @@ pub fn cargo_rebuild_directives(
 ) -> Vec<String> {
     let mut directives = vec![format!("cargo:rerun-if-changed={}", source_root.display())];
     for component in components {
-        for path in [
-            &component.logic_path,
-            &component.template_path,
-            &component.stylesheet_path,
-        ] {
+        for path in [&component.logic_path, &component.template_path] {
+            directives.push(format!("cargo:rerun-if-changed={}", path.display()));
+        }
+        for path in &component.stylesheet_paths {
             directives.push(format!("cargo:rerun-if-changed={}", path.display()));
         }
     }

@@ -150,10 +150,7 @@ fn invalidate_responsive_styles(
             commands.entity(owner).insert(StyleDirty);
             continue;
         }
-        let Some(stylesheet) = stylesheets
-            .get(&handles.stylesheet)
-            .map(UiStyleSheetAsset::stylesheet)
-        else {
+        let Some(stylesheet) = merge_author_stylesheets(&stylesheets, handles) else {
             continue;
         };
         let theme_has_media = default_theme
@@ -198,7 +195,7 @@ fn mark_ready_author_styles(
     >,
 ) {
     for (owner, handles) in &pending {
-        if stylesheets.get(&handles.stylesheet).is_some() {
+        if merge_author_stylesheets(&stylesheets, handles).is_some() {
             commands
                 .entity(owner)
                 .remove::<AuthorStylePending>()
@@ -227,7 +224,7 @@ fn apply_dirty_styles(world: &mut World) {
         let mut query = world.query::<(Entity, &ComponentAssetHandles, &StyleDirty)>();
         query
             .iter(world)
-            .map(|(entity, handles, _)| (entity, handles.stylesheet.clone()))
+            .map(|(entity, handles, _)| (entity, handles.clone()))
             .collect::<Vec<_>>()
     };
     let full_owners = dirty
@@ -256,11 +253,11 @@ fn apply_dirty_styles(world: &mut World) {
             width: 0.0,
             height: 0.0,
         });
-    for (owner, stylesheet_handle) in dirty {
+    for (owner, handles) in dirty {
         let stylesheet = restyle_scope(
             world,
             owner,
-            &stylesheet_handle,
+            &handles,
             default_theme.as_deref(),
             &themes,
             &providers,
@@ -279,16 +276,13 @@ fn apply_dirty_styles(world: &mut World) {
         if full_owners.contains(&owner) {
             continue;
         }
-        let Some(stylesheet_handle) = world
-            .get::<ComponentAssetHandles>(owner)
-            .map(|handles| handles.stylesheet.clone())
-        else {
+        let Some(handles) = world.get::<ComponentAssetHandles>(owner).cloned() else {
             continue;
         };
         restyle_scope(
             world,
             owner,
-            &stylesheet_handle,
+            &handles,
             default_theme.as_deref(),
             &themes,
             &providers,
@@ -298,20 +292,62 @@ fn apply_dirty_styles(world: &mut World) {
     }
 }
 
+fn merge_author_stylesheets(
+    assets: &Assets<UiStyleSheetAsset>,
+    handles: &ComponentAssetHandles,
+) -> Option<tilt_ui_css::StyleSheet> {
+    let mut merged = tilt_ui_css::StyleSheet::default();
+    for handle in std::iter::once(&handles.stylesheet).chain(&handles.additional_stylesheets) {
+        let sheet = assets.get(handle)?.stylesheet();
+        let offset = merged
+            .rules
+            .iter()
+            .map(|rule| rule.source_order)
+            .chain(
+                merged
+                    .media_rules
+                    .iter()
+                    .flat_map(|media| media.rules.iter().map(|rule| rule.source_order)),
+            )
+            .max()
+            .map_or(0, |last| last + 1);
+        merged
+            .rules
+            .extend(sheet.rules.iter().cloned().map(|mut rule| {
+                rule.source_order += offset;
+                rule
+            }));
+        merged
+            .media_rules
+            .extend(sheet.media_rules.iter().cloned().map(|mut media| {
+                for rule in &mut media.rules {
+                    rule.source_order += offset;
+                }
+                media
+            }));
+        // A later author file replaces an earlier keyframe definition of the same name.
+        for keyframes in &sheet.keyframes {
+            merged
+                .keyframes
+                .retain(|earlier| earlier.name != keyframes.name);
+            merged.keyframes.push(keyframes.clone());
+        }
+    }
+    Some(merged)
+}
+
 fn restyle_scope(
     world: &mut World,
     owner: Entity,
-    stylesheet_handle: &bevy::asset::Handle<UiStyleSheetAsset>,
+    handles: &ComponentAssetHandles,
     default_theme: Option<&tilt_ui_css::StyleSheet>,
     themes: &UiThemes,
     providers: &UiProviderRegistry,
     environment: tilt_ui_css::MediaEnvironment,
     changed: Option<&HashSet<Entity>>,
 ) -> Option<tilt_ui_css::StyleSheet> {
-    let stylesheet = world
-        .resource::<Assets<UiStyleSheetAsset>>()
-        .get(stylesheet_handle)
-        .map(|asset| asset.stylesheet().clone());
+    let stylesheet =
+        merge_author_stylesheets(world.resource::<Assets<UiStyleSheetAsset>>(), handles);
     let has_provider_scopes = world.query::<&ProviderScope>().iter(world).next().is_some();
     if default_theme.is_none()
         && stylesheet.is_none()
@@ -563,7 +599,7 @@ mod tests {
     use tilt_ui_core::ElementKind;
     use tilt_ui_css::parse_stylesheet;
 
-    use super::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin};
+    use super::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin, merge_author_stylesheets};
     use crate::{
         ComponentAssetHandles, ComponentStyleOwner, ControlChecked, ElementClasses, ElementId,
         ElementState, ProviderContext, ProviderEffect, ProviderScope, StyleDirty, ThemeProvider,
@@ -597,6 +633,33 @@ mod tests {
             .add(UiStyleSheetAsset::new(parse_stylesheet(source).unwrap()))
     }
 
+    #[test]
+    fn multiple_author_stylesheets_keep_css_order_and_media_rules() {
+        let mut world = World::new();
+        world.init_resource::<Assets<UiStyleSheetAsset>>();
+        let first = stylesheet(
+            &mut world,
+            "button { color: #ff0000; } @media (min-width: 300px) { button { width: 10px; } }",
+        );
+        let second = stylesheet(
+            &mut world,
+            "button { color: #0000ff; } @media (min-width: 300px) { button { width: 20px; } }",
+        );
+        let handles = ComponentAssetHandles {
+            template: Handle::<UiTemplateAsset>::default(),
+            stylesheet: first,
+            additional_stylesheets: vec![second],
+        };
+        let merged =
+            merge_author_stylesheets(world.resource::<Assets<UiStyleSheetAsset>>(), &handles)
+                .unwrap();
+        assert!(merged.rules[1].source_order > merged.rules[0].source_order);
+        assert!(
+            merged.media_rules[1].rules[0].source_order
+                > merged.media_rules[0].rules[0].source_order
+        );
+    }
+
     fn owner(
         world: &mut World,
         stylesheet: Handle<UiStyleSheetAsset>,
@@ -606,6 +669,7 @@ mod tests {
                 ComponentAssetHandles {
                     template: Handle::<UiTemplateAsset>::default(),
                     stylesheet,
+                    additional_stylesheets: Vec::new(),
                 },
                 StyleDirty,
             ))
@@ -624,6 +688,60 @@ mod tests {
         app.insert_resource(Assets::<UiStyleSheetAsset>::default());
         app.add_plugins(TiltUiStyleRuntimePlugin::default());
         app
+    }
+
+    #[test]
+    fn direct_runtime_text_inherits_named_theme_color() {
+        let mut app = app();
+        register_ui_theme(app.world_mut(), "light", "#message { color: #252149; }").unwrap();
+        register_ui_theme(app.world_mut(), "dark", "#message { color: #e6edf3; }").unwrap();
+        switch_ui_theme(app.world_mut(), "light").unwrap();
+        let handle = stylesheet(app.world_mut(), "");
+        let boundary = owner(app.world_mut(), handle);
+        let target = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ElementId("message".into()),
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(target);
+        crate::set_inner_text(app.world_mut(), target, "Plain text").unwrap();
+        app.update();
+        let text = app
+            .world()
+            .get::<bevy::ecs::hierarchy::Children>(target)
+            .unwrap()[0];
+        let light = *app
+            .world()
+            .get::<TextColor>(text)
+            .expect("visible light-theme text");
+        switch_ui_theme(app.world_mut(), "dark").unwrap();
+        app.update();
+        let dark = *app
+            .world()
+            .get::<TextColor>(text)
+            .expect("visible dark-theme text");
+        assert_ne!(light, dark);
+
+        app.world_mut().init_resource::<crate::UiBindingStore>();
+        app.world_mut().init_resource::<crate::UiSharedValues>();
+        crate::set_inner_bindings(app.world_mut(), target, "Value: {{ 2 + 3 }}").unwrap();
+        crate::component::binding_runtime::apply_bindings(app.world_mut());
+        app.update();
+        let text = app
+            .world()
+            .get::<bevy::ecs::hierarchy::Children>(target)
+            .unwrap()[0];
+        assert_eq!(
+            app.world().get::<bevy::ui::widget::Text>(text).unwrap().0,
+            "Value: 5"
+        );
+        assert_eq!(*app.world().get::<TextColor>(text).unwrap(), dark);
     }
 
     #[test]

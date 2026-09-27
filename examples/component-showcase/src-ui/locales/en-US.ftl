@@ -45,6 +45,7 @@ content-subtitle = Text, media and content elements
 paragraph-demo = This is a paragraph. It shows how body text looks in your application. Clean, readable and consistent.
 headline-demo = Modern Apps Made Simple
 image-alt = Purple mountain lake illustration
+image-preview-alt = Selected image preview
 
 controls-title = Controls
 controls-subtitle = Interactive input and selection components
@@ -115,6 +116,7 @@ widget-table-cell = TableCell
 widget-paragraph = Paragraph
 widget-headline = Headline
 widget-image = Image
+widget-image-preview = Image Preview
 widget-avatar = Avatar
 widget-badge = Badge
 widget-divider = Divider
@@ -142,3 +144,12 @@ widget-rust-dialog = Rust Dialog
 
 footer-primary = UI Widget Library | A modern design system for exceptional products.
 footer-secondary = Build better experiences.
+
+runtime-title = Runtime content & cursors
+runtime-subtitle = Replace content and use your own mouse cursors
+runtime-initial = Choose Text, HTML or Bindings.
+runtime-content-label = Runtime content
+runtime-html-result = Newly created HTML with an active button
+cursor-hover = Hover here
+cursor-system = System cursor: crosshair
+cursor-custom = Custom cursor: purple diamond

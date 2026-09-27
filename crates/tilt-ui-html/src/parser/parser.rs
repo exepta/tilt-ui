@@ -4,7 +4,7 @@ use quick_xml::{
     events::{BytesStart, Event},
 };
 use tilt_ui_core::{
-    ComponentName, NodeId, Template, TemplateAttribute, TemplateNode, TemplateNodeKind,
+    ComponentName, NodeId, Template, TemplateAttribute, TemplateNode, TemplateNodeKind, TemplateUse,
 };
 
 use crate::mapping::map_element;
@@ -16,10 +16,12 @@ use super::{TemplateParseError, attribute::parse_attribute};
 /// The parser reads XML-like events directly into a flat `Template` and does
 /// not perform component discovery, expression evaluation, or runtime work.
 pub fn parse_template(source: &str) -> Result<Template, TemplateParseError> {
-    let mut reader = Reader::from_str(source);
+    let (uses, markup) = extract_uses(source)?;
+    let mut reader = Reader::from_str(&markup);
     let mut template = Template {
         roots: Vec::new(),
         nodes: Vec::new(),
+        uses,
     };
     let mut stack = Vec::new();
     let mut open_tags = Vec::new();
@@ -100,6 +102,59 @@ pub fn parse_template(source: &str) -> Result<Template, TemplateParseError> {
             Event::Comment(_) | Event::Decl(_) | Event::PI(_) | Event::DocType(_) => {}
         }
     }
+}
+
+fn extract_uses(source: &str) -> Result<(Vec<TemplateUse>, String), TemplateParseError> {
+    let mut uses = Vec::new();
+    let mut markup = String::new();
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed
+            .strip_prefix("@use")
+            .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+        {
+            let rest = rest
+                .trim_start()
+                .strip_prefix('"')
+                .ok_or_else(|| TemplateParseError::InvalidUse(trimmed.into()))?;
+            let (target, rest) = rest
+                .split_once('"')
+                .ok_or_else(|| TemplateParseError::InvalidUse(trimmed.into()))?;
+            let tail = rest
+                .trim()
+                .strip_suffix(';')
+                .ok_or_else(|| TemplateParseError::InvalidUse(trimmed.into()))?
+                .trim();
+            let alias = if tail.is_empty() {
+                target.rsplit("::").next().unwrap_or(target)
+            } else {
+                tail.strip_prefix("as ")
+                    .ok_or_else(|| TemplateParseError::InvalidUse(trimmed.into()))?
+                    .trim()
+            };
+            let wildcard = alias == "*";
+            if target.is_empty() || !wildcard && !valid_alias(alias) {
+                return Err(TemplateParseError::InvalidUse(trimmed.into()));
+            }
+            uses.push(TemplateUse {
+                target: target.into(),
+                alias: alias.into(),
+                wildcard,
+            });
+        } else {
+            markup.push_str(line);
+            markup.push('\n');
+        }
+    }
+    Ok((uses, markup))
+}
+
+fn valid_alias(value: &str) -> bool {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 fn is_table_wrapper(tag: &str) -> bool {
@@ -255,6 +310,23 @@ mod tests {
     use tilt_ui_core::{ElementKind, NodeId, TemplateAttribute, TemplateNodeKind};
 
     use super::parse_template;
+
+    #[test]
+    fn parses_use_aliases_and_rejects_malformed_directives() {
+        let template = parse_template(
+            "@use \"State\" as model;\n@use \"Session\" as *;\n<div>{{ model.count }}</div>",
+        )
+        .unwrap();
+        assert_eq!(template.uses.len(), 2);
+        assert_eq!(template.uses[0].alias, "model");
+        assert_eq!(template.uses[1].target, "Session");
+        assert!(template.uses[1].wildcard);
+        assert!(matches!(
+            template.get(NodeId(0)).map(|node| &node.kind),
+            Some(TemplateNodeKind::Element(ElementKind::Div))
+        ));
+        assert!(parse_template("@use State as model;\n<div />").is_err());
+    }
 
     #[test]
     fn parses_a_builtin_element_with_text() {

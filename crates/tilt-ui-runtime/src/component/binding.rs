@@ -145,3 +145,55 @@ fn lower_first(name: &str) -> String {
         .collect::<String>()
         + chars.as_str()
 }
+
+#[cfg(test)]
+mod tests {
+    use bevy::{ecs::world::World, ui::widget::Text};
+    use serde_json::json;
+    use tilt_ui_core::TemplateUse;
+
+    use super::{UiBindingStore, UiSharedValues};
+    use crate::{ComponentStyleOwner, TiltText, component::TemplateImports};
+
+    #[test]
+    fn template_use_alias_and_wildcard_follow_shared_value_updates() {
+        let mut world = World::new();
+        world.init_resource::<UiBindingStore>();
+        world.init_resource::<UiSharedValues>();
+        let owner = world
+            .spawn(TemplateImports(vec![
+                TemplateUse {
+                    target: "State".into(),
+                    alias: "model".into(),
+                    wildcard: false,
+                },
+                TemplateUse {
+                    target: "State".into(),
+                    alias: "*".into(),
+                    wildcard: true,
+                },
+            ]))
+            .id();
+        let text = world
+            .spawn((
+                ComponentStyleOwner(owner),
+                TiltText {
+                    value: "{{ model.count + count }}".into(),
+                },
+                Text::new(""),
+            ))
+            .id();
+        world.entity_mut(owner).add_child(text);
+        world
+            .resource_mut::<UiSharedValues>()
+            .values
+            .insert("State".into(), json!({"count": 3}));
+        super::super::binding_runtime::apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(text).unwrap().0, "6");
+        let mut shared = world.resource_mut::<UiSharedValues>();
+        shared.values.insert("State".into(), json!({"count": 5}));
+        shared.revision += 1;
+        super::super::binding_runtime::apply_bindings(&mut world);
+        assert_eq!(world.get::<Text>(text).unwrap().0, "10");
+    }
+}

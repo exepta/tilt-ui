@@ -199,6 +199,11 @@ impl Plugin for TiltUiControlRuntimePlugin {
             )
             .add_systems(
                 Update,
+                crate::widgets::content::image::sync_file_input_previews
+                    .in_set(TiltControlSystems::Selection),
+            )
+            .add_systems(
+                Update,
                 crate::widgets::advanced::tooltip::tooltip_pointer_input
                     .in_set(TiltControlSystems::Activation),
             )

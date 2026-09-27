@@ -3,6 +3,9 @@ use thiserror::Error;
 /// Describes a failure while parsing a TiltUI component template.
 #[derive(Debug, Error)]
 pub enum TemplateParseError {
+    /// A template import does not use the supported `@use "Target" as alias;` form.
+    #[error("invalid @use directive: {0}")]
+    InvalidUse(String),
     /// A malformed XML-like construct was reported by `quick-xml`.
     #[error("XML parsing error: {0}")]
     Xml(#[from] quick_xml::Error),
