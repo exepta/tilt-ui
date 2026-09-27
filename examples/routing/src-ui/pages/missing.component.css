@@ -1,0 +1,5 @@
+.route-missing .route-hero { background-color: #fff3e6; }
+.route-missing .route-eyebrow, .route-missing .route-symbol p { color: #c98643; }
+.route-missing .route-copy headline { color: #875728; }
+.route-missing .route-copy p + headline + p { color: #9b7959; }
+.route-missing .route-symbol { background-color: #fbe2c5; }

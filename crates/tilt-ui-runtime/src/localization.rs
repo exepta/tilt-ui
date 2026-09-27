@@ -171,6 +171,15 @@ impl UiLocalization {
         Ok(())
     }
 
+    /// Removes a catalog previously added from a directory or in memory.
+    pub fn remove_ftl(&mut self, locale: &str) -> Result<bool, UiFluentError> {
+        let removed = self.catalogs.remove(&parse_locale(locale)?).is_some();
+        if removed {
+            self.revision = self.revision.wrapping_add(1);
+        }
+        Ok(removed)
+    }
+
     /// Formats a Fluent message, falling back when the selected catalog lacks it.
     pub fn translate(&self, key: &str, args: Option<&FluentArgs<'_>>) -> Option<String> {
         let (message_id, attribute) = key

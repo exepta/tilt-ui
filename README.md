@@ -86,6 +86,54 @@ Bevy's update/render loop, so this caps the whole app, including updates
 triggered by input. Explicit FPS targets use non-VSync presentation where
 supported; heavy work or a platform fallback may still lower the achieved FPS.
 
+## Routing
+
+Define routes with `Routes::new().route("/", home).route("/settings", load!(settings)).route("/details", lazy!(details))`. A plain route creates a fresh component on each visit. `load!` creates a retained instance as soon as an outlet exists; `lazy!` creates one on first visit and retains it. `lazy!` delays instance creation; component assets still follow TiltUI's normal startup preparation. Inactive retained instances are hidden. Redirects and fallbacks work with all three forms. `Routes::merge` combines tables, and `Router::set_routes` or `Router::merge` changes them while the app runs. Paths are normalized before matching.
+
+See [`routing-showcase`](examples/routing/README.md) for a runnable example. Change `ResMut<UiCameraConfiguration>` to update the automatically created UI camera's render layers or HDR setting at runtime.
+
+An optional `src-ui/routers.rs` is included automatically by `include_components!()`. It can register a combined route table with `#[ui_routes]`. Route files such as `features/bob.route.rs` can live in any subdirectory under `src-ui`; import them from `routers.rs` with a relative `#[path = "..."] mod bob;` and combine their `Routes` with `merge`.
+
+## UI lifecycle
+
+Query `UiState` on a component boundary, or read `UiDocumentState` for the
+entry document. `load` is `Loading`, `Loaded`, `Ready`, or `Error`; `visible` is
+`None` until readiness is checked and then tracks effective visibility.
+`Loaded` means the required template and stylesheets are available. `Ready`
+means the tree exists and initial bindings and styles have run. The document
+waits for its linked stylesheets and nested components before becoming `Ready`.
+
+Listen for transitions in a Bevy system. The target is `Document` or a
+`Component(Entity)`, and errors carry a stable code plus a message:
+
+```rust
+use bevy::prelude::*;
+use tilt_ui::prelude::*;
+
+fn react_to_ui(mut events: MessageReader<UiStateEvent>) {
+    for event in events.read() {
+        match event {
+            UiStateEvent::Ready(UiStateTarget::Component(entity)) => {
+                info!("Component {entity:?} is ready");
+            }
+            UiStateEvent::Error { code, message, .. } => {
+                warn!("UI error {code:?}: {message}");
+            }
+            _ => {}
+        }
+    }
+}
+
+// Add to your App when same-frame delivery matters:
+// .add_systems(Update, react_to_ui.after(UiStateRuntimeSet::Observe))
+```
+
+Hot reload can move an instance back to `Loading`; route changes report
+`Hidden` for a visible instance before it is removed. The current state
+remains queryable after its message has been consumed.
+The [Basic example](examples/basic/README.md) shows these values and lets you
+trigger `Hidden` and `Visible` from the UI.
+
 The [component showcase](examples/component-showcase/src-ui/pages/showcase.component.rs)
 demonstrates `#[component_init]`, `#[component_update]`, `#[html_shared]`,
 and `#[html_fn]`, including a Rust-driven animated progress bar. These
@@ -100,9 +148,24 @@ header, plus a 30/45/60/custom FPS control below it. Set
 
 ## Providers and themes
 
-Register named CSS themes before the first frame, then switch by name from
-component logic. The bundled default theme remains the lowest cascade layer;
-named themes sit above it and below component CSS.
+On native targets, `UiRuntimeConfiguration` discovers `.css` files below any
+directory relative to the configured `src-ui` source. Each file stem becomes
+its theme name; `theme_names` can restrict the set. The bundled default theme
+remains the lowest cascade layer; named themes sit above it and below component CSS.
+
+```rust
+use tilt_ui::{TiltUiPlugin, UiRuntimeConfiguration};
+
+let files = UiRuntimeConfiguration::default()
+    .with_themes_path("themes")?
+    .with_theme_names(["light", "dark"]);
+let plugin = TiltUiPlugin::new(tilt_ui_component_catalog())
+    .with_runtime_configuration(files);
+app.add_plugins(plugin).add_plugins(DefaultPlugins);
+// Select a discovered theme from a Startup system or later.
+```
+
+Explicit registration is also supported:
 
 ```rust
 use tilt_ui::{UiThemeAppExt, switch_ui_theme};
@@ -135,7 +198,18 @@ For example, place `locales/en-US.ftl` and `locales/de-DE.ftl` under `src-ui/`:
 welcome = Hello, { $name }!
 ```
 
-Configure them on the same `TiltUiPlugin` used above:
+Discover them from the directory, using file stems as locale tags:
+
+```rust
+use tilt_ui::{TiltUiPlugin, UiRuntimeConfiguration};
+
+let files = UiRuntimeConfiguration::default()
+    .with_language_path("locales")?;
+let plugin = TiltUiPlugin::new(tilt_ui_component_catalog())
+    .with_runtime_configuration(files);
+```
+
+Or register individual catalogs on the same plugin:
 
 ```rust
 use tilt_ui::{TiltUiPlugin, UiFluentConfig};
@@ -154,6 +228,16 @@ on an element; Fluent attributes use `{{ i18n.welcome.tooltip }}`. Set Fluent ar
 Language lookup tries the selected locale, its base language, then the
 configured fallback. Missing translations display their message ID; invalid
 catalog reloads leave the last valid catalog in place.
+
+`UiRuntimeConfiguration` is a Bevy resource: changing its directories during
+an update discovers the new files and removes entries previously discovered
+from the old directories. Call `refresh_ui_directories(world)` after editing
+files in place. `components_path` relocates assets for components already
+found at build time; existing instances are reloaded. `assets_path` prefixes
+relative image sources and refreshes existing images. Explicit `tilt-ui://`
+paths are preserved. The physical source root remains fixed because Bevy
+registers it before `AssetPlugin`. Directory scanning uses the native file
+system; on WebAssembly, register themes and catalogs explicitly.
 
 ## Text interaction
 

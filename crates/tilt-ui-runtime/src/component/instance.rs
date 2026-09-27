@@ -7,7 +7,7 @@ use tilt_ui_core::ComponentId;
 
 use crate::{UiStyleSheetAsset, UiTemplateAsset};
 
-use super::ComponentInstantiationError;
+use super::{ComponentInstantiationError, UiState};
 
 /// Identifies the compile-time component definition instantiated by an entity.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +31,7 @@ pub(crate) struct ComponentBoundary {
     instance: ComponentInstance,
     root: ComponentRoot,
     ghost: GhostNode,
+    state: UiState,
 }
 
 impl ComponentBoundary {
@@ -40,6 +41,7 @@ impl ComponentBoundary {
             instance: ComponentInstance { component },
             root: ComponentRoot { component },
             ghost: GhostNode,
+            state: UiState::default(),
         }
     }
 }

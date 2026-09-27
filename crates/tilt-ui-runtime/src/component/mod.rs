@@ -19,6 +19,7 @@ mod plugin;
 mod resolver;
 mod router;
 mod spawn;
+mod state;
 
 pub use assets::{ComponentAssetStore, LoadedComponentAssets};
 pub use binding::{
@@ -47,5 +48,14 @@ pub use instance::{
 pub use method::{HtmlExpressionMethod, HtmlMethodRegistration, UiExpressionMethods};
 pub use plugin::{TiltUiComponentRuntimePlugin, TiltUiComponentRuntimeSet, spawn_component};
 pub use resolver::ComponentCatalog;
-pub use router::{RouteTarget, Router, Routes, RoutesRegistration, TiltUiRouterPlugin};
+pub use router::{
+    RouteComponent, RouteLifetime, RouteTarget, Router, Routes, RoutesRegistration,
+    TiltUiRouterPlugin, normalize_path,
+};
 pub use spawn::instantiate_component;
+#[cfg(feature = "hot-reload")]
+pub(crate) use state::UiStateChange;
+pub use state::{
+    UiDocumentState, UiErrorCode, UiLoadState, UiState, UiStateError, UiStateEvent,
+    UiStateRuntimeSet, UiStateTarget,
+};

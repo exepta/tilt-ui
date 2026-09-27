@@ -7,8 +7,8 @@ use tilt_ui::{
     ChoiceBoxParts, ControlChecked, DialogClosed, DialogConfig, DialogState, EditableTextChanged,
     EditableTextCommitted, ElementId, HtmlClick, HtmlEvent, OptionData, OptionSelectionChanged,
     ShowDialog, SliderChanged, SliderCommitted, UiFrameRate, UiLocalization, UiThemes,
-    component_init, component_update, html_fn, html_shared, open_dialog, register_ui_theme,
-    set_option_selected, spawn_component, switch_ui_theme,
+    component_init, component_update, html_fn, html_shared, open_dialog, set_option_selected,
+    spawn_component, switch_ui_theme,
 };
 
 use super::tilt_ui_component_id;
@@ -53,10 +53,6 @@ fn show_page(mut commands: Commands, mut localization: ResMut<UiLocalization>) {
     }
     let start_theme = std::env::var("TILT_UI_SHOWCASE_THEME").unwrap_or_else(|_| "light".into());
     commands.queue(move |world: &mut World| {
-        register_ui_theme(world, "light", include_str!("../themes/light.css"))
-            .expect("valid light theme");
-        register_ui_theme(world, "dark", include_str!("../themes/dark.css"))
-            .expect("valid dark theme");
         if let Err(error) = switch_ui_theme(world, &start_theme) {
             warn!("Invalid showcase theme {start_theme:?}: {error}");
             switch_ui_theme(world, "light").expect("registered light theme");
@@ -424,6 +420,7 @@ fn capture_showcase(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tilt_ui::register_ui_theme;
 
     #[test]
     fn table_button_and_input_actions_update_the_visible_result() {
@@ -457,7 +454,10 @@ mod tests {
         app.world_mut()
             .run_system_with(handler, event("change", Some("Test".into())))
             .unwrap();
-        assert_eq!(app.world().resource::<ShowcaseState>().table_feedback, "Test");
+        assert_eq!(
+            app.world().resource::<ShowcaseState>().table_feedback,
+            "Test"
+        );
     }
 
     #[test]

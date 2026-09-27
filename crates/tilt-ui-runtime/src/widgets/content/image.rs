@@ -155,23 +155,26 @@ pub(crate) fn load_image_handle(world: &mut World, source: &str) -> Option<Handl
     if source.is_empty() {
         return None;
     }
+    let resolved = world
+        .get_resource::<crate::UiRuntimeConfiguration>()
+        .map_or_else(|| source.to_owned(), |config| config.asset_path(source));
 
     if let Some(handle) = world
         .get_resource::<RuntimeImageCache>()
-        .and_then(|cache| cache.0.get(source).cloned())
+        .and_then(|cache| cache.0.get(&resolved).cloned())
     {
         return Some(handle);
     }
 
     if let Some(handle) = load_image_from_filesystem(world, source) {
-        cache_image(world, source, &handle);
+        cache_image(world, &resolved, &handle);
         return Some(handle);
     }
 
     #[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
     if path_is_svg(source) {
         if let Some(handle) = load_svg_image(world, source) {
-            cache_image(world, source, &handle);
+            cache_image(world, &resolved, &handle);
             return Some(handle);
         }
         warn!("Failed to rasterize SVG image '{source}', falling back to AssetServer load.");
@@ -179,7 +182,7 @@ pub(crate) fn load_image_handle(world: &mut World, source: &str) -> Option<Handl
 
     world
         .get_resource::<AssetServer>()
-        .map(|server| server.load::<Image>(source.to_owned()))
+        .map(|server| server.load::<Image>(resolved))
 }
 
 fn cache_image(world: &mut World, source: &str, handle: &Handle<Image>) {

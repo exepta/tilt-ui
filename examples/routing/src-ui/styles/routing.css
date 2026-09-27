@@ -1,0 +1,26 @@
+body { background-color: #f4f6fb; }
+.route-page { display: flex; flex-direction: column; gap: 18px; width: 100%; min-width: 0px; }
+.route-hero { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 144px; padding: 23px 27px; background-color: #eaf2ff; border-radius: 14px; }
+.route-copy { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
+.route-eyebrow { color: #5077bd; font-size: 10px; font-weight: 700; }
+.route-copy headline { color: #1b3c70; font-size: 24px; font-weight: 700; }
+.route-copy p + headline + p { color: #597296; font-size: 13px; }
+.route-symbol { display: flex; align-items: center; justify-content: center; width: 78px; min-width: 78px; height: 78px; margin-left: 20px; background-color: #d5e4fa; border-radius: 22px; }
+.route-symbol p { color: #4773c3; font-size: 40px; font-weight: 700; }
+.route-info-grid { display: flex; gap: 14px; width: 100%; min-width: 0px; }
+.route-info-card { display: flex; flex-direction: column; gap: 8px; width: 50%; min-width: 0px; min-height: 154px; padding: 20px; background-color: #ffffff; border-width: 1px; border-color: #e8edf4; border-radius: 12px; }
+.route-info-soft { background-color: #f9fbff; }
+.info-kicker { color: #94a2b5; font-size: 10px; font-weight: 700; }
+.info-title { color: #263c59; font-size: 17px; font-weight: 700; }
+.info-help { color: #788ba4; font-size: 12px; }
+.route-info-card input { width: 100%; min-width: 0px; height: 39px; min-height: 39px; margin-top: auto; padding: 8px 11px; background-color: #ffffff; border-width: 1px; border-color: #cfdbed; border-radius: 8px; font-size: 12px; }
+.route-info-card input::placeholder { color: #a2adc0; }
+.route-code { display: flex; align-items: center; width: 100%; min-height: 35px; margin-top: auto; padding: 7px 10px; background-color: #eef2fa; border-radius: 7px; }
+.route-code p { color: #5a6485; font-family: monospace; font-size: 11px; }
+.route-hint { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 15px; background-color: #f7f9fd; border-radius: 9px; }
+.route-hint p { color: #7487a1; font-size: 11px; }
+.route-hint p:first-child { color: #5171aa; font-size: 10px; font-weight: 700; }
+.missing-panel { display: flex; align-items: center; gap: 26px; width: 100%; min-height: 154px; padding: 18px 28px; background-color: #fff9f1; border-width: 1px; border-color: #f4e7d0; border-radius: 12px; }
+.missing-code { color: #df9c51; font-size: 62px; font-weight: 700; }
+.missing-panel div { display: flex; flex-direction: column; gap: 5px; }
+@media (max-width: 800px) { .route-info-grid { flex-direction: column; } .route-info-card { width: 100%; } .route-symbol { display: none; } }

@@ -71,6 +71,51 @@ p { color: #42536b; font-size: 14px; }
     color: #183453;
 }
 
+.lifecycle-panel { gap: 16px; background-color: #f8fbff; border-color: #cbddec; }
+.lifecycle-header, .lifecycle-cards, .lifecycle-demo, .event-row {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100%;
+    min-width: 0px;
+    gap: 10px;
+}
+.lifecycle-header { align-items: center; justify-content: space-between; }
+.lifecycle-heading { display: flex; flex-direction: column; min-width: 220px; flex-grow: 1; gap: 5px; }
+.lifecycle-card {
+    display: flex;
+    flex-direction: column;
+    width: 30%;
+    min-width: 190px;
+    flex-grow: 1;
+    padding: 14px;
+    gap: 7px;
+    background-color: #ffffff;
+    border-width: 1px;
+    border-color: #dbe4ee;
+    border-radius: 10px;
+}
+.lifecycle-name { color: #6d829a; font-size: 11px; font-weight: 700; }
+.lifecycle-card .lifecycle-phase { color: #183453; font-size: 22px; font-weight: 700; }
+.lifecycle-visibility { color: #43607a; font-size: 13px; }
+.probe-stage, .event-panel {
+    display: flex;
+    flex-direction: column;
+    width: 45%;
+    min-width: 250px;
+    flex-grow: 1;
+    padding: 14px;
+    gap: 9px;
+    background-color: #ffffff;
+    border-width: 1px;
+    border-color: #dbe4ee;
+    border-radius: 10px;
+}
+.lifecycle-subtitle { color: #183453; font-size: 14px; font-weight: 700; }
+.event-panel { gap: 6px; }
+.event-row { padding: 7px 9px; background-color: #f3f7fb; border-radius: 6px; }
+.event-row .event-target { width: 120px; min-width: 100px; color: #42617f; font-size: 12px; font-weight: 700; }
+.event-row .event-state { width: 60%; min-width: 120px; flex-grow: 1; color: #24476b; font-size: 12px; }
+
 .toolbar, .range-row, .readout {
     display: flex;
     flex-wrap: wrap;
@@ -118,4 +163,6 @@ p { color: #42536b; font-size: 14px; }
     .columns, .column { gap: 12px; }
     .panel { padding: 16px; }
     .query { width: 100%; }
+    .lifecycle-heading, .lifecycle-card, .probe-stage, .event-panel { width: 100%; min-width: 0px; }
+    .lifecycle-header .toolbar { width: 100%; }
 }

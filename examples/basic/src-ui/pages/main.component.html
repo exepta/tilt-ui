@@ -5,6 +5,59 @@
         <p>Change the values below. Every result is rendered by the template.</p>
     </div>
 
+    <div class="panel lifecycle-panel">
+        <div class="lifecycle-header">
+            <div class="lifecycle-heading">
+                <p class="section-title">UI lifecycle</p>
+                <p class="hint">These values come from Query&lt;&amp;UiState&gt;, Res&lt;UiDocumentState&gt; and MessageReader&lt;UiStateEvent&gt;.</p>
+            </div>
+            <div class="toolbar">
+                <button class="secondary" onclick="hide_probe">Hide probe</button>
+                <button onclick="show_probe">Show probe</button>
+            </div>
+        </div>
+
+        <div class="lifecycle-cards">
+            <div class="lifecycle-card">
+                <p class="lifecycle-name">ENTRY DOCUMENT</p>
+                <p class="lifecycle-phase">{{ lifecycleView.document.phase }}</p>
+                <p class="lifecycle-visibility">Visibility: {{ lifecycleView.document.visibility }}</p>
+            </div>
+            <div class="lifecycle-card">
+                <p class="lifecycle-name">MAIN COMPONENT</p>
+                <p class="lifecycle-phase">{{ lifecycleView.main.phase }}</p>
+                <p class="lifecycle-visibility">Visibility: {{ lifecycleView.main.visibility }}</p>
+            </div>
+            <div class="lifecycle-card">
+                <p class="lifecycle-name">PROBE COMPONENT</p>
+                <p class="lifecycle-phase">{{ lifecycleView.probe.phase }}</p>
+                <p class="lifecycle-visibility">Visibility: {{ lifecycleView.probe.visibility }}</p>
+            </div>
+        </div>
+
+        <div class="lifecycle-demo">
+            <div class="probe-stage">
+                <p class="lifecycle-subtitle">Visibility target</p>
+                <state-probe></state-probe>
+                @if (lifecycleView.probe.visibility == 'Hidden') {
+                    <p class="hint">The probe is hidden. Its state and the event log remain visible.</p>
+                }
+            </div>
+            <div class="event-panel">
+                <p class="lifecycle-subtitle">Recent events · {{ lifecycleView.total_events }} transitions</p>
+                @for (entry in lifecycleView.events; track entry.id) {
+                    <div class="event-row">
+                        <p class="event-target">{{ entry.target }}</p>
+                        <p class="event-state">{{ entry.state }}</p>
+                    </div>
+                }
+                @if (lifecycleView.events.length == 0) {
+                    <p class="hint">Waiting for the first state transition…</p>
+                }
+            </div>
+        </div>
+    </div>
+
     <div class="panel">
         <p class="section-title">Inputs</p>
         <div class="toolbar">

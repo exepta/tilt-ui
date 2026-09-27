@@ -1,0 +1,5 @@
+.route-details .route-hero { background-color: #e8f8f4; }
+.route-details .route-eyebrow, .route-details .route-symbol p { color: #278b78; }
+.route-details .route-copy headline { color: #21695b; }
+.route-details .route-copy p + headline + p { color: #5c897f; }
+.route-details .route-symbol { background-color: #d3f0e8; }

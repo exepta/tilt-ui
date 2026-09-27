@@ -9,6 +9,7 @@ pub use tilt_ui_core::*;
 pub use tilt_ui_runtime::tilt_ui_css;
 pub use tilt_ui_runtime::{
     DEFAULT_TILT_UI_ASSET_PATH, TILT_UI_ASSET_SOURCE, TiltUiAssetSourcePlugin, TiltUiAssetsPlugin,
+    UiRuntimeConfiguration,
 };
 
 #[cfg(feature = "fluent")]
@@ -21,10 +22,14 @@ pub use tilt_ui_runtime::{
 #[allow(unused_imports)]
 pub use tilt_ui_macros::*;
 
+#[cfg(all(feature = "component", not(target_arch = "wasm32")))]
+mod discovery;
 #[cfg(feature = "component")]
 mod plugin;
+#[cfg(all(feature = "component", not(target_arch = "wasm32")))]
+pub use discovery::refresh_ui_directories;
 #[cfg(feature = "component")]
-pub use plugin::{TiltUiCameraMode, TiltUiPlugin, UiFrameRate};
+pub use plugin::{TiltUiCameraMode, TiltUiPlugin, UiCameraConfiguration, UiFrameRate};
 
 /// Common public TiltUI runtime imports.
 #[cfg(feature = "component")]
@@ -54,6 +59,24 @@ macro_rules! include_components {
 pub use tilt_ui_runtime::{
     UiStyleSheetAsset, UiStyleSheetAssetLoader, UiStyleSheetAssetLoaderError,
 };
+
+/// Eagerly creates a route component and retains its state across navigation.
+#[cfg(feature = "component")]
+#[macro_export]
+macro_rules! load {
+    ($component:expr) => {
+        $crate::RouteComponent::load($component)
+    };
+}
+
+/// Creates a route component on first visit and retains its state afterward.
+#[cfg(feature = "component")]
+#[macro_export]
+macro_rules! lazy {
+    ($component:expr) => {
+        $crate::RouteComponent::lazy($component)
+    };
+}
 #[cfg(feature = "html")]
 pub use tilt_ui_runtime::{UiTemplateAsset, UiTemplateAssetLoader, UiTemplateAssetLoaderError};
 
@@ -75,18 +98,21 @@ pub use tilt_ui_runtime::{
     HtmlSubmit, ImageMetadata, ImagePreviewInput, InnerContentError, LoadedComponentAssets,
     NumericParts, NumericRange, NumericValueChanged, OptionData, OptionSelectionChanged,
     PendingComponent, PropertyBinding, PropertyBindings, ProviderChildPolicy, ProviderContext,
-    ProviderEffect, ProviderRules, ProviderScope, RangeOrientation, RouteTarget, Router, Routes,
-    RoutesRegistration, RuntimeComputedStyle, SelectableStaticText, SharedValueRegistration,
-    ShowDialog, SliderChanged, SliderCommitted, SliderSettings, StaticAttribute, StaticAttributes,
-    TableCellInfo, TableInfo, TableSection, TemplateNodeRef, ThemeProvider, TiltButton,
-    TiltCheckbox, TiltControl, TiltElement, TiltRadioButton, TiltSwitchButton, TiltText,
-    TiltToggleButton, TiltUiCodePlugin, TiltUiComponentRuntimePlugin, TiltUiComponentRuntimeSet,
-    TiltUiControlRuntimePlugin, TiltUiRouterPlugin, TiltUiStyleRuntimePlugin, UiBindingStore,
-    UiCursor, UiDocumentInfo, UiExpressionMethods, UiMotionSettings, UiProvider, UiProviderAppExt,
-    UiProviderRegistry, UiSharedValues, UiStore, UiStoreRegistration, UiThemeAppExt, UiThemes,
-    WidgetLayoutOverride, close_dialog, instantiate_component, open_dialog, register_ui_theme,
-    reset_default_theme, set_control_checked, set_default_theme_css, set_editable_readonly,
-    set_editable_text, set_inner_bindings, set_inner_html, set_inner_text, set_numeric_value,
-    set_option_selected, set_progress_value, set_slider_value, set_slider_values,
-    set_text_area_size, set_ui_cursor, spawn_component, spawn_dialog, switch_ui_theme,
+    ProviderEffect, ProviderRules, ProviderScope, RangeOrientation, RouteComponent, RouteLifetime,
+    RouteTarget, Router, Routes, RoutesRegistration, RuntimeComputedStyle, SelectableStaticText,
+    SharedValueRegistration, ShowDialog, SliderChanged, SliderCommitted, SliderSettings,
+    StaticAttribute, StaticAttributes, TableCellInfo, TableInfo, TableSection, TemplateNodeRef,
+    ThemeProvider, TiltButton, TiltCheckbox, TiltControl, TiltElement, TiltRadioButton,
+    TiltSwitchButton, TiltText, TiltToggleButton, TiltUiCodePlugin, TiltUiComponentRuntimePlugin,
+    TiltUiComponentRuntimeSet, TiltUiControlRuntimePlugin, TiltUiRouterPlugin,
+    TiltUiStyleRuntimePlugin, UiBindingStore, UiCursor, UiDocumentInfo, UiDocumentState,
+    UiErrorCode, UiExpressionMethods, UiLoadState, UiMotionSettings, UiProvider, UiProviderAppExt,
+    UiProviderRegistry, UiSharedValues, UiState, UiStateError, UiStateEvent, UiStateRuntimeSet,
+    UiStateTarget, UiStore, UiStoreRegistration, UiThemeAppExt, UiThemes, WidgetLayoutOverride,
+    close_dialog, instantiate_component, normalize_path, open_dialog, register_ui_theme,
+    remove_ui_theme, reset_default_theme, set_control_checked, set_default_theme_css,
+    set_editable_readonly, set_editable_text, set_inner_bindings, set_inner_html, set_inner_text,
+    set_numeric_value, set_option_selected, set_progress_value, set_slider_value,
+    set_slider_values, set_text_area_size, set_ui_cursor, spawn_component, spawn_dialog,
+    switch_ui_theme,
 };

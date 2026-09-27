@@ -14,6 +14,7 @@ use bevy::{
         message::MessageReader,
         query::Changed,
         resource::Resource,
+        schedule::SystemSet,
         system::{Commands, Query, Res, ResMut},
         world::World,
     },
@@ -52,7 +53,17 @@ pub struct TiltUiMediaEnvironment(pub Option<tilt_ui_css::MediaEnvironment>);
 
 /// Records a scope that has received available defaults while its author stylesheet loads.
 #[derive(Component)]
-struct AuthorStylePending;
+pub(crate) struct AuthorStylePending;
+
+/// Ordering point after initial and updated styles have been applied.
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TiltUiStyleRuntimeSet {
+    Apply,
+}
+
+pub(crate) fn author_style_pending(world: &World, entity: Entity) -> bool {
+    world.get::<AuthorStylePending>(entity).is_some()
+}
 
 #[derive(Component, Default)]
 struct MediaMatchState(Vec<bool>);
@@ -104,7 +115,7 @@ impl Plugin for TiltUiStyleRuntimePlugin {
                 invalidate_responsive_styles,
                 mark_ready_author_styles,
                 mark_changed_style_owners,
-                apply_dirty_styles,
+                apply_dirty_styles.in_set(TiltUiStyleRuntimeSet::Apply),
                 tick_animations,
             )
                 .chain()

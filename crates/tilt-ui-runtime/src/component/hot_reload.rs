@@ -15,7 +15,10 @@ use bevy::{
 
 use crate::{UiStyleSheetAsset, UiTemplateAsset};
 
-use super::{ComponentAssetHandles, ComponentInstance, PendingComponent, StyleDirty};
+use super::{
+    ComponentAssetHandles, ComponentInstance, FailedComponentInstantiation, PendingComponent,
+    StyleDirty,
+};
 
 #[derive(Resource, Default)]
 struct TemplateEvents(MessageCursor<AssetEvent<UiTemplateAsset>>);
@@ -35,16 +38,25 @@ pub(crate) fn install(app: &mut bevy::app::App) {
 }
 
 fn rebuild_changed_components(world: &mut World) {
-    let templates = world.resource_scope(
+    let (templates, added_templates) = world.resource_scope(
         |world, mut cursor: bevy::ecs::change_detection::Mut<TemplateEvents>| {
-            cursor
+            let mut modified = HashSet::new();
+            let mut added = HashSet::new();
+            for event in cursor
                 .0
                 .read(world.resource::<Messages<AssetEvent<UiTemplateAsset>>>())
-                .filter_map(|event| match event {
-                    AssetEvent::Modified { id } => Some(*id),
-                    _ => None,
-                })
-                .collect::<HashSet<_>>()
+            {
+                match event {
+                    AssetEvent::Modified { id } => {
+                        modified.insert(*id);
+                    }
+                    AssetEvent::Added { id } => {
+                        added.insert(*id);
+                    }
+                    _ => {}
+                }
+            }
+            (modified, added)
         },
     );
     let stylesheets = world.resource_scope(
@@ -59,25 +71,28 @@ fn rebuild_changed_components(world: &mut World) {
                 .collect::<HashSet<_>>()
         },
     );
-    if templates.is_empty() && stylesheets.is_empty() {
+    if templates.is_empty() && added_templates.is_empty() && stylesheets.is_empty() {
         return;
     }
     let affected = {
-        let mut query = world.query::<(Entity, &ComponentInstance, &ComponentAssetHandles)>();
+        let mut query = world.query::<(
+            Entity,
+            &ComponentInstance,
+            &ComponentAssetHandles,
+            Option<&FailedComponentInstantiation>,
+        )>();
         query
             .iter(world)
-            .filter_map(|(entity, instance, handles)| {
-                (templates.contains(&handles.template.id())
+            .filter_map(|(entity, instance, handles, failed)| {
+                let template_changed = templates.contains(&handles.template.id())
+                    || (failed.is_some() && added_templates.contains(&handles.template.id()));
+                (template_changed
                     || stylesheets.contains(&handles.stylesheet.id())
                     || handles
                         .additional_stylesheets
                         .iter()
                         .any(|handle| stylesheets.contains(&handle.id())))
-                .then_some((
-                    entity,
-                    instance.component,
-                    templates.contains(&handles.template.id()),
-                ))
+                .then_some((entity, instance.component, template_changed))
             })
             .collect::<Vec<_>>()
     };
@@ -91,13 +106,16 @@ fn rebuild_changed_components(world: &mut World) {
                 .map(|children| children.to_vec())
                 .unwrap_or_default();
             for child in children {
+                super::state::hide_before_despawn(world, child);
                 world.despawn(child);
             }
             world
                 .entity_mut(entity)
+                .remove::<FailedComponentInstantiation>()
                 .insert(PendingComponent { component });
         }
         world.entity_mut(entity).insert(StyleDirty);
+        super::state::reload_component(world, entity);
     }
 }
 
@@ -177,5 +195,40 @@ mod tests {
         rebuild_changed_components(&mut world);
         assert!(world.get::<StyleDirty>(owner).is_some());
         assert!(world.get::<PendingComponent>(owner).is_none());
+    }
+
+    #[test]
+    fn first_successful_load_retries_a_failed_component() {
+        let mut world = World::new();
+        world.init_resource::<Messages<AssetEvent<UiTemplateAsset>>>();
+        world.init_resource::<Messages<AssetEvent<UiStyleSheetAsset>>>();
+        world.init_resource::<TemplateEvents>();
+        world.init_resource::<StylesheetEvents>();
+        let template = Handle::<UiTemplateAsset>::default();
+        let owner = world
+            .spawn((
+                ComponentInstance {
+                    component: ComponentId(9),
+                },
+                ComponentAssetHandles {
+                    template: template.clone(),
+                    stylesheet: Handle::default(),
+                    additional_stylesheets: Vec::new(),
+                },
+                FailedComponentInstantiation {
+                    error: super::super::ComponentInstantiationError::TemplateAssetFailed {
+                        component: ComponentId(9),
+                    },
+                },
+            ))
+            .id();
+        world
+            .resource_mut::<Messages<AssetEvent<UiTemplateAsset>>>()
+            .write(AssetEvent::Added { id: template.id() });
+
+        rebuild_changed_components(&mut world);
+
+        assert!(world.get::<FailedComponentInstantiation>(owner).is_none());
+        assert!(world.get::<PendingComponent>(owner).is_some());
     }
 }

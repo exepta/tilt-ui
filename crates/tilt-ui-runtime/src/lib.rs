@@ -6,6 +6,9 @@
 /// Native Bevy asset integration for TiltUI component source files.
 pub mod assets;
 
+/// Mutable paths for component assets and UI file discovery.
+pub mod configuration;
+
 #[cfg(feature = "fluent")]
 /// Optional Fluent translation catalogs and locale selection.
 pub mod localization;
@@ -45,7 +48,7 @@ pub(crate) mod theme;
 pub use provider::{
     ProviderChildPolicy, ProviderContext, ProviderEffect, ProviderRules, ProviderScope,
     ThemeProvider, UiProvider, UiProviderAppExt, UiProviderRegistry, UiThemeAppExt, UiThemes,
-    register_ui_theme, switch_ui_theme,
+    register_ui_theme, remove_ui_theme, switch_ui_theme,
 };
 #[cfg(feature = "component")]
 pub use theme::{reset_default_theme, set_default_theme_css};
@@ -55,6 +58,7 @@ pub use assets::*;
 pub use component::ComponentUpdateRegistration;
 #[cfg(feature = "component")]
 pub use component::*;
+pub use configuration::UiRuntimeConfiguration;
 #[cfg(feature = "component")]
 pub use control::{
     ContextMenu, ControlActivated, ControlChecked, ControlCheckedChanged, ControlPart,

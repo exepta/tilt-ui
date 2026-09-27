@@ -1,0 +1,15 @@
+.probe {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0px;
+    padding: 15px;
+    gap: 6px;
+    background-color: #e9f7f0;
+    border-width: 1px;
+    border-color: #b9e6d0;
+    border-radius: 8px;
+}
+.probe p { color: #27674f; font-size: 13px; }
+.probe .probe-label { color: #398568; font-size: 11px; font-weight: 700; }
+.probe .probe-title { color: #155c42; font-size: 19px; font-weight: 700; }

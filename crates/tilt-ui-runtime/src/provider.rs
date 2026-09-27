@@ -151,6 +151,15 @@ impl UiThemes {
         self.active = Some(name.to_owned());
         Ok(())
     }
+
+    /// Removes a theme and clears the global selection if it was active.
+    pub fn remove(&mut self, name: &str) -> bool {
+        let removed = self.themes.remove(name).is_some();
+        if self.active.as_deref() == Some(name) {
+            self.active = None;
+        }
+        removed
+    }
 }
 
 fn valid_theme_name(name: &str) -> bool {
@@ -177,6 +186,15 @@ pub fn switch_ui_theme(world: &mut World, name: &str) -> Result<(), String> {
     world.resource_mut::<UiThemes>().select(name)?;
     mark_components_dirty(world);
     Ok(())
+}
+
+/// Removes a named theme and restyles existing components.
+pub fn remove_ui_theme(world: &mut World, name: &str) -> bool {
+    let removed = world.resource_mut::<UiThemes>().remove(name);
+    if removed {
+        mark_components_dirty(world);
+    }
+    removed
 }
 
 fn mark_components_dirty(world: &mut World) {

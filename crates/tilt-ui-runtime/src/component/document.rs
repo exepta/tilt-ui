@@ -8,6 +8,11 @@ use bevy::{
     prelude::IntoScheduleConfigs,
     ui::experimental::GhostNode,
 };
+#[cfg(feature = "hot-reload")]
+use bevy::{
+    asset::AssetEvent,
+    ecs::message::{MessageCursor, Messages},
+};
 use bevy_input_focus::tab_navigation::TabGroup;
 use tilt_ui_core::{ElementKind, Template, TemplateNodeKind};
 use tilt_ui_html::DocumentHead;
@@ -16,7 +21,7 @@ use crate::{UiStyleSheetAsset, UiTemplateAsset};
 
 use super::{
     ComponentAssetHandles, ComponentAssetStore, ComponentCatalog, ComponentElementIds, StyleDirty,
-    TiltUiComponentRuntimeSet,
+    TiltUiComponentRuntimeSet, UiErrorCode, UiStateError,
     spawn::{instantiate_template_nodes, validate_template_node},
 };
 
@@ -29,17 +34,105 @@ pub(crate) struct DocumentStylesheets(pub Vec<Handle<UiStyleSheetAsset>>);
 pub struct UiDocumentInfo(pub DocumentHead);
 
 #[derive(Resource)]
-struct PendingDocument {
-    handle: Handle<UiTemplateAsset>,
-    parsed: Option<(Template, DocumentHead)>,
-    finished: bool,
+pub(super) struct PendingDocument {
+    pub(super) handle: Handle<UiTemplateAsset>,
+    pub(super) parsed: Option<(Template, DocumentHead)>,
+    pub(super) finished: bool,
+    pub(super) failure: Option<UiStateError>,
 }
 
 pub(super) fn install(app: &mut App) {
     app.add_systems(Startup, request_document).add_systems(
         Update,
-        instantiate_document.after(TiltUiComponentRuntimeSet::Instantiate),
+        instantiate_document
+            .after(TiltUiComponentRuntimeSet::Instantiate)
+            .before(super::router::sync_outlets)
+            .before(super::flow::update_flow),
     );
+    #[cfg(feature = "hot-reload")]
+    app.init_resource::<DocumentTemplateEvents>()
+        .init_resource::<DocumentStylesheetEvents>()
+        .add_systems(
+            Update,
+            rebuild_changed_document.before(TiltUiComponentRuntimeSet::Instantiate),
+        );
+}
+
+#[cfg(feature = "hot-reload")]
+#[derive(Resource, Default)]
+struct DocumentTemplateEvents(MessageCursor<AssetEvent<UiTemplateAsset>>);
+
+#[cfg(feature = "hot-reload")]
+#[derive(Resource, Default)]
+struct DocumentStylesheetEvents(MessageCursor<AssetEvent<UiStyleSheetAsset>>);
+
+#[cfg(feature = "hot-reload")]
+fn rebuild_changed_document(world: &mut World) {
+    let Some(handle) = world
+        .get_resource::<PendingDocument>()
+        .map(|pending| pending.handle.clone())
+    else {
+        return;
+    };
+    let retry_failed_document = world.resource::<PendingDocument>().failure.is_some();
+    let template_changed = world.resource_scope(
+        |world, mut cursor: bevy::ecs::change_detection::Mut<DocumentTemplateEvents>| {
+            cursor
+                .0
+                .read(world.resource::<Messages<AssetEvent<UiTemplateAsset>>>())
+                .any(|event| match event {
+                    AssetEvent::Modified { id } => *id == handle.id(),
+                    AssetEvent::Added { id } => retry_failed_document && *id == handle.id(),
+                    _ => false,
+                })
+        },
+    );
+    let stylesheet_changed = world.resource_scope(
+        |world, mut cursor: bevy::ecs::change_detection::Mut<DocumentStylesheetEvents>| {
+            cursor
+                .0
+                .read(world.resource::<Messages<AssetEvent<UiStyleSheetAsset>>>())
+                .any(|event| {
+                    matches!(event, AssetEvent::Modified { id }
+                if world.get_resource::<DocumentStylesheets>()
+                    .is_some_and(|styles| styles.0.iter().any(|handle| handle.id() == *id)))
+                })
+        },
+    );
+    if !template_changed && !stylesheet_changed {
+        return;
+    }
+    let mut state = std::mem::take(&mut world.resource_mut::<super::UiDocumentState>().0);
+    if template_changed {
+        let roots = {
+            let mut query = world.query_filtered::<bevy::ecs::entity::Entity, bevy::ecs::query::With<UiDocumentInfo>>();
+            query.iter(world).collect::<Vec<_>>()
+        };
+        for root in roots {
+            super::state::hide_before_despawn(world, root);
+            world.despawn(root);
+        }
+        if state.visible == Some(true) {
+            super::state::transition(
+                world,
+                super::UiStateTarget::Document,
+                &mut state,
+                super::UiStateChange::Hidden,
+            );
+        }
+        world.insert_resource(DocumentStylesheets::default());
+        let mut pending = world.resource_mut::<PendingDocument>();
+        pending.parsed = None;
+        pending.finished = false;
+        pending.failure = None;
+    }
+    super::state::transition(
+        world,
+        super::UiStateTarget::Document,
+        &mut state,
+        super::UiStateChange::Loading,
+    );
+    world.resource_mut::<super::UiDocumentState>().0 = state;
 }
 
 fn request_document(
@@ -50,6 +143,7 @@ fn request_document(
         handle: server.load("tilt-ui://index.html"),
         parsed: None,
         finished: false,
+        failure: None,
     });
 }
 
@@ -75,17 +169,25 @@ fn instantiate_document(world: &mut World) {
             Some(Some(parsed)) => world.resource_mut::<PendingDocument>().parsed = Some(parsed),
             Some(None) => {
                 error!("tilt-ui://index.html did not contain a parsed HTML5 document");
-                world.resource_mut::<PendingDocument>().finished = true;
+                let mut pending = world.resource_mut::<PendingDocument>();
+                pending.finished = true;
+                pending.failure = Some(UiStateError {
+                    code: UiErrorCode::InvalidDocument,
+                    message: "tilt-ui://index.html did not contain a parsed HTML5 document".into(),
+                });
                 return;
             }
             None => {
-                if world
-                    .resource::<AssetServer>()
-                    .get_load_state(handle.id())
-                    .is_some_and(|state| state.is_failed())
+                if let Some(bevy::asset::LoadState::Failed(error)) =
+                    world.resource::<AssetServer>().get_load_state(handle.id())
                 {
                     error!("required tilt-ui://index.html could not be loaded");
-                    world.resource_mut::<PendingDocument>().finished = true;
+                    let mut pending = world.resource_mut::<PendingDocument>();
+                    pending.finished = true;
+                    pending.failure = Some(UiStateError {
+                        code: UiErrorCode::DocumentLoad,
+                        message: error.to_string(),
+                    });
                 }
                 return;
             }
@@ -108,14 +210,30 @@ fn instantiate_document(world: &mut World) {
             &components,
             &mut Vec::new(),
         ) {
-            if matches!(
-                error,
-                super::ComponentInstantiationError::TemplateAssetUnavailable { .. }
-            ) {
+            if let super::ComponentInstantiationError::TemplateAssetUnavailable { component } =
+                error
+            {
+                if let Some(loaded) = components.get(component)
+                    && let Some(bevy::asset::LoadState::Failed(load_error)) = world
+                        .resource::<AssetServer>()
+                        .get_load_state(loaded.template.id())
+                {
+                    let mut pending = world.resource_mut::<PendingDocument>();
+                    pending.finished = true;
+                    pending.failure = Some(UiStateError {
+                        code: UiErrorCode::TemplateLoad,
+                        message: load_error.to_string(),
+                    });
+                }
                 return;
             }
             error!("cannot instantiate tilt-ui://index.html: {error}");
-            world.resource_mut::<PendingDocument>().finished = true;
+            let mut pending = world.resource_mut::<PendingDocument>();
+            pending.finished = true;
+            pending.failure = Some(UiStateError {
+                code: UiErrorCode::Instantiation,
+                message: error.to_string(),
+            });
             return;
         }
     }
@@ -181,7 +299,12 @@ fn instantiate_document(world: &mut World) {
         Err(error) => {
             error!("cannot instantiate tilt-ui://index.html: {error}");
             world.despawn(root);
-            world.resource_mut::<PendingDocument>().finished = true;
+            let mut pending = world.resource_mut::<PendingDocument>();
+            pending.finished = true;
+            pending.failure = Some(UiStateError {
+                code: UiErrorCode::Instantiation,
+                message: error.to_string(),
+            });
         }
     }
 }
@@ -256,6 +379,7 @@ mod tests {
             handle,
             parsed: None,
             finished: false,
+            failure: None,
         });
         instantiate_document(app.world_mut());
         instantiate_document(app.world_mut());
@@ -302,11 +426,68 @@ mod tests {
             handle,
             parsed: None,
             finished: false,
+            failure: None,
         });
         instantiate_document(app.world_mut());
         let world = app.world_mut();
         assert_eq!(world.query::<&UiDocumentInfo>().iter(world).count(), 1);
         assert_eq!(world.query::<&TiltElement>().iter(world).count(), 0);
         assert!(world.resource::<PendingDocument>().finished);
+    }
+
+    #[cfg(feature = "hot-reload")]
+    #[test]
+    fn modified_document_reports_hidden_then_loading_and_requeues() {
+        use crate::{UiDocumentState, UiLoadState, UiState, UiStateChange, UiStateEvent};
+
+        let mut world = World::new();
+        world.init_resource::<Messages<AssetEvent<UiTemplateAsset>>>();
+        world.init_resource::<Messages<AssetEvent<UiStyleSheetAsset>>>();
+        world.init_resource::<Messages<UiStateEvent>>();
+        world.init_resource::<DocumentTemplateEvents>();
+        world.init_resource::<DocumentStylesheetEvents>();
+        let document = UiTemplateAsset::from_document(
+            parse_document("<!doctype html><html><body>Before</body></html>").unwrap(),
+        );
+        let root = world
+            .spawn((
+                GhostNode,
+                UiDocumentInfo(document.document_head().unwrap().clone()),
+            ))
+            .id();
+        let handle = Handle::<UiTemplateAsset>::default();
+        world.insert_resource(PendingDocument {
+            handle: handle.clone(),
+            parsed: None,
+            finished: true,
+            failure: None,
+        });
+        world.insert_resource(UiDocumentState(UiState {
+            load: UiLoadState::Ready,
+            visible: Some(true),
+            announced: true,
+        }));
+        world
+            .resource_mut::<Messages<AssetEvent<UiTemplateAsset>>>()
+            .write(AssetEvent::Modified { id: handle.id() });
+
+        rebuild_changed_document(&mut world);
+
+        assert!(world.get_entity(root).is_err());
+        assert!(!world.resource::<PendingDocument>().finished);
+        assert!(world.resource::<PendingDocument>().parsed.is_none());
+        assert_eq!(
+            world.resource::<UiDocumentState>().0.load,
+            UiLoadState::Loading
+        );
+        assert_eq!(world.resource::<UiDocumentState>().0.visible, Some(false));
+        assert_eq!(
+            world
+                .resource_mut::<Messages<UiStateEvent>>()
+                .drain()
+                .map(UiStateEvent::change)
+                .collect::<Vec<_>>(),
+            vec![UiStateChange::Hidden, UiStateChange::Loading]
+        );
     }
 }

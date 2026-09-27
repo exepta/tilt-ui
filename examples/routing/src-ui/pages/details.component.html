@@ -1,0 +1,25 @@
+<div class="route-page route-details">
+  <div class="route-hero">
+    <div class="route-copy">
+      <p class="route-eyebrow">03 / LAZY CACHE</p>
+      <h2>Only when needed.</h2>
+      <p>Details gets its first instance when you visit. After that, it waits offscreen and returns with its local state intact.</p>
+    </div>
+    <div class="route-symbol"><p>03</p></div>
+  </div>
+  <div class="route-info-grid">
+    <div class="route-info-card">
+      <p class="info-kicker">PERSISTENT FIELD</p>
+      <p class="info-title">What are you exploring?</p>
+      <p class="info-help">Write something, switch routes, and come back.</p>
+      <input placeholder="My routing experiment" />
+    </div>
+    <div class="route-info-card route-info-soft">
+      <p class="info-kicker">LIFECYCLE</p>
+      <p class="info-title">First visit → keep alive</p>
+      <p class="info-help">Lazy creation defers the instance. Its assets still follow normal startup preparation.</p>
+      <div class="route-code"><p>.route("/details", lazy!(details))</p></div>
+    </div>
+  </div>
+  <div class="route-hint"><p>TIP</p><p>The route definition lives in a different src-ui subfolder.</p></div>
+</div>

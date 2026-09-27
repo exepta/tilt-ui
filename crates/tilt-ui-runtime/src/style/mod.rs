@@ -11,5 +11,6 @@ mod state;
 
 pub(crate) use inline::InlineStyle;
 pub use motion::ActiveAnimations;
-pub use plugin::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin};
+pub(crate) use plugin::author_style_pending;
+pub use plugin::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin, TiltUiStyleRuntimeSet};
 pub use state::{CascadedStyle, RuntimeComputedStyle};

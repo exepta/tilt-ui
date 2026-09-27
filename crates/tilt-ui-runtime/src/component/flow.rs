@@ -467,15 +467,18 @@ fn rebuild_ids(world: &mut World, owner: Entity) {
 #[cfg(test)]
 mod tests {
     use bevy::{
+        asset::Assets,
         ecs::world::World,
         ui::{experimental::GhostNode, widget::Text},
     };
     use serde::Serialize;
     use serde_json::json;
+    use tilt_ui_core::{ComponentId, ComponentKind, ComponentMetadata};
     use tilt_ui_html::parse_template;
 
     use super::*;
     use crate::component::{binding::UiStore, spawn::instantiate_template_nodes};
+    use crate::{LoadedComponentAssets, UiStyleSheetAsset, UiTemplateAsset};
 
     #[derive(Serialize)]
     struct State {
@@ -616,6 +619,21 @@ mod tests {
 
     #[test]
     fn basic_showcase_instantiates_all_control_sections() {
+        static PROBE: [ComponentMetadata; 1] = [ComponentMetadata {
+            id: ComponentId(0),
+            name: "state-probe",
+            kind: ComponentKind::Component,
+            template_asset_path: "tilt-ui://components/state-probe.component.html",
+            stylesheet_asset_path: "tilt-ui://components/state-probe.component.css",
+            stylesheet_asset_paths: &["tilt-ui://components/state-probe.component.css"],
+        }];
+        fn probe_id(name: &str) -> Option<ComponentId> {
+            (name == "state-probe").then_some(ComponentId(0))
+        }
+        fn probe_metadata(id: ComponentId) -> Option<&'static ComponentMetadata> {
+            (id == ComponentId(0)).then_some(&PROBE[0])
+        }
+        let catalog = ComponentCatalog::new(&PROBE, probe_id, probe_metadata);
         let mut world = World::new();
         let mut stores = UiBindingStore::default();
         stores.set_store(DemoFixture(json!({
@@ -625,8 +643,37 @@ mod tests {
         })));
         world.insert_resource(stores);
         world.insert_resource(UiSharedValues::default());
-        world.insert_resource(ComponentCatalog::default());
-        world.insert_resource(ComponentAssetStore::default());
+        world.insert_resource(catalog);
+        world.init_resource::<Assets<UiTemplateAsset>>();
+        world.init_resource::<Assets<UiStyleSheetAsset>>();
+        let probe_template =
+            world
+                .resource_mut::<Assets<UiTemplateAsset>>()
+                .add(UiTemplateAsset::new(
+                    parse_template(include_str!(
+                        "../../../../examples/basic/src-ui/components/state-probe.component.html"
+                    ))
+                    .unwrap(),
+                ));
+        let probe_stylesheet =
+            world
+                .resource_mut::<Assets<UiStyleSheetAsset>>()
+                .add(UiStyleSheetAsset::new(
+                    tilt_ui_css::parse_stylesheet(include_str!(
+                        "../../../../examples/basic/src-ui/components/state-probe.component.css"
+                    ))
+                    .unwrap(),
+                ));
+        let mut assets = ComponentAssetStore::default();
+        assets.insert(
+            ComponentId(0),
+            LoadedComponentAssets {
+                template: probe_template,
+                stylesheet: probe_stylesheet,
+                additional_stylesheets: Vec::new(),
+            },
+        );
+        world.insert_resource(assets.clone());
         let owner = world
             .spawn((GhostNode, ComponentElementIds::default()))
             .id();
@@ -637,8 +684,8 @@ mod tests {
         instantiate_template_nodes(
             &mut world,
             &template,
-            ComponentCatalog::default(),
-            &ComponentAssetStore::default(),
+            catalog,
+            &assets,
             owner,
             owner,
             &mut Vec::new(),
@@ -651,7 +698,14 @@ mod tests {
             .iter(&world)
             .map(|text| text.0.as_str())
             .collect::<Vec<_>>();
-        for snippet in ["Ready:", "Alpha", "Beta", "equals('Rust')", "3"] {
+        for snippet in [
+            "Ready:",
+            "Alpha",
+            "Beta",
+            "equals('Rust')",
+            "3",
+            "I am visible",
+        ] {
             assert!(
                 rendered.iter().any(|text| text.contains(snippet)),
                 "missing {snippet}"

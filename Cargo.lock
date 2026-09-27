@@ -5131,6 +5131,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tilt-ui-example-routing"
+version = "0.0.0"
+dependencies = [
+ "bevy",
+ "serde",
+ "tilt-ui",
+ "tilt-ui-build",
+ "tilt-ui-html",
+]
+
+[[package]]
 name = "tilt-ui-example-wasm"
 version = "0.0.0"
 dependencies = [
