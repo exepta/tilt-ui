@@ -6,16 +6,16 @@ use std::{
 };
 
 use bevy::ecs::{resource::Resource, world::World};
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-/// Implemented by `#[derive(BeuStore)]` on serializable UI state types.
-pub trait BeuStore: Send + Sync + 'static {
+/// Implemented by `#[derive(UiStore)]` on serializable UI state types.
+pub trait UiStore: Send + Sync + 'static {
     const STORE_KEY: &'static str;
     const STORE_PATH: &'static str;
 }
 
-/// Registration emitted by `#[derive(BeuStore)]`.
+/// Registration emitted by `#[derive(UiStore)]`.
 pub struct UiStoreRegistration {
     pub register: fn(&mut UiBindingStore),
 }
@@ -27,19 +27,32 @@ inventory::collect!(UiStoreRegistration);
 pub struct UiBindingStore {
     typed: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     json: BTreeMap<String, Value>,
+    mutable: HashMap<String, fn(&mut UiBindingStore, Value) -> Option<()>>,
     revision: u64,
 }
 
 impl UiBindingStore {
     /// Initializes a derived store with its default value once.
-    pub fn register<T: BeuStore + Default + Serialize>(&mut self) {
+    pub fn register<T: UiStore + Default + Serialize>(&mut self) {
         if self.get_store::<T>().is_none() {
             self.set_store(T::default());
         }
     }
 
+    /// Registers a serializable store for atomic inline JSON-path updates.
+    ///
+    /// `Deserialize` is required so a successful action updates the Rust value
+    /// as well as the template snapshot. Read-only stores remain unaffected.
+    pub fn register_mutable<T: UiStore + Default + Serialize + DeserializeOwned>(&mut self) {
+        self.register::<T>();
+        self.mutable
+            .insert(T::STORE_KEY.to_owned(), replace_typed::<T>);
+        self.mutable
+            .insert(lower_first(T::STORE_KEY), replace_typed::<T>);
+    }
+
     /// Writes a typed value and makes its serialized fields visible to bindings.
-    pub fn set_store<T: BeuStore + Serialize>(&mut self, value: T) {
+    pub fn set_store<T: UiStore + Serialize>(&mut self, value: T) {
         let json = serde_json::to_value(&value).unwrap_or(Value::Null);
         let alias = lower_first(T::STORE_KEY);
         if self.json.get(T::STORE_KEY) != Some(&json) {
@@ -51,7 +64,7 @@ impl UiBindingStore {
     }
 
     /// Reads a typed store value.
-    pub fn get_store<T: BeuStore>(&self) -> Option<&T> {
+    pub fn get_store<T: UiStore>(&self) -> Option<&T> {
         self.typed.get(&TypeId::of::<T>())?.downcast_ref::<T>()
     }
 
@@ -60,9 +73,69 @@ impl UiBindingStore {
         self.json.get(key)
     }
 
+    /// Reads a dotted field or numeric array-index path from a store snapshot.
+    pub fn json_path(&self, path: &str) -> Option<Value> {
+        let mut segments = path.split('.');
+        let mut value = self.json.get(segments.next()?)?;
+        for segment in segments {
+            value = match value {
+                Value::Object(fields) => fields.get(segment)?,
+                Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+                _ => return None,
+            };
+        }
+        Some(value.clone())
+    }
+
+    /// Writes a path only when its typed store opted into inline mutations.
+    ///
+    /// Returns `None` for an unknown path, read-only store, or a value that
+    /// cannot deserialize back into the Rust store type. No partial write occurs.
+    pub fn set_json_path(&mut self, path: &str, value: Value) -> Option<bool> {
+        let mut segments = path.split('.');
+        let root = segments.next()?;
+        let writer = *self.mutable.get(root)?;
+        let old = self.json.get(root)?.clone();
+        let mut next = old.clone();
+        let tail = segments.collect::<Vec<_>>();
+        if tail.is_empty() {
+            next = value;
+        } else {
+            let mut current = &mut next;
+            for segment in &tail[..tail.len() - 1] {
+                current = match current {
+                    Value::Object(fields) => fields.get_mut(*segment)?,
+                    Value::Array(items) => items.get_mut(segment.parse::<usize>().ok()?)?,
+                    _ => return None,
+                };
+            }
+            let last = tail.last()?;
+            match current {
+                Value::Object(fields) => *fields.get_mut(*last)? = value,
+                Value::Array(items) => {
+                    *items.get_mut(last.parse::<usize>().ok()?)? = value;
+                }
+                _ => return None,
+            }
+        }
+        if next == old {
+            return Some(false);
+        }
+        writer(self, next)?;
+        Some(true)
+    }
+
     pub(crate) fn revision(&self) -> u64 {
         self.revision
     }
+}
+
+fn replace_typed<T: UiStore + Serialize + DeserializeOwned>(
+    store: &mut UiBindingStore,
+    value: Value,
+) -> Option<()> {
+    store.set_store(serde_json::from_value::<T>(value).ok()?);
+    Some(())
 }
 
 /// Registration emitted by `#[html_shared]` or `#[html_use]`.

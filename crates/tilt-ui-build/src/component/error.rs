@@ -7,6 +7,22 @@ use crate::UiSourceRootError;
 /// Describes a failure while discovering or generating TiltUI components.
 #[derive(Debug, Error)]
 pub enum ComponentBuildError {
+    /// Every TiltUI application has a root HTML5 document.
+    #[error("TiltUI index.html is missing: {}", path.display())]
+    IndexMissing { path: PathBuf },
+
+    /// The root document could not be read or parsed.
+    #[error("invalid TiltUI index.html at {}: {reason}", path.display())]
+    InvalidIndex { path: PathBuf, reason: String },
+
+    /// A stylesheet link in the root document is not a readable local CSS asset.
+    #[error("invalid stylesheet link `{href}` in {}: {reason}", path.display())]
+    InvalidIndexStylesheet {
+        path: PathBuf,
+        href: String,
+        reason: String,
+    },
+
     /// The configured TiltUI source root does not exist.
     #[error("TiltUI source root does not exist: {}", path.display())]
     SourceRootMissing {

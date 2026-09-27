@@ -4,6 +4,7 @@ use std::{
 };
 
 use tilt_ui_core::ComponentKind;
+use tilt_ui_html::parse_document;
 
 use crate::UiSourceRoot;
 
@@ -20,6 +21,7 @@ pub fn build() -> Result<(), ComponentBuildError> {
 /// Generates a manifest from a caller-selected source root.
 pub fn build_from(source_root: &UiSourceRoot) -> Result<(), ComponentBuildError> {
     source_root.ensure()?;
+    let document_styles = validate_index_document(source_root)?;
     let output_directory =
         env::var_os("OUT_DIR").ok_or(ComponentBuildError::MissingOutDirectory)?;
     let manifest = generate_components(source_root, PathBuf::from(output_directory))?;
@@ -27,7 +29,67 @@ pub fn build_from(source_root: &UiSourceRoot) -> Result<(), ComponentBuildError>
     for directive in cargo_rebuild_directives(source_root.path(), &manifest.components) {
         println!("{directive}");
     }
+    println!(
+        "cargo:rerun-if-changed={}",
+        source_root.path().join("index.html").display()
+    );
+    for path in document_styles {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
     Ok(())
+}
+
+fn validate_index_document(
+    source_root: &UiSourceRoot,
+) -> Result<Vec<PathBuf>, ComponentBuildError> {
+    let path = source_root.path().join("index.html");
+    let source = fs::read_to_string(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ComponentBuildError::IndexMissing { path: path.clone() }
+        } else {
+            ComponentBuildError::InvalidIndex {
+                path: path.clone(),
+                reason: error.to_string(),
+            }
+        }
+    })?;
+    let document = parse_document(&source).map_err(|error| ComponentBuildError::InvalidIndex {
+        path: path.clone(),
+        reason: error.to_string(),
+    })?;
+    let canonical_root = fs::canonicalize(source_root.path()).map_err(|error| {
+        ComponentBuildError::InvalidIndex {
+            path: path.clone(),
+            reason: error.to_string(),
+        }
+    })?;
+    let mut styles = Vec::new();
+    for href in document.head.stylesheet_links {
+        let relative = href.trim_start_matches('/');
+        if relative.is_empty() || !relative.ends_with(".css") || href.contains(['?', '#', ':']) {
+            return Err(ComponentBuildError::InvalidIndexStylesheet {
+                path: path.clone(),
+                href,
+                reason: "expected a local .css path".into(),
+            });
+        }
+        let style = fs::canonicalize(source_root.path().join(relative)).map_err(|error| {
+            ComponentBuildError::InvalidIndexStylesheet {
+                path: path.clone(),
+                href: href.clone(),
+                reason: error.to_string(),
+            }
+        })?;
+        if !style.starts_with(&canonical_root) {
+            return Err(ComponentBuildError::InvalidIndexStylesheet {
+                path: path.clone(),
+                href,
+                reason: "path escapes src-ui".into(),
+            });
+        }
+        styles.push(style);
+    }
+    Ok(styles)
 }
 
 /// Discovers components and writes their generated manifest into an output directory.
@@ -131,4 +193,70 @@ pub fn cargo_rebuild_directives(
 
 fn rust_string(value: &str) -> String {
     format!("{value:?}")
+}
+
+#[cfg(test)]
+mod document_tests {
+    use std::{fs, path::PathBuf, process};
+
+    use super::validate_index_document;
+    use crate::{ComponentBuildError, UiSourceRoot};
+
+    struct Project(PathBuf);
+
+    impl Project {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "tilt-ui-index-test-{}-{}",
+                process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+
+        fn root(&self) -> UiSourceRoot {
+            UiSourceRoot::new(&self.0)
+        }
+    }
+
+    impl Drop for Project {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    #[test]
+    fn index_is_required_and_local_links_are_checked() {
+        let project = Project::new();
+        let root = project.root();
+        assert!(matches!(
+            validate_index_document(&root),
+            Err(ComponentBuildError::IndexMissing { .. })
+        ));
+        fs::write(
+            project.0.join("index.html"),
+            "<!doctype html><html><head><link rel=stylesheet href='styles/site.css'></head><body><p>Hi</body></html>",
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_index_document(&root),
+            Err(ComponentBuildError::InvalidIndexStylesheet { .. })
+        ));
+        fs::create_dir(project.0.join("styles")).unwrap();
+        fs::write(project.0.join("styles/site.css"), "p { color: red; }").unwrap();
+        assert_eq!(validate_index_document(&root).unwrap().len(), 1);
+        fs::write(
+            project.0.join("index.html"),
+            "<html><head><link rel=stylesheet href='../escape.css'></head><body></body></html>",
+        )
+        .unwrap();
+        assert!(matches!(
+            validate_index_document(&root),
+            Err(ComponentBuildError::InvalidIndexStylesheet { .. })
+        ));
+    }
 }

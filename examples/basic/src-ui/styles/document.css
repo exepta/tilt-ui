@@ -1,0 +1,23 @@
+body {
+    align-items: flex-start;
+    justify-content: center;
+    background-color: #edf2f7;
+    color: #17243b;
+}
+
+.document-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    min-width: 0px;
+    flex-shrink: 0;
+}
+
+body::scrollbar-y-track {
+    background-color: #dbe4ee;
+}
+
+body::scrollbar-y-thumb {
+    background-color: #8398af;
+}

@@ -14,10 +14,13 @@ fieldset, table, route, binding, and hot-reload foundations were added.
 - [x] Runtime literal text, HTML fragment and reactive text setters, plus
   `innerText`/`innerHtml` property bindings. Per-element Rust cursor overrides
   support system icons and custom images with inherited selection.
-- [ ] Full legacy expression evaluation, scoped controller state, and complex
-  reactive collection rendering. JSON paths, common arithmetic and logical
-  expressions, property setters, text interpolation, and `@use` imports of
-  registered shared resources are wired.
+- [x] Dynamic attribute behavior is audited in the [property binding matrix](property-bindings.md).
+  Inline CSS, classes, control values, validation limits, and selected widget
+  options update existing entities; anatomy-changing options remain creation-time.
+- [x] JSON paths, arithmetic, logical and ternary expressions, reactive
+  collection rendering, `@use` imports, and explicit pure methods registered
+  from `.component.rs` are available. Legacy controller lookup is intentionally
+  omitted in favor of component logic.
 - [x] Optional file-backed Fluent localization with locale selection,
   variables, fallback, and live language switching. Properties is intentionally omitted.
 - [ ] General system/UI dialogs, modal controls, result payloads, and backdrop
@@ -27,8 +30,9 @@ fieldset, table, route, binding, and hot-reload foundations were added.
   images/gradients, shadows, outlines, cursor/pointer-events/z-index,
   additional typography, `!important`, visual subtree opacity, motion fill
   modes, and reduced-motion behavior.
-- [ ] Full HTML5 error-recovering parsing. Table rows and sections are
-  flattened, but templates still use an XML-like parser.
+- [x] The required `src-ui/index.html` uses HTML5 recovery and mounts its
+  body once; malformed component/fragment markup falls back to the same parser.
+  Well-formed component templates retain the faster XML-like path.
 - [ ] Widget details: authored icons, image-file preview and alt fallback,
   calendar keyboard/localization, browser hyperlink navigation, tooltip nose
   and multiwindow viewport support, and full legacy input validation.

@@ -94,6 +94,34 @@ pub struct ElementClasses {
     pub classes: Vec<String>,
 }
 
+/// Static classes and reactive class bindings, combined on the same entity.
+#[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct BoundClasses {
+    pub base: Vec<String>,
+    pub dynamic: Vec<String>,
+    pub toggles: BTreeMap<String, bool>,
+}
+
+impl BoundClasses {
+    pub fn combined(&self) -> ElementClasses {
+        let mut classes = Vec::new();
+        for class in self.base.iter().chain(&self.dynamic) {
+            if !classes.contains(class) {
+                classes.push(class.clone());
+            }
+        }
+        for (class, enabled) in &self.toggles {
+            if *enabled && !classes.contains(class) {
+                classes.push(class.clone());
+            }
+            if !enabled {
+                classes.retain(|existing| existing != class);
+            }
+        }
+        ElementClasses { classes }
+    }
+}
+
 /// Represents one static template attribute not interpreted as an ID or class.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticAttribute {

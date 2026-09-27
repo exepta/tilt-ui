@@ -8,10 +8,30 @@ Status: Early development.
 
 ## Getting started
 
-Only `src-ui/` is required. Place component triplets (`name.component.html`,
+Every project needs `src-ui/index.html`. Its `<body>` is mounted once as the
+root TiltUI tree; `<link rel="stylesheet" href="...">` in `<head>` loads
+global CSS from `src-ui/` in document order. For example:
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>My UI</title>
+  <link rel="stylesheet" href="styles/site.css">
+</head>
+<body><app-main></app-main></body>
+</html>
+```
+
+Place component triplets (`name.component.html`,
 `name.component.css`, `name.component.rs`) directly in that directory or in any
 subdirectory. A top-level `pages/` directory is recognized as pages for
 compatibility, but neither `pages/` nor `components/` is created or required.
+The build script rejects a missing entry document or broken local stylesheet
+links. Complete documents use HTML5 error recovery; already well-formed
+component templates retain the faster existing parser and use recovery only
+when needed. Parsing occurs on asset load, not every frame.
 
 In `build.rs`, discover the source root:
 
@@ -42,6 +62,9 @@ fn main() {
 
 For another source directory, use the same absolute path in the plugin and
 in `build.rs` via `tilt_ui_build::build_from(&UiSourceRoot::new(path))`.
+On WASM, use a relative asset URL root and copy `src-ui/` into the served
+directory. [The Trunk showcase](examples/wasm-showcase/README.md) demonstrates
+both browser `index.html` and TiltUI `src-ui/index.html`.
 `TiltUiPlugin::with_camera(camera)` customizes the automatically spawned
 `Camera2d`; `without_camera()` leaves camera creation to the application.
 Mark a manually created camera with Bevy's `IsDefaultUiCamera`.

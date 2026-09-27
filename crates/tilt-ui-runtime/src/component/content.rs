@@ -211,7 +211,7 @@ mod tests {
     struct State {
         value: String,
     }
-    impl BeuStore for State {
+    impl UiStore for State {
         const STORE_KEY: &'static str = "State";
         const STORE_PATH: &'static str = "State";
     }
@@ -317,7 +317,7 @@ mod tests {
     fn invalid_fragments_and_unsupported_controls_preserve_children() {
         let (mut world, _, target) = setup();
         set_inner_text(&mut world, target, "Keep").unwrap();
-        assert!(set_inner_html(&mut world, target, "<p>broken</div>").is_err());
+        assert!(set_inner_html(&mut world, target, "<p [broken=\"x\">bad binding</p>").is_err());
         assert!(set_inner_html(&mut world, target, "<unknown-component />").is_err());
         assert_eq!(text(&world, target), "Keep");
         world.entity_mut(target).insert(TiltElement {

@@ -9,10 +9,14 @@ pub(crate) enum StyleOrigin {
     DefaultTheme,
     /// Selected named theme, replacing the global selection inside a provider.
     NamedTheme,
+    /// Stylesheets linked from the entry document.
+    Document,
     /// Additional provider CSS, ordered from outer to inner scopes.
     Provider(usize),
     /// Component-authored stylesheet declarations.
     Author,
+    /// An element's `style` attribute or `[style]` binding.
+    Inline,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

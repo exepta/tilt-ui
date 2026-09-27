@@ -3,8 +3,8 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Data, DeriveInput, FnArg, GenericArgument, Item, ItemFn, LitStr, PathArguments, Type, UseTree,
-    parse_macro_input,
+    Data, DeriveInput, FnArg, GenericArgument, Item, ItemFn, LitStr, PathArguments, Token, Type,
+    UseTree, parse::Parser, parse_macro_input, punctuated::Punctuated,
 };
 
 /// Marks a component logic item. Its template and styles are discovered by the build script.
@@ -15,15 +15,15 @@ pub fn ui_component(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Compatibility marker for Rust component registries generated at build time.
 #[proc_macro_attribute]
-pub fn beu_registry(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn ui_registry(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
 
 /// Registers a function returning a `Routes` table for the TiltUI router.
 #[proc_macro_attribute]
-pub fn beu_routes(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn ui_routes(attr: TokenStream, item: TokenStream) -> TokenStream {
     if !attr.is_empty() {
-        return quote!(compile_error!("beu_routes takes no arguments");).into();
+        return quote!(compile_error!("ui_routes takes no arguments");).into();
     }
     let function = parse_macro_input!(item as ItemFn);
     let name = &function.sig.ident;
@@ -128,6 +128,51 @@ pub fn html_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Exposes one pure value method to expressions in a named component template.
+///
+/// The function signature is `fn(&serde_json::Value, &[serde_json::Value])
+/// -> Option<serde_json::Value>`. Its first argument is the resolved receiver.
+#[proc_macro_attribute]
+pub fn html_method(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let attributes = match Punctuated::<LitStr, Token![,]>::parse_terminated.parse(attr) {
+        Ok(attributes) if attributes.len() == 2 => attributes,
+        _ => {
+            return quote!(compile_error!("html_method expects a component name and a receiver.method path");).into();
+        }
+    };
+    let mut attributes = attributes.into_iter();
+    let component = attributes.next().unwrap();
+    let path = attributes.next().unwrap();
+    if component.value().is_empty() || !valid_method_path(&path.value()) {
+        return quote!(compile_error!("html_method requires a nonempty component name and a dotted identifier path such as user.full_name");).into();
+    }
+    let function = parse_macro_input!(item as ItemFn);
+    let name = &function.sig.ident;
+    quote! {
+        #function
+
+        ::tilt_ui::inventory::submit! {
+            ::tilt_ui::HtmlMethodRegistration {
+                component: #component,
+                path: #path,
+                evaluate: #name,
+            }
+        }
+    }
+    .into()
+}
+
+fn valid_method_path(path: &str) -> bool {
+    let segments = path.split('.').collect::<Vec<_>>();
+    segments.len() >= 2
+        && segments.iter().all(|segment| {
+            segment.starts_with(|ch: char| ch.is_ascii_alphabetic() || ch == '_')
+                && segment
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+}
+
 fn input_type(function: &ItemFn) -> Option<Type> {
     let FnArg::Typed(argument) = function.sig.inputs.first()? else {
         return None;
@@ -153,17 +198,45 @@ fn is_html_event(ty: &Type) -> bool {
 }
 
 /// Registers a default, serializable type in TiltUI's typed binding store.
-#[proc_macro_derive(BeuStore)]
-pub fn derive_beu_store(item: TokenStream) -> TokenStream {
+#[proc_macro_derive(UiStore, attributes(ui_store))]
+pub fn derive_ui_store(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
     if matches!(input.data, Data::Union(_)) || !input.generics.params.is_empty() {
-        return quote!(compile_error!("BeuStore supports only non-generic structs and enums");)
+        return quote!(compile_error!("UiStore supports only non-generic structs and enums");)
             .into();
+    }
+    let mutable = match input
+        .attrs
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("ui_store"))
+        .map(|attribute| attribute.parse_args::<syn::Ident>())
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(attributes) if attributes.len() <= 1 => attributes
+            .first()
+            .is_some_and(|attribute| attribute == "mutable"),
+        _ => {
+            return quote!(compile_error!("ui_store accepts only #[ui_store(mutable)] once");)
+                .into();
+        }
+    };
+    if input
+        .attrs
+        .iter()
+        .any(|attribute| attribute.path().is_ident("ui_store"))
+        && !mutable
+    {
+        return quote!(compile_error!("ui_store accepts only #[ui_store(mutable)]");).into();
     }
     let name = input.ident;
     let register = format_ident!("__tilt_ui_register_store_{}", name);
+    let register_call = if mutable {
+        quote!(store.register_mutable::<#name>();)
+    } else {
+        quote!(store.register::<#name>();)
+    };
     quote! {
-        impl ::tilt_ui::BeuStore for #name {
+        impl ::tilt_ui::UiStore for #name {
             const STORE_KEY: &'static str = stringify!(#name);
             const STORE_PATH: &'static str = concat!(module_path!(), "::", stringify!(#name));
         }
@@ -171,7 +244,7 @@ pub fn derive_beu_store(item: TokenStream) -> TokenStream {
         #[doc(hidden)]
         #[allow(non_snake_case)]
         fn #register(store: &mut ::tilt_ui::UiBindingStore) {
-            store.register::<#name>();
+            #register_call
         }
 
         ::tilt_ui::inventory::submit! {

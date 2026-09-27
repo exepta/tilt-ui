@@ -145,6 +145,19 @@
 .runtime-actions { display: flex; flex-direction: row; gap: 6px; }
 #runtime-content { display: flex; flex-direction: column; gap: 6px; min-height: 56px; font-size: 14px; }
 
+.table-action-content { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0px; }
+.table-action-demo { width: 100%; min-width: 0px; }
+.table-action-demo table-cell { min-width: 0px; height: 38px; padding: 3px 5px; }
+.table-action-demo button, .table-action-demo input {
+    width: 100%;
+    min-width: 0px;
+    min-height: 27px;
+    height: 27px;
+    max-height: 27px;
+    padding: 2px 5px;
+    font-size: 11px;
+}
+.table-action-status { width: 100%; min-width: 0px; height: 18px; overflow: hidden; font-size: 11px; }
 @media (max-width: 650px) {
     .runtime-row .showcase-card { width: 100%; }
 }

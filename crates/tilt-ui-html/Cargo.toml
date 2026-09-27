@@ -14,3 +14,4 @@ path = "src/lib.rs"
 tilt-ui-core.workspace = true
 quick-xml.workspace = true
 thiserror.workspace = true
+kuchiki = "0.8"

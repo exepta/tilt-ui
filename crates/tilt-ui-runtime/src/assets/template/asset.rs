@@ -1,16 +1,34 @@
 use bevy::{asset::Asset, reflect::TypePath};
 use tilt_ui_core::Template;
+use tilt_ui_html::{DocumentHead, ParsedDocument};
 
 /// Bevy asset containing a parsed TiltUI component template.
 #[derive(Asset, TypePath, Debug)]
 pub struct UiTemplateAsset {
     template: Template,
+    document_head: Option<DocumentHead>,
 }
 
 impl UiTemplateAsset {
     /// Wraps a parsed TiltUI template as a Bevy asset.
     pub fn new(template: Template) -> Self {
-        Self { template }
+        Self {
+            template,
+            document_head: None,
+        }
+    }
+
+    /// Wraps the parsed entry document and retains its head metadata.
+    pub fn from_document(document: ParsedDocument) -> Self {
+        Self {
+            template: document.template,
+            document_head: Some(document.head),
+        }
+    }
+
+    /// Returns head metadata only for an `index.html` asset.
+    pub fn document_head(&self) -> Option<&DocumentHead> {
+        self.document_head.as_ref()
     }
 
     /// Returns the parsed template retained by this asset.

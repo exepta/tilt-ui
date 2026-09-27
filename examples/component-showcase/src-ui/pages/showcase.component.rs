@@ -36,6 +36,7 @@ struct ShowcaseState {
     slider_value: u32,
     event_name: String,
     event_detail: String,
+    table_feedback: String,
     custom_fps: u32,
     custom_fps_disabled: bool,
     current_fps: String,
@@ -67,6 +68,7 @@ fn show_page(mut commands: Commands, mut localization: ResMut<UiLocalization>) {
         slider_value: 75,
         event_name: "init".into(),
         event_detail: String::new(),
+        table_feedback: "—".into(),
         custom_fps: 120,
         custom_fps_disabled: true,
         current_fps: "--".into(),
@@ -330,6 +332,18 @@ fn track_event(In(event): In<HtmlEvent>, mut state: ResMut<ShowcaseState>) {
         .unwrap_or_default();
 }
 
+#[html_fn("table_action")]
+fn table_action(In(event): In<HtmlEvent>, mut state: ResMut<ShowcaseState>) {
+    state.table_feedback = match event.kind {
+        "click" => "✓".into(),
+        "change" => event
+            .value
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "—".into()),
+        _ => return,
+    };
+}
+
 #[html_fn("open_rust_dialog")]
 fn open_rust_dialog(
     In(click): In<HtmlClick>,
@@ -412,6 +426,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn table_button_and_input_actions_update_the_visible_result() {
+        let mut app = App::new();
+        app.insert_resource(ShowcaseState {
+            progress: 0.0,
+            progress_label: 0,
+            slider_value: 0,
+            event_name: String::new(),
+            event_detail: String::new(),
+            table_feedback: "—".into(),
+            custom_fps: 60,
+            custom_fps_disabled: true,
+            current_fps: "--".into(),
+            started_at: 0.0,
+        });
+        let handler = app.world_mut().register_system(table_action);
+        let target = app.world_mut().spawn_empty().id();
+        let event = |kind, value| HtmlEvent {
+            target,
+            kind,
+            value,
+            submitter: None,
+            data: Default::default(),
+            handler: "table_action".into(),
+        };
+        app.world_mut()
+            .run_system_with(handler, event("click", None))
+            .unwrap();
+        assert_eq!(app.world().resource::<ShowcaseState>().table_feedback, "✓");
+        app.world_mut()
+            .run_system_with(handler, event("change", Some("Test".into())))
+            .unwrap();
+        assert_eq!(app.world().resource::<ShowcaseState>().table_feedback, "Test");
+    }
+
+    #[test]
     fn current_fps_uses_recent_frames_after_a_rate_change() {
         let mut sample = None;
         assert_eq!(sampled_fps(&mut sample, 0, 0.0), None);
@@ -429,6 +478,7 @@ mod tests {
                 slider_value: 75,
                 event_name: String::new(),
                 event_detail: String::new(),
+                table_feedback: "—".into(),
                 custom_fps: 120,
                 custom_fps_disabled: true,
                 current_fps: "--".into(),
@@ -601,6 +651,7 @@ mod tests {
                 slider_value: 75,
                 event_name: String::new(),
                 event_detail: String::new(),
+                table_feedback: "—".into(),
                 custom_fps: 120,
                 custom_fps_disabled: true,
                 current_fps: "--".into(),

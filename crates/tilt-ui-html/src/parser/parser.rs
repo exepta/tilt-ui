@@ -17,7 +17,24 @@ use super::{TemplateParseError, attribute::parse_attribute};
 /// not perform component discovery, expression evaluation, or runtime work.
 pub fn parse_template(source: &str) -> Result<Template, TemplateParseError> {
     let (uses, markup) = extract_uses(source)?;
-    let mut reader = Reader::from_str(&markup);
+    let markup = super::control::expand(&markup)?;
+    match parse_strict_template(uses.clone(), &markup) {
+        Ok(template) => Ok(template),
+        Err(
+            error @ (TemplateParseError::Xml(_)
+            | TemplateParseError::UnexpectedClosingTag { .. }
+            | TemplateParseError::ClosingTagWithoutOpenElement(_)
+            | TemplateParseError::UnclosedElement(_)),
+        ) => super::document::parse_html_fragment(&markup, uses).or(Err(error)),
+        Err(error) => Err(error),
+    }
+}
+
+fn parse_strict_template(
+    uses: Vec<TemplateUse>,
+    markup: &str,
+) -> Result<Template, TemplateParseError> {
+    let mut reader = Reader::from_str(markup);
     let mut template = Template {
         roots: Vec::new(),
         nodes: Vec::new(),
@@ -104,7 +121,7 @@ pub fn parse_template(source: &str) -> Result<Template, TemplateParseError> {
     }
 }
 
-fn extract_uses(source: &str) -> Result<(Vec<TemplateUse>, String), TemplateParseError> {
+pub(super) fn extract_uses(source: &str) -> Result<(Vec<TemplateUse>, String), TemplateParseError> {
     let mut uses = Vec::new();
     let mut markup = String::new();
     for line in source.lines() {
@@ -157,12 +174,12 @@ fn valid_alias(value: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
-fn is_table_wrapper(tag: &str) -> bool {
+pub(super) fn is_table_wrapper(tag: &str) -> bool {
     matches!(tag, "tr" | "thead" | "tbody" | "tfoot")
 }
 
 #[derive(Default)]
-struct TableContext {
+pub(super) struct TableContext {
     next_row: usize,
     current_row: Option<usize>,
     column: usize,
@@ -170,7 +187,7 @@ struct TableContext {
 }
 
 impl TableContext {
-    fn enter(&mut self, tag: &str, attributes: &mut Vec<TemplateAttribute>) {
+    pub(super) fn enter(&mut self, tag: &str, attributes: &mut Vec<TemplateAttribute>) {
         match tag {
             "thead" => self.section = Some("head"),
             "tbody" => self.section = Some("body"),
@@ -209,7 +226,7 @@ impl TableContext {
         }
     }
 
-    fn leave(&mut self, tag: &str) {
+    pub(super) fn leave(&mut self, tag: &str) {
         match tag {
             "tr" => self.current_row = None,
             "thead" | "tbody" | "tfoot" => self.section = None,
@@ -218,7 +235,7 @@ impl TableContext {
     }
 }
 
-fn append_tag(
+pub(super) fn append_tag(
     template: &mut Template,
     stack: &[NodeId],
     tag: &str,
@@ -243,7 +260,7 @@ fn append_tag(
     append_node(template, stack, kind, attributes)
 }
 
-fn append_text(
+pub(super) fn append_text(
     template: &mut Template,
     stack: &[NodeId],
     text: String,
@@ -483,7 +500,45 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_nesting() {
-        assert!(parse_template("<div><button></div>").is_err());
+    fn recovers_invalid_html5_nesting() {
+        let template = parse_template("<div><button></div>").unwrap();
+        assert_eq!(template.roots().len(), 1);
+    }
+
+    #[test]
+    fn parses_angular_style_controls_as_nested_template_nodes() {
+        let template = parse_template(
+            "<div>@let label = 'Rust'; @if (label.equals('Rust') && true) {<p>Yes</p>} @else {<p>No</p>} @for ((item, index) in items; track item.id) {<p>{{ item.name }}</p>} @match (label) { 'Rust' => {<b>R</b>}, _ => {<b>X</b>} }</div>",
+        ).unwrap();
+        assert!(template.nodes.iter().any(|node| matches!(&node.kind, TemplateNodeKind::Component(name) if name.as_str() == "tilt-flow-let")));
+        assert!(template.nodes.iter().any(|node| matches!(&node.kind, TemplateNodeKind::Component(name) if name.as_str() == "tilt-flow-for")));
+        assert!(template.nodes.iter().any(|node| matches!(&node.kind, TemplateNodeKind::Component(name) if name.as_str() == "tilt-flow-match")));
+        assert!(template.nodes.iter().any(|node| node.attributes.iter().any(|attribute| matches!(attribute, TemplateAttribute::Static { name, value } if name == "expression" && value.contains("&&")))));
+    }
+
+    #[test]
+    fn parses_basic_control_showcase() {
+        let source = include_str!("../../../../examples/basic/src-ui/pages/main.component.html");
+        let template = parse_template(source).unwrap();
+        assert!(template.nodes.len() > 50);
+        for expected in ["tilt-flow-let", "tilt-flow-match", "tilt-flow-for"] {
+            assert!(template.nodes.iter().any(|node| matches!(&node.kind, TemplateNodeKind::Component(name) if name.as_str() == expected)), "missing {expected}");
+        }
+        assert_eq!(template.roots().len(), 1);
+        assert!(template.nodes.iter().any(|node| matches!(&node.kind, TemplateNodeKind::Text(value) if value.contains("The +/- buttons"))));
+    }
+
+    #[test]
+    fn let_scope_stops_at_control_block_and_keeps_following_siblings() {
+        let template =
+            parse_template("@if (true) {@let label = 'A'; <p>{{ label }}</p>} <p>tail</p>")
+                .unwrap();
+        assert_eq!(template.roots().len(), 2);
+        assert!(
+            template
+                .nodes
+                .iter()
+                .any(|node| matches!(&node.kind, TemplateNodeKind::Text(text) if text == "tail"))
+        );
     }
 }

@@ -1,13 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use bevy::{
     app::{App, Plugin, Update},
-    asset::Assets,
+    asset::{AssetEvent, Assets, Handle},
     ecs::{
         change_detection::DetectChanges,
         component::Component,
         entity::Entity,
         hierarchy::ChildOf,
+        message::MessageReader,
         query::Changed,
         resource::Resource,
         system::{Commands, Query, Res, ResMut},
@@ -17,6 +21,7 @@ use bevy::{
     window::{PrimaryWindow, Window},
 };
 
+use crate::component::document::DocumentStylesheets;
 use crate::scroll::ensure_scrollbar_parts;
 use crate::theme::DefaultThemeStyleSheet;
 use crate::{
@@ -28,6 +33,7 @@ use crate::{ProviderContext, ProviderEffect, ProviderScope, UiProviderRegistry, 
 use super::{
     apply::resolve_and_apply_tree,
     cascade::{Cascade, StyleOrigin, key},
+    inline::InlineStyle,
     matcher::{SelectorView, matching_specificity},
     motion::{reconcile_scope, tick_animations},
 };
@@ -37,6 +43,7 @@ type SelectorMetadataChanged = bevy::ecs::query::Or<(
     Changed<ElementClasses>,
     Changed<ElementId>,
     Changed<StaticAttributes>,
+    Changed<InlineStyle>,
 )>;
 
 /// Stores the viewport used to evaluate typed CSS media conditions.
@@ -55,6 +62,9 @@ struct StyleInvalidations(HashMap<Entity, HashSet<Entity>>);
 
 #[derive(Component)]
 struct StyleSelectorCache(SelectorView);
+
+#[derive(Resource)]
+struct DocumentStyleSheet(Arc<tilt_ui_css::StyleSheet>);
 
 /// Registers component-scoped CSS matching, cascade, and Bevy UI application.
 #[derive(Debug, Clone, Copy)]
@@ -80,6 +90,7 @@ impl TiltUiStyleRuntimePlugin {
 
 impl Plugin for TiltUiStyleRuntimePlugin {
     fn build(&self, app: &mut App) {
+        app.add_message::<AssetEvent<UiStyleSheetAsset>>();
         if self.default_theme && !app.world().contains_resource::<DefaultThemeStyleSheet>() {
             app.insert_resource(DefaultThemeStyleSheet::parse());
         }
@@ -89,6 +100,7 @@ impl Plugin for TiltUiStyleRuntimePlugin {
             Update,
             (
                 mark_theme_changes,
+                refresh_document_styles,
                 invalidate_responsive_styles,
                 mark_ready_author_styles,
                 mark_changed_style_owners,
@@ -97,8 +109,42 @@ impl Plugin for TiltUiStyleRuntimePlugin {
             )
                 .chain()
                 .after(TiltUiComponentRuntimeSet::Instantiate)
-                .after(TiltControlSystems::Selection),
+                .after(TiltControlSystems::Selection)
+                .after(crate::component::binding_runtime::apply_bindings),
         );
+    }
+}
+
+fn refresh_document_styles(
+    mut commands: Commands,
+    links: Option<Res<DocumentStylesheets>>,
+    mut events: MessageReader<AssetEvent<UiStyleSheetAsset>>,
+    assets: Res<Assets<UiStyleSheetAsset>>,
+    current: Option<Res<DocumentStyleSheet>>,
+    scopes: Query<Entity, bevy::ecs::query::With<ComponentAssetHandles>>,
+) {
+    let changed = events.read().any(|event| {
+        let id = match event {
+            AssetEvent::Added { id }
+            | AssetEvent::Modified { id }
+            | AssetEvent::Removed { id }
+            | AssetEvent::Unused { id }
+            | AssetEvent::LoadedWithDependencies { id } => *id,
+        };
+        links
+            .as_ref()
+            .is_some_and(|links| links.0.iter().any(|handle| handle.id() == id))
+    });
+    let Some(links) = links else { return };
+    if !links.is_changed() && !changed && current.is_some() {
+        return;
+    }
+    let Some(stylesheet) = merge_stylesheets(&assets, links.0.iter()) else {
+        return;
+    };
+    commands.insert_resource(DocumentStyleSheet(Arc::new(stylesheet)));
+    for scope in &scopes {
+        commands.entity(scope).insert(StyleDirty);
     }
 }
 
@@ -296,8 +342,18 @@ fn merge_author_stylesheets(
     assets: &Assets<UiStyleSheetAsset>,
     handles: &ComponentAssetHandles,
 ) -> Option<tilt_ui_css::StyleSheet> {
+    merge_stylesheets(
+        assets,
+        std::iter::once(&handles.stylesheet).chain(&handles.additional_stylesheets),
+    )
+}
+
+fn merge_stylesheets<'a>(
+    assets: &Assets<UiStyleSheetAsset>,
+    handles: impl IntoIterator<Item = &'a Handle<UiStyleSheetAsset>>,
+) -> Option<tilt_ui_css::StyleSheet> {
     let mut merged = tilt_ui_css::StyleSheet::default();
-    for handle in std::iter::once(&handles.stylesheet).chain(&handles.additional_stylesheets) {
+    for handle in handles {
         let sheet = assets.get(handle)?.stylesheet();
         let offset = merged
             .rules
@@ -348,9 +404,13 @@ fn restyle_scope(
 ) -> Option<tilt_ui_css::StyleSheet> {
     let stylesheet =
         merge_author_stylesheets(world.resource::<Assets<UiStyleSheetAsset>>(), handles);
+    let document_styles = world
+        .get_resource::<DocumentStyleSheet>()
+        .map(|styles| styles.0.clone());
     let has_provider_scopes = world.query::<&ProviderScope>().iter(world).next().is_some();
     if default_theme.is_none()
         && stylesheet.is_none()
+        && document_styles.is_none()
         && themes.active().is_none()
         && !has_provider_scopes
     {
@@ -396,6 +456,14 @@ fn restyle_scope(
             StyleOrigin::NamedTheme,
             environment,
         );
+        apply_stylesheet(
+            &mut cascade,
+            &view,
+            entity,
+            document_styles.as_deref(),
+            StyleOrigin::Document,
+            environment,
+        );
         for (index, sheet) in &extra_styles {
             apply_stylesheet(
                 &mut cascade,
@@ -414,6 +482,7 @@ fn restyle_scope(
             StyleOrigin::Author,
             environment,
         );
+        apply_inline_style(&mut cascade, world.get::<InlineStyle>(entity));
         let next = cascade.finish();
         let previous = world.get::<super::state::CascadedStyle>(entity);
         if previous != Some(&next) {
@@ -452,6 +521,14 @@ fn restyle_scope(
                 StyleOrigin::NamedTheme,
                 environment,
             );
+            apply_stylesheet(
+                &mut cascade,
+                &view,
+                entity,
+                document_styles.as_deref(),
+                StyleOrigin::Document,
+                environment,
+            );
             for (index, sheet) in &extra_styles {
                 apply_stylesheet(
                     &mut cascade,
@@ -470,6 +547,7 @@ fn restyle_scope(
                 StyleOrigin::Author,
                 environment,
             );
+            apply_inline_style(&mut cascade, world.get::<InlineStyle>(entity));
             world.entity_mut(entity).insert(cascade.finish());
         }
     }
@@ -583,6 +661,16 @@ fn apply_rule(
     }
 }
 
+fn apply_inline_style(cascade: &mut Cascade, inline: Option<&InlineStyle>) {
+    let Some(inline) = inline else { return };
+    for (index, declaration) in inline.declarations.iter().enumerate() {
+        cascade.apply(
+            declaration,
+            key(StyleOrigin::Inline, tilt_ui_css::Specificity(0), 0, index),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::{
@@ -600,11 +688,13 @@ mod tests {
     use tilt_ui_css::parse_stylesheet;
 
     use super::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin, merge_author_stylesheets};
+    use crate::style::InlineStyle;
     use crate::{
         ComponentAssetHandles, ComponentStyleOwner, ControlChecked, ElementClasses, ElementId,
-        ElementState, ProviderContext, ProviderEffect, ProviderScope, StyleDirty, ThemeProvider,
-        TiltElement, TiltText, UiProvider, UiProviderRegistry, UiStyleSheetAsset, UiTemplateAsset,
-        UiThemes, register_ui_theme, set_control_checked, switch_ui_theme,
+        ElementState, PropertyBinding, PropertyBindings, ProviderContext, ProviderEffect,
+        ProviderScope, StyleDirty, ThemeProvider, TiltElement, TiltText, UiProvider,
+        UiProviderRegistry, UiStyleSheetAsset, UiTemplateAsset, UiThemes, register_ui_theme,
+        set_control_checked, switch_ui_theme,
     };
 
     #[derive(Clone, Copy)]
@@ -679,8 +769,96 @@ mod tests {
     fn app() -> App {
         let mut app = App::new();
         app.insert_resource(Assets::<UiStyleSheetAsset>::default());
+        app.add_message::<bevy::asset::AssetEvent<UiStyleSheetAsset>>();
         app.add_plugins(TiltUiStyleRuntimePlugin::default().with_default_theme(false));
         app
+    }
+
+    #[test]
+    fn document_css_reaches_nested_component_scopes_before_author_css() {
+        let mut app = app();
+        let linked = stylesheet(
+            app.world_mut(),
+            "button { background-color: #123456; width: 50px; }",
+        );
+        app.world_mut()
+            .insert_resource(crate::component::document::DocumentStylesheets(vec![
+                linked,
+            ]));
+        let empty = stylesheet(app.world_mut(), "");
+        let document = owner(app.world_mut(), empty);
+        let nested_author = stylesheet(app.world_mut(), "button { width: 80px; }");
+        let nested = owner(app.world_mut(), nested_author);
+        app.world_mut().entity_mut(document).add_child(nested);
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(nested),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(nested).add_child(button);
+        app.update();
+        assert_eq!(
+            app.world().get::<BackgroundColor>(button).unwrap().0,
+            Color::srgb(18.0 / 255.0, 52.0 / 255.0, 86.0 / 255.0)
+        );
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(80.0)
+        );
+    }
+
+    #[test]
+    fn bound_inline_style_overrides_author_and_restores_static_style_when_cleared() {
+        let mut app = app();
+        app.world_mut().init_resource::<crate::UiBindingStore>();
+        app.world_mut().init_resource::<crate::UiSharedValues>();
+        let author = stylesheet(app.world_mut(), "button { width: 24px; }");
+        let boundary = owner(app.world_mut(), author);
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+                InlineStyle::parse("width: 50px;").unwrap(),
+                PropertyBindings {
+                    bindings: vec![PropertyBinding {
+                        name: "style".into(),
+                        expression: "'width: 80px;'".into(),
+                    }],
+                },
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(button);
+        crate::component::binding_runtime::apply_bindings(app.world_mut());
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(80.0)
+        );
+
+        app.world_mut()
+            .get_mut::<PropertyBindings>(button)
+            .unwrap()
+            .bindings[0]
+            .expression = "''".into();
+        crate::component::binding_runtime::apply_bindings(app.world_mut());
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(50.0)
+        );
+        assert_eq!(
+            app.world().get::<ComponentStyleOwner>(button).unwrap().0,
+            boundary
+        );
     }
 
     fn themed_app() -> App {

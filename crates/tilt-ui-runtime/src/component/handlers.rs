@@ -25,9 +25,15 @@ use bevy_picking::{
     pointer::PointerId,
 };
 
-use crate::{ControlActivated, ControlCheckedChanged, EditableTextChanged, FormSubmitted};
+use crate::{
+    ColorPickerChanged, ControlActivated, ControlCheckedChanged, EditableTextChanged,
+    FormSubmitted, OptionSelectionChanged, SliderChanged,
+};
 
-use super::{EventBindings, StaticAttributes, TiltElement};
+use super::{
+    EventBindings, StaticAttributes, TiltElement,
+    inline_actions::{EventCall, execute_mutation, parse_script},
+};
 
 /// A template event delivered to a Rust `#[html_fn]` handler.
 ///
@@ -151,23 +157,50 @@ struct HandlerSystems(HashMap<&'static str, SystemId<In<HtmlEvent>, ()>>);
 #[derive(bevy::ecs::resource::Resource, Default)]
 struct HandlerCursor(MessageCursor<HtmlEvent>);
 
+#[derive(bevy::ecs::resource::Resource, Default)]
+struct InlineActionCache(HashMap<String, Result<Vec<EventCall>, String>>);
+
 pub(super) fn install(app: &mut App) {
     super::binding::install(app);
+    super::method::install(app);
     for registration in inventory::iter::<ComponentInitRegistration> {
         (registration.register)(app);
     }
     for registration in inventory::iter::<ComponentUpdateRegistration> {
         (registration.register)(app);
     }
-    app.add_message::<HtmlEvent>()
+    // The code plugin is also usable on its own in minimal Bevy apps.
+    // Register every input stream that its forwarders read.
+    app.add_message::<KeyboardInput>()
+        .add_message::<Pointer<Over>>()
+        .add_message::<Pointer<Out>>()
+        .add_message::<Pointer<Enter>>()
+        .add_message::<Pointer<Leave>>()
+        .add_message::<Pointer<Press>>()
+        .add_message::<Pointer<Release>>()
+        .add_message::<Pointer<Move>>()
+        .add_message::<Pointer<DragStart>>()
+        .add_message::<Pointer<Drag>>()
+        .add_message::<Pointer<DragEnd>>()
+        .add_message::<Pointer<Scroll>>()
+        .add_message::<HtmlEvent>()
         .add_message::<FormSubmitted>()
+        .add_message::<ControlActivated>()
+        .add_message::<ControlCheckedChanged>()
+        .add_message::<EditableTextChanged>()
+        .add_message::<SliderChanged>()
+        .add_message::<OptionSelectionChanged>()
+        .add_message::<ColorPickerChanged>()
+        .init_resource::<InputFocus>()
         .init_resource::<HandlerCursor>()
+        .init_resource::<InlineActionCache>()
         .add_observer(forward_focus_gained)
         .add_observer(forward_focus_lost)
         .add_systems(
             Update,
             (
                 super::binding::refresh_shared_values,
+                super::flow::update_flow,
                 super::binding_runtime::apply_bindings,
             )
                 .chain()
@@ -175,7 +208,14 @@ pub(super) fn install(app: &mut App) {
         )
         .add_systems(
             Update,
-            (forward_activations, forward_checked, forward_edited)
+            (
+                forward_activations,
+                forward_checked,
+                forward_edited,
+                forward_slider_changed,
+                forward_option_changed,
+                forward_color_changed,
+            )
                 .after(crate::control::TiltControlSystems::Selection),
         )
         .add_systems(
@@ -216,6 +256,9 @@ pub(super) fn install(app: &mut App) {
                 .after(forward_activations)
                 .after(forward_checked)
                 .after(forward_edited)
+                .after(forward_slider_changed)
+                .after(forward_option_changed)
+                .after(forward_color_changed)
                 .after(forward_submissions),
         );
 
@@ -634,12 +677,16 @@ fn handler_for(
         });
     handler
         .map(|handler| {
-            handler
-                .trim()
-                .strip_suffix("()")
-                .unwrap_or(handler.trim())
-                .trim()
-                .to_owned()
+            let handler = handler.trim();
+            if handler.starts_with('$') || handler.contains(';') {
+                handler.to_owned()
+            } else {
+                handler
+                    .strip_suffix("()")
+                    .unwrap_or(handler)
+                    .trim()
+                    .to_owned()
+            }
         })
         .filter(|handler| !handler.is_empty())
 }
@@ -676,12 +723,16 @@ fn forward_checked(
             continue;
         };
         if let Some(handler) = handler_for("change", attributes, bindings) {
+            let mut data = BTreeMap::new();
+            data.insert("checked".into(), change.checked.to_string());
+            data.insert("selected".into(), change.checked.to_string());
+            data.insert("value_type".into(), "boolean".into());
             events.write(HtmlEvent {
                 target: change.entity,
                 kind: "change",
                 value: Some(change.checked.to_string()),
                 submitter: None,
-                data: BTreeMap::new(),
+                data,
                 handler,
             });
         }
@@ -704,6 +755,99 @@ fn forward_edited(
                 value: Some(change.value.clone()),
                 submitter: None,
                 data: BTreeMap::new(),
+                handler,
+            });
+        }
+    }
+}
+
+fn forward_slider_changed(
+    mut source: MessageReader<SliderChanged>,
+    elements: Query<(Option<&StaticAttributes>, Option<&EventBindings>)>,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    for change in source.read() {
+        let Ok((attributes, bindings)) = elements.get(change.entity) else {
+            continue;
+        };
+        if let Some(handler) = handler_for("change", attributes, bindings) {
+            let mut data = BTreeMap::new();
+            data.insert("value_type".into(), "number".into());
+            if let Some(upper) = change.upper {
+                data.insert("upper".into(), upper.to_string());
+            }
+            events.write(HtmlEvent {
+                target: change.entity,
+                kind: "change",
+                value: Some(change.value.to_string()),
+                submitter: None,
+                data,
+                handler,
+            });
+        }
+    }
+}
+
+fn forward_option_changed(
+    mut source: MessageReader<OptionSelectionChanged>,
+    elements: Query<(Option<&StaticAttributes>, Option<&EventBindings>)>,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    for change in source.read() {
+        let Ok((attributes, bindings)) = elements.get(change.control) else {
+            continue;
+        };
+        if let Some(handler) = handler_for("change", attributes, bindings) {
+            let mut data = BTreeMap::new();
+            data.insert("selected".into(), change.selected.to_string());
+            data.insert("text".into(), change.value.clone());
+            events.write(HtmlEvent {
+                target: change.control,
+                kind: "change",
+                value: Some(change.value.clone()),
+                submitter: None,
+                data,
+                handler,
+            });
+        }
+    }
+}
+
+fn forward_color_changed(
+    mut source: MessageReader<ColorPickerChanged>,
+    elements: Query<(Option<&StaticAttributes>, Option<&EventBindings>)>,
+    mut events: MessageWriter<HtmlEvent>,
+) {
+    for change in source.read() {
+        let Ok((attributes, bindings)) = elements.get(change.entity) else {
+            continue;
+        };
+        if let Some(handler) = handler_for("change", attributes, bindings) {
+            let color = change.value;
+            let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let (red, green, blue) = (
+                channel(color.red),
+                channel(color.green),
+                channel(color.blue),
+            );
+            let hex = format!("#{red:02X}{green:02X}{blue:02X}");
+            let mut data = BTreeMap::new();
+            data.insert("hex".into(), hex.clone());
+            data.insert("rgb".into(), format!("rgb({red}, {green}, {blue})"));
+            data.insert(
+                "rgba".into(),
+                format!("rgba({red}, {green}, {blue}, {:.3})", color.alpha),
+            );
+            data.insert("red".into(), red.to_string());
+            data.insert("green".into(), green.to_string());
+            data.insert("blue".into(), blue.to_string());
+            data.insert("alpha".into(), channel(color.alpha).to_string());
+            events.write(HtmlEvent {
+                target: change.entity,
+                kind: "change",
+                value: Some(hex),
+                submitter: None,
+                data,
                 handler,
             });
         }
@@ -745,13 +889,46 @@ fn dispatch_html_events(world: &mut World) {
         },
     );
     for event in events {
-        let system = world
-            .resource::<HandlerSystems>()
-            .0
-            .get(event.handler.as_str())
-            .copied();
-        if let Some(system) = system {
-            let _ = world.run_system_with(system, event);
+        let script =
+            if let Some(script) = world.resource::<InlineActionCache>().0.get(&event.handler) {
+                script.clone()
+            } else {
+                let script = parse_script(&event.handler);
+                let mut cache = world.resource_mut::<InlineActionCache>();
+                if cache.0.len() >= 256 {
+                    cache.0.clear();
+                }
+                cache.0.insert(event.handler.clone(), script.clone());
+                script
+            };
+        let Ok(script) = script else {
+            bevy::log::warn!(
+                "Invalid HTML event script '{}': {}",
+                event.handler,
+                script.unwrap_err()
+            );
+            continue;
+        };
+        for call in script {
+            match call {
+                EventCall::Handler(name) => {
+                    let system = world
+                        .resource::<HandlerSystems>()
+                        .0
+                        .get(name.as_str())
+                        .copied();
+                    if let Some(system) = system {
+                        let mut forwarded = event.clone();
+                        forwarded.handler = name;
+                        let _ = world.run_system_with(system, forwarded);
+                    }
+                }
+                call @ EventCall::Mutation { .. } => {
+                    if let Err(error) = execute_mutation(world, &event, &call) {
+                        bevy::log::warn!("HTML inline action: {error}");
+                    }
+                }
+            }
         }
     }
 }

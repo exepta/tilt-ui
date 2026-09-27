@@ -9,8 +9,8 @@ use bevy::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tilt_ui::{
-    ControlActivated, HtmlClick, HtmlEvent, HtmlSubmit, TiltUiCodePlugin, beu_routes,
-    component_init, component_update, html_fn, html_shared, html_use,
+    ControlActivated, HtmlClick, HtmlEvent, HtmlSubmit, TiltUiCodePlugin, component_init,
+    component_update, html_fn, html_shared, html_use, ui_routes,
 };
 
 mod imported {
@@ -59,9 +59,16 @@ fn saved(In(event): In<HtmlSubmit>, mut hits: ResMut<Hits>) {
     hits.submitted += 1;
 }
 
-#[derive(Default, tilt_ui::BeuStore, tilt_ui::serde::Serialize)]
+#[derive(Default, tilt_ui::UiStore, tilt_ui::serde::Serialize)]
 struct Profile {
     name: String,
+}
+
+#[derive(Default, tilt_ui::UiStore, tilt_ui::serde::Serialize, tilt_ui::serde::Deserialize)]
+#[ui_store(mutable)]
+struct InlineState {
+    count: i32,
+    enabled: bool,
 }
 
 #[html_shared]
@@ -83,7 +90,7 @@ impl tilt_ui::serde::Serialize for CountedState {
     }
 }
 
-#[beu_routes]
+#[ui_routes]
 fn application_routes() -> tilt_ui::Routes {
     tilt_ui::Routes::new()
         .route("/", tilt_ui::ComponentId(1))
@@ -128,6 +135,65 @@ fn macros_register_and_dispatch_rust_systems() {
         .write(ControlActivated { entity });
     app.update();
     assert_eq!(app.world().resource::<Hits>().typed_clicked, 1);
+}
+
+#[test]
+fn inline_actions_dispatch_with_rust_handlers_and_update_bindings() {
+    let mut app = App::new();
+    app.init_resource::<Hits>().add_plugins(TiltUiCodePlugin);
+    let button = app
+        .world_mut()
+        .spawn(tilt_ui::StaticAttributes {
+            attributes: vec![tilt_ui::StaticAttribute {
+                name: "onclick".into(),
+                value: "$add(inlineState.count, 2); typed_click(); $toggle(inlineState.enabled)"
+                    .into(),
+            }],
+        })
+        .id();
+    let checkbox = app
+        .world_mut()
+        .spawn(tilt_ui::StaticAttributes {
+            attributes: vec![tilt_ui::StaticAttribute {
+                name: "onchange".into(),
+                value: "$set(inlineState.enabled, $event.checked)".into(),
+            }],
+        })
+        .id();
+    let text = app
+        .world_mut()
+        .spawn((
+            tilt_ui::TiltText {
+                value: "{{ inlineState.count }}".into(),
+            },
+            Text::new(""),
+        ))
+        .id();
+    app.update();
+    app.world_mut()
+        .resource_mut::<Messages<ControlActivated>>()
+        .write(ControlActivated { entity: button });
+    app.update();
+    let state = app.world().resource::<tilt_ui::UiBindingStore>();
+    assert_eq!(state.get_store::<InlineState>().unwrap().count, 2);
+    assert!(state.get_store::<InlineState>().unwrap().enabled);
+    assert_eq!(app.world().resource::<Hits>().typed_clicked, 1);
+
+    app.world_mut()
+        .resource_mut::<Messages<tilt_ui::ControlCheckedChanged>>()
+        .write(tilt_ui::ControlCheckedChanged {
+            entity: checkbox,
+            checked: false,
+        });
+    app.update();
+    assert!(
+        !app.world()
+            .resource::<tilt_ui::UiBindingStore>()
+            .get_store::<InlineState>()
+            .unwrap()
+            .enabled
+    );
+    assert_eq!(app.world().get::<Text>(text).unwrap().0, "2");
 }
 
 #[test]

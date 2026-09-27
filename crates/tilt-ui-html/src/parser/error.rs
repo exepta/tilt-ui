@@ -3,6 +3,9 @@ use thiserror::Error;
 /// Describes a failure while parsing a TiltUI component template.
 #[derive(Debug, Error)]
 pub enum TemplateParseError {
+    /// A template control directive has invalid syntax.
+    #[error("invalid template control directive: {0}")]
+    InvalidControl(String),
     /// A template import does not use the supported `@use "Target" as alias;` form.
     #[error("invalid @use directive: {0}")]
     InvalidUse(String),

@@ -8,4 +8,7 @@ mod mapping;
 mod parser;
 
 pub use mapping::{is_builtin_element_tag, map_element};
-pub use parser::{TemplateParseError, is_valid_component_name, parse_template};
+pub use parser::{
+    DocumentHead, ParsedDocument, TemplateParseError, is_valid_component_name, parse_document,
+    parse_template,
+};

@@ -39,6 +39,12 @@ designer = Designer
 developer = Developer
 product = Product
 cell = Cell
+table-actions-label = Table actions
+table-action-kind = Control
+table-action-demo = Action
+table-action-button = Click
+table-action-placeholder = Type here
+table-action-last = Result
 
 content-title = Content
 content-subtitle = Text, media and content elements

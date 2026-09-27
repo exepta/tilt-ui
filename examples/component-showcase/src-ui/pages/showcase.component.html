@@ -1,106 +1,641 @@
 @use "ShowcaseState" as demo;
 <body class="showcase-page">
     <div class="site-header">
-        <div class="site-title"><h1>{{ i18n.site-title }}</h1><p>{{ i18n.site-subtitle }}</p></div>
-        <div class="site-aside"><p>{{ i18n.site-motto }}</p><p>{{ i18n.site-promise }}</p></div>
-        <div class="language-picker"><p>{{ i18n.language-label }}</p><choice-box id="language-choice" max-visible-items="2"><option value="en-US" selected="true">English</option><option value="de-DE">Deutsch</option></choice-box></div>
-        <div class="theme-picker"><p>{{ i18n.theme-label }}</p><choice-box id="theme-choice" max-visible-items="2"><option value="light" selected="true">{{ i18n.theme-light }}</option><option value="dark">{{ i18n.theme-dark }}</option></choice-box></div>
-        <div class="site-logo"><p>UI</p><p>{{ i18n.site-logo-caption }}</p></div>
+        <div class="site-title">
+            <h1>{{ i18n.site-title }}</h1>
+            <p>{{ i18n.site-subtitle }}</p>
+        </div>
+        <div class="site-aside">
+            <p>{{ i18n.site-motto }}</p>
+            <p>{{ i18n.site-promise }}</p>
+        </div>
+        <div class="language-picker">
+            <p>{{ i18n.language-label }}</p>
+            <choice-box id="language-choice" max-visible-items="2">
+                <option value="en-US" selected="true">English</option>
+                <option value="de-DE">Deutsch</option>
+            </choice-box>
+        </div>
+        <div class="theme-picker">
+            <p>{{ i18n.theme-label }}</p>
+            <choice-box id="theme-choice" max-visible-items="2">
+                <option value="light" selected="true">{{ i18n.theme-light }}</option>
+                <option value="dark">{{ i18n.theme-dark }}</option>
+            </choice-box>
+        </div>
+        <div class="site-logo">
+            <p>UI</p>
+            <p>{{ i18n.site-logo-caption }}</p>
+        </div>
     </div>
+
     <div class="fps-toolbar">
         <p>{{ i18n.fps-label }}</p>
-        <choice-box id="fps-choice" max-visible-items="4"><option value="30">30 FPS</option><option value="45">45 FPS</option><option value="60" selected="true">60 FPS</option><option value="custom">{{ i18n.fps-custom }}</option></choice-box>
-        <input id="fps-custom" type="number" min="1" max="1000" value="120" [disabled]="showcaseState.custom_fps_disabled" />
+        <choice-box id="fps-choice" max-visible-items="4">
+            <option value="30">30 FPS</option>
+            <option value="45">45 FPS</option>
+            <option value="60" selected="true">60 FPS</option>
+            <option value="custom">{{ i18n.fps-custom }}</option>
+        </choice-box>
+        <input
+            id="fps-custom"
+            type="number"
+            min="1"
+            max="1000"
+            value="120"
+            [disabled]="showcaseState.custom_fps_disabled"
+        />
         <p class="fps-current">{{ i18n.fps-current }}: {{ showcaseState.current_fps }} FPS</p>
     </div>
 
     <div class="showcase-section">
-        <div class="section-heading"><div class="section-index">1</div><h2>{{ i18n.structure-title }}</h2><p>{{ i18n.structure-subtitle }}</p></div>
+        <div class="section-heading">
+            <div class="section-index">1</div>
+            <h2>{{ i18n.structure-title }}</h2>
+            <p>{{ i18n.structure-subtitle }}</p>
+        </div>
         <div class="card-row six-column">
-            <div class="showcase-card"><div class="card-preview"><div class="browser-demo"><div class="browser-bar"><p>●</p><p>●</p><p>●</p></div><p>{{ i18n.body-description }}</p></div></div><p class="card-name">{{ i18n.widget-body }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="div-demo"><p>{{ i18n.div-description }}</p></div></div><p class="card-name">{{ i18n.widget-div }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><form class="mini-form"><p>{{ i18n.contact-title }}</p><input name="contact-name" placeholder="Your name" [placeholder]="i18n.placeholder-name" /><input type="email" name="contact-email" placeholder="you@example.com" /><button>{{ i18n.submit }}</button></form></div><p class="card-name">{{ i18n.widget-form }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><field-set class="mini-fieldset"><p>{{ i18n.personal-info }}</p><p>{{ i18n.name }}</p><input name="person-name" value="Jane Doe" /><p>{{ i18n.email }}</p><input type="email" name="person-email" value="jane@example.com" /></field-set></div><p class="card-name">{{ i18n.widget-field-set }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><table class="mini-table"><thead><tr><th>#</th><th>{{ i18n.name }}</th><th>{{ i18n.role }}</th></tr></thead><tbody><tr><td>1</td><td>Alice</td><td>{{ i18n.designer }}</td></tr><tr><td>2</td><td>Bob</td><td>{{ i18n.developer }}</td></tr><tr><td>3</td><td>Carol</td><td>{{ i18n.product }}</td></tr></tbody></table></div><p class="card-name">{{ i18n.widget-table }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><table class="cell-table"><tbody><tr><td>{{ i18n.cell }} 1</td><td>{{ i18n.cell }} 2</td></tr><tr><td>{{ i18n.cell }} 3</td><td>{{ i18n.cell }} 4</td></tr></tbody></table></div><p class="card-name">{{ i18n.widget-table-cell }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="browser-demo">
+                        <div class="browser-bar">
+                            <p>●</p>
+                            <p>●</p>
+                            <p>●</p>
+                        </div>
+                        <p>{{ i18n.body-description }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-body }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="div-demo">
+                        <p>{{ i18n.div-description }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-div }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <form class="mini-form">
+                        <p>{{ i18n.contact-title }}</p>
+                        <input
+                            name="contact-name"
+                            placeholder="Your name"
+                            [placeholder]="i18n.placeholder-name"
+                        />
+                        <input type="email" name="contact-email" placeholder="you@example.com" />
+                        <button>{{ i18n.submit }}</button>
+                    </form>
+                </div>
+                <p class="card-name">{{ i18n.widget-form }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <field-set class="mini-fieldset">
+                        <p>{{ i18n.personal-info }}</p>
+                        <p>{{ i18n.name }}</p>
+                        <input name="person-name" value="Jane Doe" />
+                        <p>{{ i18n.email }}</p>
+                        <input type="email" name="person-email" value="jane@example.com" />
+                    </field-set>
+                </div>
+                <p class="card-name">{{ i18n.widget-field-set }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="table-action-content">
+                        <table class="mini-table table-action-demo">
+                            <thead>
+                                <tr>
+                                    <th>{{ i18n.table-action-kind }}</th>
+                                    <th>{{ i18n.table-action-demo }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>{{ i18n.widget-button }}</td>
+                                    <td>
+                                        <button id="table-action-button" onclick="table_action">{{ i18n.table-action-button }}</button>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>{{ i18n.widget-input }}</td>
+                                    <td>
+                                        <input
+                                            id="table-action-input"
+                                            type="text"
+                                            [placeholder]="i18n.table-action-placeholder"
+                                            onchange="table_action"
+                                        />
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p class="table-action-status">{{ i18n.table-action-last }}: {{ showcaseState.table_feedback }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.table-actions-label }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <table class="mini-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>{{ i18n.name }}</th>
+                                <th>{{ i18n.role }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>1</td>
+                                <td>Alice</td>
+                                <td>{{ i18n.designer }}</td>
+                            </tr>
+                            <tr>
+                                <td>2</td>
+                                <td>Bob</td>
+                                <td>{{ i18n.developer }}</td>
+                            </tr>
+                            <tr>
+                                <td>3</td>
+                                <td>Carol</td>
+                                <td>{{ i18n.product }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="card-name">{{ i18n.widget-table }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <table class="cell-table">
+                        <tbody>
+                            <tr>
+                                <td>{{ i18n.cell }} 1</td>
+                                <td>{{ i18n.cell }} 2</td>
+                            </tr>
+                            <tr>
+                                <td>{{ i18n.cell }} 3</td>
+                                <td>{{ i18n.cell }} 4</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="card-name">{{ i18n.widget-table-cell }}</p>
+            </div>
         </div>
     </div>
 
     <div class="showcase-section">
-        <div class="section-heading"><div class="section-index">2</div><h2>{{ i18n.content-title }}</h2><p>{{ i18n.content-subtitle }}</p></div>
+        <div class="section-heading">
+            <div class="section-index">2</div>
+            <h2>{{ i18n.content-title }}</h2>
+            <p>{{ i18n.content-subtitle }}</p>
+        </div>
         <div class="card-row six-column">
-            <div class="showcase-card"><div class="card-preview"><p class="paragraph-demo">{{ i18n.paragraph-demo }}</p></div><p class="card-name">{{ i18n.widget-paragraph }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><h3 class="headline-demo">{{ i18n.headline-demo }}</h3></div><p class="card-name">{{ i18n.widget-headline }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><img class="sample-image" src="tilt-ui://media/mountain-lake.png" alt="Purple mountain lake illustration" [alt]="i18n.image-alt" /></div><p class="card-name">{{ i18n.widget-image }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="image-preview-demo"><input id="image-preview-file" type="file" extensions="[png, jpg, jpeg, svg]" /><img class="sample-image preview-image" src="tilt-ui://media/mountain-lake.png" preview="image-preview-file" alt="Selected image preview" [alt]="i18n.image-preview-alt" /></div></div><p class="card-name">{{ i18n.widget-image-preview }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="avatar-wrap"><avatar src="tilt-ui://media/ganyu.jpg" alt="Alex Morgan" /><div class="presence-dot"></div></div></div><p class="card-name">{{ i18n.widget-avatar }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div id="mail-anchor" class="mail-demo"><p>✉</p></div><badge for="mail-anchor" value="2" /></div><p class="card-name">{{ i18n.widget-badge }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><divider class="sample-divider" /></div><p class="card-name">{{ i18n.widget-divider }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <p class="paragraph-demo">{{ i18n.paragraph-demo }}</p>
+                </div>
+                <p class="card-name">{{ i18n.widget-paragraph }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <h3 class="headline-demo">{{ i18n.headline-demo }}</h3>
+                </div>
+                <p class="card-name">{{ i18n.widget-headline }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <img
+                        class="sample-image"
+                        src="tilt-ui://media/mountain-lake.png"
+                        alt="Purple mountain lake illustration"
+                        [alt]="i18n.image-alt"
+                    />
+                </div>
+                <p class="card-name">{{ i18n.widget-image }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="image-preview-demo">
+                        <input id="image-preview-file" type="file" extensions="[png, jpg, jpeg, svg]" />
+                        <img
+                            class="sample-image preview-image"
+                            src="tilt-ui://media/mountain-lake.png"
+                            preview="image-preview-file"
+                            alt="Selected image preview"
+                            [alt]="i18n.image-preview-alt"
+                        />
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-image-preview }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="avatar-wrap">
+                        <avatar src="tilt-ui://media/ganyu.jpg" alt="Alex Morgan" />
+                        <div class="presence-dot"></div>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-avatar }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div id="mail-anchor" class="mail-demo">
+                        <p>✉</p>
+                    </div>
+                    <badge for="mail-anchor" value="2" />
+                </div>
+                <p class="card-name">{{ i18n.widget-badge }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <divider class="sample-divider" />
+                </div>
+                <p class="card-name">{{ i18n.widget-divider }}</p>
+            </div>
         </div>
     </div>
 
     <div class="showcase-section">
-        <div class="section-heading"><div class="section-index">3</div><h2>{{ i18n.controls-title }}</h2><p>{{ i18n.controls-subtitle }}</p></div>
+        <div class="section-heading">
+            <div class="section-index">3</div>
+            <h2>{{ i18n.controls-title }}</h2>
+            <p>{{ i18n.controls-subtitle }}</p>
+        </div>
         <div class="card-row five-column">
-            <div class="showcase-card"><div class="card-preview"><button class="sample-button" onclick="reset_progress">{{ i18n.click-me }}</button></div><p class="card-name">{{ i18n.widget-button }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="checkbox-demo"><checkbox checked="true">{{ i18n.accept-terms }}</checkbox><checkbox>{{ i18n.receive-updates }}</checkbox><checkbox>{{ i18n.newsletters }}</checkbox><checkbox>{{ i18n.product-tips }}</checkbox></div></div><p class="card-name">{{ i18n.widget-checkbox }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><field-set class="plain-fieldset"><radio-button checked="true">{{ i18n.option }} 1</radio-button><radio-button>{{ i18n.option }} 2</radio-button></field-set></div><p class="card-name">{{ i18n.widget-radio-button }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="toggle-demo"><toggle-button checked="true">{{ i18n.bold }}</toggle-button><toggle-button>{{ i18n.italic }}</toggle-button></div></div><p class="card-name">{{ i18n.widget-toggle-button }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><switch-button checked="true">{{ i18n.on }}</switch-button></div><p class="card-name">{{ i18n.widget-switch-button }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button class="sample-button" onclick="reset_progress">{{ i18n.click-me }}</button>
+                </div>
+                <p class="card-name">{{ i18n.widget-button }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="checkbox-demo">
+                        <checkbox checked="true">{{ i18n.accept-terms }}</checkbox>
+                        <checkbox>{{ i18n.receive-updates }}</checkbox>
+                        <checkbox>{{ i18n.newsletters }}</checkbox>
+                        <checkbox>{{ i18n.product-tips }}</checkbox>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-checkbox }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <field-set class="plain-fieldset">
+                        <radio-button checked="true">{{ i18n.option }} 1</radio-button>
+                        <radio-button>{{ i18n.option }} 2</radio-button>
+                    </field-set>
+                </div>
+                <p class="card-name">{{ i18n.widget-radio-button }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="toggle-demo">
+                        <toggle-button checked="true">{{ i18n.bold }}</toggle-button>
+                        <toggle-button>{{ i18n.italic }}</toggle-button>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-toggle-button }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <switch-button checked="true">{{ i18n.on }}</switch-button>
+                </div>
+                <p class="card-name">{{ i18n.widget-switch-button }}</p>
+            </div>
         </div>
         <div class="card-row five-column">
-            <div class="showcase-card"><div class="card-preview"><input class="sample-input" name="search" placeholder="Enter text..." [placeholder]="i18n.placeholder-input" /></div><p class="card-name">{{ i18n.widget-input }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><textarea class="sample-textarea" name="message" placeholder="Type a longer message here..." [placeholder]="i18n.placeholder-textarea" /></div><p class="card-name">{{ i18n.widget-text-area }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><choice-box max-visible-items="3"><option value="apple">{{ i18n.apple }}</option><option value="banana">{{ i18n.banana }}</option><option value="orange">{{ i18n.orange }}</option><option value="grapes">{{ i18n.grapes }}</option></choice-box></div><p class="card-name">{{ i18n.widget-choice-box }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><list-box class="sample-list" max-visible-items="3"><option value="apple" selected="true">{{ i18n.apple }}</option><option value="banana">{{ i18n.banana }}</option><option value="orange">{{ i18n.orange }}</option><option value="grapes">{{ i18n.grapes }}</option></list-box></div><p class="card-name">{{ i18n.widget-list-box }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="slider-demo"><slider min="0" max="100" value="75" step="1" /><p>{{ showcaseState.slider_value }}</p></div></div><p class="card-name">{{ i18n.widget-slider }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <input
+                        class="sample-input"
+                        name="search"
+                        placeholder="Enter text..."
+                        [placeholder]="i18n.placeholder-input"
+                    />
+                </div>
+                <p class="card-name">{{ i18n.widget-input }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <textarea
+                        class="sample-textarea"
+                        name="message"
+                        placeholder="Type a longer message here..."
+                        [placeholder]="i18n.placeholder-textarea"
+                    />
+                </div>
+                <p class="card-name">{{ i18n.widget-text-area }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <choice-box max-visible-items="3">
+                        <option value="apple">{{ i18n.apple }}</option>
+                        <option value="banana">{{ i18n.banana }}</option>
+                        <option value="orange">{{ i18n.orange }}</option>
+                        <option value="grapes">{{ i18n.grapes }}</option>
+                    </choice-box>
+                </div>
+                <p class="card-name">{{ i18n.widget-choice-box }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <list-box class="sample-list" max-visible-items="3">
+                        <option value="apple" selected="true">{{ i18n.apple }}</option>
+                        <option value="banana">{{ i18n.banana }}</option>
+                        <option value="orange">{{ i18n.orange }}</option>
+                        <option value="grapes">{{ i18n.grapes }}</option>
+                    </list-box>
+                </div>
+                <p class="card-name">{{ i18n.widget-list-box }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="slider-demo">
+                        <slider min="0" max="100" value="75" step="1" />
+                        <p>{{ showcaseState.slider_value }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-slider }}</p>
+            </div>
         </div>
     </div>
 
     <div class="showcase-section">
-        <div class="section-heading"><div class="section-index">4</div><h2>{{ i18n.advanced-title }}</h2><p>{{ i18n.advanced-subtitle }}</p></div>
+        <div class="section-heading">
+            <div class="section-index">4</div>
+            <h2>{{ i18n.advanced-title }}</h2>
+            <p>{{ i18n.advanced-subtitle }}</p>
+        </div>
         <div class="card-row six-column">
-            <div class="showcase-card"><div class="card-preview"><color-picker value="#A855F7" /></div><p class="card-name">{{ i18n.widget-color-picker }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><date-picker value="2025-04-09" /></div><p class="card-name">{{ i18n.widget-date-picker }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="progress-demo"><progress-bar min="0" max="100" [value]="showcaseState.progress" /><p>{{ showcaseState.progress_label }}%</p></div></div><p class="card-name">{{ i18n.widget-progress-bar }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="scroll-demo" onscroll="track_event" onwheel="track_event"><p>{{ i18n.scroll-demo }}</p></div></div><p class="card-name">{{ i18n.widget-scrollbar }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="tooltip-demo"><button id="help-anchor" class="help-anchor">i</button><tooltip for="help-anchor" variant="point" prio="top" trigger="hover">{{ i18n.tooltip-demo }}</tooltip></div></div><p class="card-name">{{ i18n.widget-tooltip }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><hyperlink href="https://bevyengine.org">{{ i18n.hyperlink-demo }}</hyperlink></div><p class="card-name">{{ i18n.widget-hyperlink }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button id="custom-context-anchor" class="context-anchor">{{ i18n.context-open }}</button><context-menu for="custom-context-anchor"><button onclick="reset_progress">{{ i18n.reset-progress }}</button></context-menu></div><p class="card-name">{{ i18n.widget-context-menu }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button id="open-info-dialog" class="sample-button">{{ i18n.open-dialog }}</button></div><p class="card-name">{{ i18n.widget-dialog }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button id="open-sheet-dialog" class="sample-button">{{ i18n.open-sheet }}</button></div><p class="card-name">{{ i18n.widget-bottom-sheet }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button id="open-system-dialog" class="sample-button">{{ i18n.open-system-dialog }}</button></div><p class="card-name">{{ i18n.widget-system-dialog }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button class="sample-button" onclick="open_rust_dialog">{{ i18n.open-rust-dialog }}</button></div><p class="card-name">{{ i18n.widget-rust-dialog }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><theme-provider theme="dark"><button class="theme-demo">{{ i18n.theme-preview }}</button></theme-provider></div><p class="card-name">{{ i18n.widget-theme-provider }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <color-picker value="#A855F7" />
+                </div>
+                <p class="card-name">{{ i18n.widget-color-picker }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <date-picker value="2025-04-09" />
+                </div>
+                <p class="card-name">{{ i18n.widget-date-picker }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="progress-demo">
+                        <progress-bar min="0" max="100" [value]="showcaseState.progress" />
+                        <p>{{ showcaseState.progress_label }}%</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-progress-bar }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="scroll-demo" onscroll="track_event" onwheel="track_event">
+                        <p>{{ i18n.scroll-demo }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-scrollbar }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="tooltip-demo">
+                        <button id="help-anchor" class="help-anchor">i</button>
+                        <tooltip for="help-anchor" variant="point" prio="top" trigger="hover">{{ i18n.tooltip-demo }}</tooltip>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-tooltip }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <hyperlink href="https://bevyengine.org">{{ i18n.hyperlink-demo }}</hyperlink>
+                </div>
+                <p class="card-name">{{ i18n.widget-hyperlink }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button id="custom-context-anchor" class="context-anchor">{{ i18n.context-open }}</button>
+                    <context-menu for="custom-context-anchor">
+                        <button onclick="reset_progress">{{ i18n.reset-progress }}</button>
+                    </context-menu>
+                </div>
+                <p class="card-name">{{ i18n.widget-context-menu }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button id="open-info-dialog" class="sample-button">{{ i18n.open-dialog }}</button>
+                </div>
+                <p class="card-name">{{ i18n.widget-dialog }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button id="open-sheet-dialog" class="sample-button">{{ i18n.open-sheet }}</button>
+                </div>
+                <p class="card-name">{{ i18n.widget-bottom-sheet }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button id="open-system-dialog" class="sample-button">{{ i18n.open-system-dialog }}</button>
+                </div>
+                <p class="card-name">{{ i18n.widget-system-dialog }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button class="sample-button" onclick="open_rust_dialog">{{ i18n.open-rust-dialog }}</button>
+                </div>
+                <p class="card-name">{{ i18n.widget-rust-dialog }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <theme-provider theme="dark">
+                        <button class="theme-demo">{{ i18n.theme-preview }}</button>
+                    </theme-provider>
+                </div>
+                <p class="card-name">{{ i18n.widget-theme-provider }}</p>
+            </div>
         </div>
     </div>
+
     <div class="showcase-section">
-        <div class="section-heading"><div class="section-index">5</div><h2>{{ i18n.events-title }}</h2><p>{{ i18n.events-subtitle }}</p></div>
+        <div class="section-heading">
+            <div class="section-index">5</div>
+            <h2>{{ i18n.events-title }}</h2>
+            <p>{{ i18n.events-subtitle }}</p>
+        </div>
         <div class="card-row event-row">
-            <div class="showcase-card"><div class="card-preview"><div class="event-target" onmouseover="track_event" onmouseout="track_event" onmouseenter="track_event" onmouseleave="track_event" onmousedown="track_event" onmouseup="track_event" ondragstart="track_event" ondrag="track_event" ondragstop="track_event" ontouchstart="track_event" ontouchmove="track_event" ontouchend="track_event"><p>{{ i18n.events-pointer }}</p></div></div><p class="card-name">{{ i18n.events-pointer-label }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><input class="sample-input" [placeholder]="i18n.events-keyboard" onfocus="track_event" onblur="track_event" onkeydown="track_event" onkeyup="track_event" /></div><p class="card-name">{{ i18n.events-keyboard-label }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="event-scroll" onwheel="track_event" onscroll="track_event"><p>{{ i18n.events-scroll }}</p><p>{{ i18n.events-scroll }}</p><p>{{ i18n.events-scroll }}</p></div></div><p class="card-name">{{ i18n.events-scroll-label }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><div class="event-status" oninit="track_event"><p>{{ i18n.events-last }}</p><p>{{ showcaseState.event_name }}</p><p>{{ showcaseState.event_detail }}</p></div></div><p class="card-name">{{ i18n.events-status-label }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div
+                        class="event-target"
+                        onmouseover="track_event"
+                        onmouseout="track_event"
+                        onmouseenter="track_event"
+                        onmouseleave="track_event"
+                        onmousedown="track_event"
+                        onmouseup="track_event"
+                        ondragstart="track_event"
+                        ondrag="track_event"
+                        ondragstop="track_event"
+                        ontouchstart="track_event"
+                        ontouchmove="track_event"
+                        ontouchend="track_event"
+                    >
+                        <p>{{ i18n.events-pointer }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.events-pointer-label }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <input
+                        class="sample-input"
+                        [placeholder]="i18n.events-keyboard"
+                        onfocus="track_event"
+                        onblur="track_event"
+                        onkeydown="track_event"
+                        onkeyup="track_event"
+                    />
+                </div>
+                <p class="card-name">{{ i18n.events-keyboard-label }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="event-scroll" onwheel="track_event" onscroll="track_event">
+                        <p>{{ i18n.events-scroll }}</p>
+                        <p>{{ i18n.events-scroll }}</p>
+                        <p>{{ i18n.events-scroll }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.events-scroll-label }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="event-status" oninit="track_event">
+                        <p>{{ i18n.events-last }}</p>
+                        <p>{{ showcaseState.event_name }}</p>
+                        <p>{{ showcaseState.event_detail }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.events-status-label }}</p>
+            </div>
         </div>
     </div>
+
     <div class="showcase-section">
-        <div class="section-heading"><div class="section-index">6</div><h2>{{ i18n.runtime-title }}</h2><p>{{ i18n.runtime-subtitle }}</p></div>
+        <div class="section-heading">
+            <div class="section-index">6</div>
+            <h2>{{ i18n.runtime-title }}</h2>
+            <p>{{ i18n.runtime-subtitle }}</p>
+        </div>
         <div class="card-row runtime-row">
-            <div class="showcase-card"><div class="card-preview"><div class="runtime-demo"><div class="runtime-actions"><button onclick="runtime_text">Text</button><button onclick="runtime_html">HTML</button><button onclick="runtime_bindings">Bindings</button></div><div id="runtime-content"><p>{{ i18n.runtime-initial }} {{ demo.progress_label + 5 }}</p></div></div></div><p class="card-name">{{ i18n.runtime-content-label }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button oninit="system_cursor">{{ i18n.cursor-hover }}</button></div><p class="card-name">{{ i18n.cursor-system }}</p></div>
-            <div class="showcase-card"><div class="card-preview"><button oninit="custom_cursor">{{ i18n.cursor-hover }}</button></div><p class="card-name">{{ i18n.cursor-custom }}</p></div>
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="runtime-demo">
+                        <div class="runtime-actions">
+                            <button onclick="runtime_text">Text</button>
+                            <button onclick="runtime_html">HTML</button>
+                            <button onclick="runtime_bindings">Bindings</button>
+                        </div>
+                        <div id="runtime-content">
+                            <p>{{ i18n.runtime-initial }} {{ demo.progress_label + 5 }}</p>
+                        </div>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.runtime-content-label }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button oninit="system_cursor">{{ i18n.cursor-hover }}</button>
+                </div>
+                <p class="card-name">{{ i18n.cursor-system }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <button oninit="custom_cursor">{{ i18n.cursor-hover }}</button>
+                </div>
+                <p class="card-name">{{ i18n.cursor-custom }}</p>
+            </div>
         </div>
     </div>
-    <dialog id="demo-info-dialog" trigger="open-info-dialog" title="Your changes are ready" [title]="i18n.dialog-info-title" type="info">
+    <dialog
+        id="demo-info-dialog"
+        trigger="open-info-dialog"
+        title="Your changes are ready"
+        [title]="i18n.dialog-info-title"
+        type="info"
+    >
         <p>{{ i18n.dialog-info-body }}</p>
-        <div class="dialog-actions"><button dialog-close="cancel">{{ i18n.cancel }}</button><button dialog-close="confirm">{{ i18n.continue }}</button></div>
+        <div class="dialog-actions">
+            <button dialog-close="cancel">{{ i18n.cancel }}</button>
+            <button dialog-close="confirm">{{ i18n.continue }}</button>
+        </div>
     </dialog>
-    <dialog id="demo-sheet-dialog" trigger="open-sheet-dialog" title="Quick actions" [title]="i18n.dialog-sheet-title" layout="bottom-sheet">
+    <dialog
+        id="demo-sheet-dialog"
+        trigger="open-sheet-dialog"
+        title="Quick actions"
+        [title]="i18n.dialog-sheet-title"
+        layout="bottom-sheet"
+    >
         <p>{{ i18n.dialog-sheet-body }}</p>
-        <div class="dialog-actions"><button dialog-close="confirm">{{ i18n.done }}</button></div>
+        <div class="dialog-actions">
+            <button dialog-close="confirm">{{ i18n.done }}</button>
+        </div>
     </dialog>
-    <dialog trigger="open-system-dialog" renderer="system" title="Open native dialog?" [title]="i18n.dialog-system-title" type="question">
+    <dialog
+        trigger="open-system-dialog"
+        renderer="system"
+        title="Open native dialog?"
+        [title]="i18n.dialog-system-title"
+        type="question"
+    >
         <p>{{ i18n.dialog-system-body }}</p>
     </dialog>
-    <div class="site-footer"><p>◇ {{ i18n.footer-primary }}</p><p>{{ i18n.footer-secondary }} ♥</p></div>
+
+    <div class="site-footer">
+        <p>◇ {{ i18n.footer-primary }}</p>
+        <p>{{ i18n.footer-secondary }} ♥</p>
+    </div>
 </body>

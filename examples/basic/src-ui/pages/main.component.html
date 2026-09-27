@@ -1,21 +1,150 @@
 <div class="root">
-    <p class="title pulse">TiltUI CSS works</p>
-    <app-header />
-    <button class="primary" onclick="play">Play</button>
-    <button class="primary" disabled="true">Disabled</button>
+    <div class="hero">
+        <p class="eyebrow">TILTUI / BASIC</p>
+        <h1>Template control playground</h1>
+        <p>Change the values below. Every result is rendered by the template.</p>
+    </div>
 
-    <p class="section-title">Selectable controls</p>
-    <checkbox class="checkbox" checked="true">Music</checkbox>
-    <toggle-button class="toggle">Bold</toggle-button>
-    <switch-button class="switch" checked="true">Notifications</switch-button>
-    <field-set class="radios">
-        <radio-button class="radio" checked="true">Low</radio-button>
-        <radio-button class="radio">High</radio-button>
-    </field-set>
+    <div class="panel">
+        <p class="section-title">Inputs</p>
+        <div class="toolbar">
+            <input class="query" value="Rust" placeholder="Type a word" onchange="set_query" />
+            <button class="secondary" onclick="toggle_enabled">Toggle enabled</button>
+            <button class="secondary" onclick="decrease_count">-</button>
+            <button class="secondary" onclick="increase_count">+</button>
+            <button onclick="cycle_mode">Next mode</button>
+        </div>
+        <div class="readout">
+            <p class="readout-main">Text: {{ demoState.query }}</p>
+            <p class="readout-chip">Enabled: {{ demoState.enabled }}</p>
+            <p class="readout-chip">Count: {{ demoState.count }}</p>
+            <p class="readout-chip">Mode: {{ demoState.mode }}</p>
+        </div>
+    </div>
 
-    <p class="section-title">Value controls</p>
-    <input placeholder="Type here" value="TiltUI" />
-    <textarea placeholder="A multiline note" />
-    <slider min="0" max="100" value="64" step="1" />
-    <progress-bar min="0" max="100" value="72" />
+    <div class="panel">
+        <p class="section-title">Methods from main.component.rs</p>
+        <p class="hint">Only explicitly registered methods can be called from a template.</p>
+        <div class="toolbar">
+            <input class="name-input" value="Ada" placeholder="First name" onchange="set_first_name" />
+            <input class="name-input" value="Lovelace" placeholder="Last name" onchange="set_last_name" />
+        </div>
+        <p class="method-result">user.full_name(): {{ user.full_name() }}</p>
+        <p class="method-result">user.greeting('Hello'): {{ user.greeting('Hello') }}</p>
+        @if (user.full_name().contains('Ada')) {
+            <p class="success">The computed name contains Ada.</p>
+        } @else {
+            <p class="warning">The computed name no longer contains Ada.</p>
+        }
+    </div>
+
+    <div class="panel">
+        <p class="section-title">Inline store actions</p>
+        <p class="hint">These controls update a writable Rust store directly from HTML.</p>
+        <div class="readout">
+            <p class="readout-chip">Name: {{ actionState.name }}</p>
+            <p class="readout-chip">Count: {{ actionState.count }}</p>
+            <p class="readout-chip">Enabled: {{ actionState.enabled }}</p>
+            <p class="readout-chip">Tags: {{ actionState.tags.length }}</p>
+        </div>
+        <div class="toolbar">
+            <input class="name-input" [value]="actionState.name" placeholder="Name" onchange="$set(actionState.name, $event.value)" />
+            <button class="secondary" onclick="$min(actionState.count, 1)">- 1</button>
+            <button onclick="$add(actionState.count, 1)">+ 1</button>
+            <button class="secondary" onclick="$toggle(actionState.enabled)">Toggle</button>
+            <button class="secondary" onclick="$set(actionState.count, 2); $set(actionState.name, 'Ada')">Reset both</button>
+        </div>
+        <div class="toolbar">
+            <button class="secondary" onclick="$mul(actionState.count, 2)">Multiply by 2</button>
+            <button class="secondary" onclick="$div(actionState.count, 2)">Divide by 2</button>
+            <button class="secondary" onclick="$clamp(actionState.count, 0, 10)">Clamp 0–10</button>
+            <button class="secondary" onclick="$append(actionState.tags, 'new')">Append tag</button>
+        </div>
+        <div class="toolbar">
+            <checkbox [checked]="actionState.enabled" onchange="$set(actionState.enabled, $event.checked)">Enabled</checkbox>
+            <slider min="0" max="10" [value]="actionState.count" onchange="$set(actionState.count, $event.value)" />
+        </div>
+    </div>
+
+    <div class="columns">
+        <div class="column">
+            <div class="panel">
+                <p class="section-title">&#64;if / &#64;else</p>
+                @if (demoState.enabled) {
+                    <p class="success">Enabled is true. This branch exists.</p>
+                } @else {
+                    <p class="warning">Enabled is false. The other branch was removed.</p>
+                }
+                @if (demoState.query) {
+                    <p>Non-empty string is truthy: {{ demoState.query }}</p>
+                } @else {
+                    <p class="warning">Empty string is false. Type something above.</p>
+                }
+                @if (demoState.count > 2 && demoState.count <= 6) {
+                    <p class="success">2 &lt; count &lt;= 6</p>
+                } @else {
+                    <p>Count is outside 3..6.</p>
+                }
+                @if (demoState.count == 0 oder demoState.count != 3) {
+                    <p>"oder", == and !=: true</p>
+                } @else {
+                    <p>"oder", == and !=: false</p>
+                }
+            </div>
+
+            <div class="panel">
+                <p class="section-title">&#64;match (Rust-style arms)</p>
+                @match (demoState.mode) {
+                    'ready' => { <p class="success">Ready: click “Next mode” to change the arm.</p> },
+                    'busy' => { <p class="warning">Busy: work is in progress.</p> },
+                    'done' => { <p class="success">Done: the cycle starts again next time.</p> },
+                    _ => { <p>Unknown mode.</p> }
+                }
+                @if (demoState.enabled && demoState.count >= 1) {
+                    <p>AND and &gt;= are true.</p>
+                }
+            </div>
+        </div>
+
+        <div class="column">
+            <div class="panel">
+                <p class="section-title">&#64;let and string methods</p>
+                <div class="let-scope">
+                    @let word = demoState.query;
+                    <p>Local variable: {{ word }}</p>
+                    @if (word.equals('Rust')) { <p class="success">equals('Rust')</p> }
+                    @if (word.equalsIgnoreCase('rust')) { <p class="success">equalsIgnoreCase('rust')</p> }
+                    @if (word.startWith('R')) { <p class="success">startWith('R')</p> }
+                    @if (word.endsWith('t')) { <p class="success">endsWith('t')</p> }
+                    @if (word.contains('us')) { <p class="success">contains('us')</p> }
+                    @if (word < 'Rust') { <p>Text is lexically before Rust (&lt;).</p> }
+                    @if (word >= 'Rust') { <p>Text is lexically Rust or after (&gt;=).</p> }
+                </div>
+            </div>
+
+            <div class="panel">
+                <p class="section-title">&#64;for (tracked list)</p>
+                <div class="toolbar">
+                    <button onclick="add_item">Add</button>
+                    <button class="secondary" onclick="remove_item">Remove</button>
+                    <button class="secondary" onclick="reverse_items">Reverse</button>
+                </div>
+                @for ((item, index) in demoState.items; track item.id) {
+                    <p class="list-item">{{ index + 1 }}. {{ item.name }} (key {{ item.id }})</p>
+                }
+                @if (demoState.items.length == 0) { <p>The list is empty.</p> }
+                <p class="hint">Reverse keeps each item's UI entity by its tracked ID.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <p class="section-title">&#64;for (Rust-style range)</p>
+        <div class="range-row">
+            @for (number in 0..demoState.count) {
+                <p class="range-pill">{{ number + 1 }}</p>
+            }
+        </div>
+        <p class="hint">The +/- buttons change the comparisons and this range.</p>
+    </div>
 </div>

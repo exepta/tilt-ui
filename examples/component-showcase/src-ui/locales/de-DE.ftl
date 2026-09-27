@@ -39,6 +39,12 @@ designer = Design
 developer = IT
 product = Produkt
 cell = Zelle
+table-actions-label = Tabellenaktionen
+table-action-kind = Element
+table-action-demo = Aktion
+table-action-button = Klicken
+table-action-placeholder = Hier tippen
+table-action-last = Ergebnis
 
 content-title = Inhalt
 content-subtitle = Text-, Medien- und Inhaltselemente

@@ -63,7 +63,7 @@ impl Routes {
     }
 }
 
-/// Registration emitted by `#[beu_routes]`.
+/// Registration emitted by `#[ui_routes]`.
 pub struct RoutesRegistration {
     pub build: fn() -> Routes,
 }

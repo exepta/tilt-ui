@@ -77,6 +77,7 @@ impl Plugin for TiltUiComponentRuntimePlugin {
                 TiltUiControlRuntimePlugin,
                 TiltUiScrollRuntimePlugin,
             ));
+        super::document::install(app);
         if !app.is_plugin_added::<super::handlers::TiltUiCodePlugin>() {
             app.add_plugins(super::handlers::TiltUiCodePlugin);
         }

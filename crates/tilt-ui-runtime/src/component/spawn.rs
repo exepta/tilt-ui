@@ -4,6 +4,7 @@ use bevy::{
     ui::experimental::GhostNode,
 };
 use bevy_input_focus::tab_navigation::TabGroup;
+use std::sync::Arc;
 use tilt_ui_core::{ComponentId, NodeId, Template, TemplateAttribute, TemplateNodeKind};
 
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
     render::{materialize_element, materialize_text},
 };
 
+use super::element::BoundClasses;
 use super::{
     ComponentAssetHandles, ComponentAssetStore, ComponentBoundary, ComponentCatalog,
     ComponentElementIds, ComponentInstantiationError, ComponentStyleOwner, ElementClasses,
@@ -111,6 +113,12 @@ pub(super) fn validate_template_node(
         .ok_or(ComponentInstantiationError::InvalidTemplateNode { node: node_id })?;
 
     if let TemplateNodeKind::Component(name) = &node.kind {
+        if super::flow::is_flow_tag(name.as_str()) {
+            for child in &node.children {
+                validate_template_node(world, template, *child, catalog, assets, stack)?;
+            }
+            return Ok(());
+        }
         if let Some(provider) = world
             .get_resource::<crate::UiProviderRegistry>()
             .and_then(|providers| providers.get(name.as_str()))
@@ -210,6 +218,34 @@ pub(super) fn instantiate_template_nodes(
     owner: Entity,
     stack: &mut Vec<ComponentId>,
 ) -> Result<Vec<Option<Entity>>, ComponentInstantiationError> {
+    instantiate_template_children(
+        world,
+        template,
+        template.roots(),
+        catalog,
+        assets,
+        parent,
+        owner,
+        stack,
+        None,
+        true,
+        true,
+    )
+}
+
+pub(super) fn instantiate_template_children(
+    world: &mut World,
+    template: &Template,
+    roots: &[NodeId],
+    catalog: ComponentCatalog,
+    assets: &ComponentAssetStore,
+    parent: Entity,
+    owner: Entity,
+    stack: &mut Vec<ComponentId>,
+    flow_template: Option<Arc<Template>>,
+    collect_entities: bool,
+    finalize: bool,
+) -> Result<Vec<Option<Entity>>, ComponentInstantiationError> {
     let mut context = TemplateInstantiationContext {
         world,
         template,
@@ -217,19 +253,30 @@ pub(super) fn instantiate_template_nodes(
         assets,
         owner,
         stack,
-        entities: vec![None; template.nodes().len()],
+        entities: if collect_entities {
+            vec![None; template.nodes().len()]
+        } else {
+            Vec::new()
+        },
+        flow_template,
     };
-    for root in template.roots() {
+    for root in roots {
         context.instantiate_node(*root, parent)?;
     }
-    crate::widgets::advanced::tooltip::resolve_targets(context.world, owner);
-    crate::widgets::advanced::date_picker::resolve_targets(context.world, owner);
-    crate::widgets::advanced::dialog::resolve_targets(context.world, owner);
-    crate::widgets::content::badge::resolve_targets(context.world, owner);
-    crate::widgets::content::image::resolve_preview_targets(context.world, owner);
-    crate::control::context_menu::resolve_targets(context.world, owner);
-    crate::widgets::advanced::hyperlink::finalize_icons(context.world);
+    if finalize {
+        resolve_template_targets(context.world, owner);
+    }
     Ok(context.entities)
+}
+
+pub(super) fn resolve_template_targets(world: &mut World, owner: Entity) {
+    crate::widgets::advanced::tooltip::resolve_targets(world, owner);
+    crate::widgets::advanced::date_picker::resolve_targets(world, owner);
+    crate::widgets::advanced::dialog::resolve_targets(world, owner);
+    crate::widgets::content::badge::resolve_targets(world, owner);
+    crate::widgets::content::image::resolve_preview_targets(world, owner);
+    crate::control::context_menu::resolve_targets(world, owner);
+    crate::widgets::advanced::hyperlink::finalize_icons(world);
 }
 
 struct TemplateInstantiationContext<'a> {
@@ -240,6 +287,7 @@ struct TemplateInstantiationContext<'a> {
     owner: Entity,
     stack: &'a mut Vec<ComponentId>,
     entities: Vec<Option<Entity>>,
+    flow_template: Option<Arc<Template>>,
 }
 
 impl TemplateInstantiationContext<'_> {
@@ -330,7 +378,40 @@ impl TemplateInstantiationContext<'_> {
                 entity
             }
             TemplateNodeKind::Component(name) => {
-                if self
+                let flow = if super::flow::is_flow_tag(name.as_str()) {
+                    super::flow::FlowNode::from_tag(
+                        name.as_str(),
+                        &node.attributes,
+                        self.flow_template
+                            .get_or_insert_with(|| Arc::new(self.template.clone()))
+                            .clone(),
+                        node_id,
+                        self.owner,
+                    )
+                } else {
+                    None
+                };
+                if let Some(flow) = flow {
+                    let entity = self
+                        .world
+                        .spawn((
+                            GhostNode,
+                            ComponentStyleOwner(self.owner),
+                            TemplateNodeRef { node: node_id },
+                            flow,
+                        ))
+                        .id();
+                    self.world.entity_mut(parent).add_child(entity);
+                    entity
+                } else if super::flow::is_flow_tag(name.as_str()) {
+                    // Branch wrappers are instantiated by the control runtime.
+                    let entity = self
+                        .world
+                        .spawn((GhostNode, ComponentStyleOwner(self.owner)))
+                        .id();
+                    self.world.entity_mut(parent).add_child(entity);
+                    entity
+                } else if self
                     .world
                     .get_resource::<crate::UiProviderRegistry>()
                     .is_some_and(|providers| providers.get(name.as_str()).is_some())
@@ -382,11 +463,9 @@ impl TemplateInstantiationContext<'_> {
         self.world
             .entity_mut(entity)
             .insert(super::content::TemplateParent(parent));
-        let slot = self
-            .entities
-            .get_mut(node_id.0 as usize)
-            .ok_or(ComponentInstantiationError::InvalidTemplateNode { node: node_id })?;
-        *slot = Some(entity);
+        if let Some(slot) = self.entities.get_mut(node_id.0 as usize) {
+            *slot = Some(entity);
+        }
         Ok(entity)
     }
 }
@@ -422,6 +501,18 @@ fn insert_attributes(world: &mut World, entity: Entity, attributes: &[TemplateAt
             TemplateAttribute::Static { name, value } if name == "class" => {
                 classes.extend(value.split_ascii_whitespace().map(str::to_owned));
             }
+            TemplateAttribute::Static { name, value } if name == "style" => {
+                match crate::style::InlineStyle::parse(value) {
+                    Ok(style) => {
+                        world.entity_mut(entity).insert(style);
+                    }
+                    Err(error) => bevy::log::warn!("Invalid inline style: {error}"),
+                }
+                static_attributes.push(StaticAttribute {
+                    name: name.clone(),
+                    value: value.clone(),
+                });
+            }
             TemplateAttribute::Static { name, value } => {
                 if super::boolean_attribute_value(name, value, "disabled") {
                     state.disabled = true;
@@ -454,7 +545,15 @@ fn insert_attributes(world: &mut World, entity: Entity, attributes: &[TemplateAt
         entity.insert(id);
     }
     if !classes.is_empty() {
-        entity.insert(ElementClasses { classes });
+        entity.insert((
+            ElementClasses {
+                classes: classes.clone(),
+            },
+            BoundClasses {
+                base: classes,
+                ..Default::default()
+            },
+        ));
     }
     if !static_attributes.is_empty() {
         entity.insert(StaticAttributes {
@@ -492,7 +591,7 @@ mod tests {
     use tilt_ui_css::parse_stylesheet;
     use tilt_ui_html::parse_template;
 
-    use super::instantiate_component;
+    use super::{insert_attributes, instantiate_component};
     use crate::{
         ComponentAssetStore, ComponentCatalog, ElementClasses, ElementId, EventBindings,
         LoadedComponentAssets, PropertyBindings, StaticAttributes, TemplateNodeRef, TiltControl,
@@ -562,6 +661,45 @@ mod tests {
         world.insert_resource(Assets::<UiTemplateAsset>::default());
         world.insert_resource(Assets::<UiStyleSheetAsset>::default());
         world
+    }
+
+    #[test]
+    fn static_inline_style_and_base_classes_are_retained() {
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        insert_attributes(
+            &mut world,
+            entity,
+            &[
+                tilt_ui_core::TemplateAttribute::Static {
+                    name: "class".into(),
+                    value: "base".into(),
+                },
+                tilt_ui_core::TemplateAttribute::Static {
+                    name: "style".into(),
+                    value: "width: 42px;".into(),
+                },
+            ],
+        );
+        assert_eq!(
+            world.get::<ElementClasses>(entity).unwrap().classes,
+            ["base"]
+        );
+        assert_eq!(
+            world
+                .get::<crate::style::InlineStyle>(entity)
+                .unwrap()
+                .static_source,
+            "width: 42px;"
+        );
+        assert!(
+            world
+                .get::<StaticAttributes>(entity)
+                .unwrap()
+                .attributes
+                .iter()
+                .any(|attribute| attribute.name == "style")
+        );
     }
 
     #[test]

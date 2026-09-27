@@ -397,6 +397,48 @@ pub fn set_numeric_value(world: &mut World, entity: Entity, value: f32) -> bool 
     true
 }
 
+/// Reconfigures an existing numeric widget while retaining its entity and parts.
+pub(crate) fn set_numeric_bound(
+    world: &mut World,
+    entity: Entity,
+    field: &str,
+    value: f32,
+) -> bool {
+    if !value.is_finite() || (field == "step" && value <= 0.0) {
+        return false;
+    }
+    let Some(old) = world.get::<NumericRange>(entity).copied() else {
+        return false;
+    };
+    let (min, max, step) = match field {
+        "min" => (value, old.max, old.step),
+        "max" => (old.min, value, old.step),
+        "step" => (old.min, old.max, Some(value)),
+        _ => return false,
+    };
+    let next = NumericRange::new(min, max, old.value, step);
+    if next == old {
+        return false;
+    }
+    *world.get_mut::<NumericRange>(entity).unwrap() = next;
+    if let Some(settings) = world.get::<SliderSettings>(entity).copied()
+        && settings.kind == tilt_ui_core::SliderType::Range
+    {
+        crate::set_slider_values(world, entity, settings.lower, settings.upper);
+        update_range_layout(world, entity);
+    } else {
+        update_fill_width(world, entity, next.fraction());
+        if let Some(tip) = world
+            .get::<NumericParts>(entity)
+            .and_then(|parts| parts.tip)
+            && let Some(mut text) = world.get_mut::<Text>(tip)
+        {
+            text.0 = format!("{}", next.value);
+        }
+    }
+    true
+}
+
 /// Updates both endpoints of a range slider without emitting a user event.
 pub fn set_slider_values(world: &mut World, entity: Entity, lower: f32, upper: f32) -> bool {
     let Some(range) = world.get::<NumericRange>(entity).copied() else {

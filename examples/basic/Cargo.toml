@@ -18,6 +18,7 @@ bevy = { workspace = true, features = [
     "x11",
 ] }
 tilt-ui.workspace = true
+serde.workspace = true
 
 [build-dependencies]
 tilt-ui-build.workspace = true

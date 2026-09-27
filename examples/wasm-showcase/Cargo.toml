@@ -1,0 +1,27 @@
+[package]
+name = "tilt-ui-example-wasm"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "tilt-ui-example-wasm"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "bevy_core_pipeline",
+    "bevy_ui_render",
+    "bevy_winit",
+    "default_font",
+    "png",
+] }
+tilt-ui.workspace = true
+
+[build-dependencies]
+tilt-ui-build.workspace = true
+
+# Enable browser GPU backends without enabling Bevy's unrelated optional
+# anti-aliasing crate through the umbrella `bevy/webgl2` feature.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+bevy_render = { version = "0.19", default-features = false, features = ["webgl", "webgpu"] }

@@ -3,11 +3,13 @@
 mod apply;
 mod cascade;
 pub(crate) mod convert;
+mod inline;
 mod matcher;
 mod motion;
 mod plugin;
 mod state;
 
+pub(crate) use inline::InlineStyle;
 pub use motion::ActiveAnimations;
 pub use plugin::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin};
 pub use state::{CascadedStyle, RuntimeComputedStyle};
