@@ -107,6 +107,7 @@ impl TiltUiStyleRuntimePlugin {
 impl Plugin for TiltUiStyleRuntimePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(super::background::BackgroundRuntimePlugin);
+        app.add_plugins(super::border::BorderRuntimePlugin);
         app.add_plugins(super::backdrop::BackdropRuntimePlugin);
         app.add_plugins(super::animated::AnimatedRuntimePlugin);
         app.add_message::<AssetEvent<UiStyleSheetAsset>>();

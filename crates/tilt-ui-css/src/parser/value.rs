@@ -94,6 +94,18 @@ pub(crate) fn parse_color(input: &mut Parser<'_, '_>) -> Result<CssColor, StyleP
         Token::Ident(value) if value.eq_ignore_ascii_case("transparent") => {
             Ok(CssColor::transparent())
         }
+        Token::Ident(value) => {
+            let (red, green, blue) =
+                cssparser::color::parse_named_color(&value.to_ascii_lowercase()).map_err(|_| {
+                    StyleParseError::InvalidColor(format!("unknown color `{value}`"))
+                })?;
+            Ok(CssColor::rgba(
+                red as f32 / 255.0,
+                green as f32 / 255.0,
+                blue as f32 / 255.0,
+                1.0,
+            ))
+        }
         Token::Function(name) if name.eq_ignore_ascii_case("rgb") => input
             .parse_nested_block(parse_rgb)
             .map_err(|_| StyleParseError::InvalidColor("invalid rgb() color".into())),
@@ -101,7 +113,7 @@ pub(crate) fn parse_color(input: &mut Parser<'_, '_>) -> Result<CssColor, StyleP
             .parse_nested_block(parse_rgba)
             .map_err(|_| StyleParseError::InvalidColor("invalid rgba() color".into())),
         _ => Err(StyleParseError::InvalidColor(
-            "expected hex, rgb(), rgba(), or transparent".into(),
+            "expected named color, hex, rgb(), rgba(), or transparent".into(),
         )),
     }
 }

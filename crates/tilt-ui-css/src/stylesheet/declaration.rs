@@ -1,10 +1,11 @@
 use crate::{
     AlignItems, AlignSelf, AnimatedEffect, AnimationSpec, BackgroundAttachment, BackgroundEffect,
-    BackgroundPosition, BackgroundSize, BorderEdge, BorderRadius, BoxSizing, CssBackgroundImage,
-    CssBoxShadow, CssColor, CssCursor, CssLineHeight, CssOverflow, CssTextShadow, CssTransform,
-    Display, Edges, EffectQuality, FlexDirection, FlexWrap, FontFamily, FontWeight, GridAutoFlow,
-    GridPlacement, GridTrackGroup, GridTrackSize, JustifyContent, Length, PointerEvents, Position,
-    TextAlign, TextTransform, TextWrap, TransitionSpec,
+    BackgroundPosition, BackgroundSize, BorderEdge, BorderRadius, BorderStyle, BoxSizing,
+    CssBackgroundImage, CssBoxShadow, CssColor, CssCursor, CssLineHeight, CssOverflow,
+    CssTextShadow, CssTransform, Display, Edges, EffectQuality, FlexDirection, FlexWrap,
+    FontFamily, FontWeight, GridAutoFlow, GridPlacement, GridTrackGroup, GridTrackSize,
+    JustifyContent, Length, PointerEvents, Position, TextAlign, TextTransform, TextWrap,
+    TransitionSpec,
 };
 
 /// Describes a stylesheet declaration that has already been parsed into a typed value.
@@ -148,6 +149,12 @@ pub enum StyleDeclaration {
     BorderRightWidth(Length),
     BorderBottomWidth(Length),
     BorderLeftWidth(Length),
+    BorderStyle(Edges<BorderStyle>),
+    BorderTopStyle(BorderStyle),
+    BorderRightStyle(BorderStyle),
+    BorderBottomStyle(BorderStyle),
+    BorderLeftStyle(BorderStyle),
+    BorderBrushStrength(f32),
     Border(BorderEdge),
     BorderTop(BorderEdge),
     BorderRight(BorderEdge),
@@ -155,6 +162,7 @@ pub enum StyleDeclaration {
     BorderLeft(BorderEdge),
     /// Sets the border color.
     BorderColor(CssColor),
+    BorderColors(Edges<CssColor>),
     BorderTopColor(CssColor),
     BorderRightColor(CssColor),
     BorderBottomColor(CssColor),

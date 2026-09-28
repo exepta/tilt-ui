@@ -78,6 +78,7 @@ fn animate_progress(
     state: Res<ShowcaseState>,
     mut commands: Commands,
     elements: Query<(Entity, &ElementId)>,
+    children: Query<&Children>,
     mut labels: Query<&mut Text>,
     mut targets: Local<Option<(Entity, Entity)>>,
 ) {
@@ -89,10 +90,13 @@ fn animate_progress(
             .iter()
             .find(|(_, id)| id.0 == "demo-progress")
             .map(|(entity, _)| entity);
-        let label = elements
+        let label_parent = elements
             .iter()
             .find(|(_, id)| id.0 == "demo-progress-label")
             .map(|(entity, _)| entity);
+        let label = label_parent
+            .and_then(|entity| children.get(entity).ok())
+            .and_then(|children| children.iter().find(|child| labels.get(*child).is_ok()));
         *targets = progress.zip(label);
     }
     let Some((progress, label)) = *targets else { return; };
@@ -518,6 +522,35 @@ mod tests {
             });
         app.update();
         assert_eq!(app.world().resource::<ShowcaseState>().slider_value, 42);
+    }
+
+    #[test]
+    fn progress_label_updates_on_its_text_child() {
+        let mut app = App::new();
+        app.insert_resource(Time::<()>::default())
+            .insert_resource(ShowcaseState {
+                slider_value: 75,
+                event_name: String::new(),
+                event_detail: String::new(),
+                table_feedback: "—".into(),
+                custom_fps: 120,
+                custom_fps_disabled: true,
+                current_fps: "--".into(),
+                started_at: -4.0,
+            })
+            .add_systems(Update, animate_progress);
+        app.world_mut()
+            .spawn(ElementId("demo-progress".into()));
+        let label = app
+            .world_mut()
+            .spawn(ElementId("demo-progress-label".into()))
+            .id();
+        let text = app.world_mut().spawn(Text::new("40%")).id();
+        app.world_mut().entity_mut(label).add_child(text);
+
+        app.update();
+
+        assert_eq!(app.world().get::<Text>(text).unwrap().0, "60%");
     }
 
     #[test]

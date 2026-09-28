@@ -718,6 +718,30 @@ mod tests {
     }
 
     #[test]
+    fn parses_new_animated_effects_and_legacy_names() {
+        let sheet = parse_stylesheet(
+            ".image { animated-filter: signal-lost(0.8, 1.2) old-movie(0.85, 0.7) water-pearls(0.95) water-wave(0.9, 2); }",
+        )
+        .unwrap();
+        let StyleDeclaration::AnimatedEffects(effects) = &sheet.rules()[0].declarations[0] else {
+            panic!("expected animated effects");
+        };
+        assert_eq!(effects.len(), 4);
+        assert_eq!(effects[0].kind, crate::AnimatedEffectKind::SignalLost);
+        assert_eq!(effects[1].kind, crate::AnimatedEffectKind::OldMovie);
+        assert_eq!(effects[2].kind, crate::AnimatedEffectKind::WaterPearls);
+        assert_eq!(effects[2].speed, 100);
+        assert_eq!(effects[3].kind, crate::AnimatedEffectKind::WaterWave);
+        let legacy =
+            parse_stylesheet(".image { animated-filter: retro-tv(1) old-film(1); }").unwrap();
+        let StyleDeclaration::AnimatedEffects(aliases) = &legacy.rules()[0].declarations[0] else {
+            panic!("expected animated effects");
+        };
+        assert_eq!(aliases[0].kind, crate::AnimatedEffectKind::SignalLost);
+        assert_eq!(aliases[1].kind, crate::AnimatedEffectKind::OldMovie);
+    }
+
+    #[test]
     fn parses_an_element_rule_with_typed_length() {
         let stylesheet = parse_stylesheet("button { width: 200px; }").unwrap();
 
@@ -1108,7 +1132,49 @@ mod tests {
             sheet.rules()[0].declarations[3],
             StyleDeclaration::BorderRightColor(_)
         ));
-        assert!(parse_stylesheet(".bad { border: 2px dashed #123456; }").is_err());
+        assert!(parse_stylesheet(".bad { border: 2px dashed #123456; }").is_ok());
+        assert!(parse_stylesheet(".bad { border: 2px zigzag #123456; }").is_err());
+    }
+
+    #[test]
+    fn parses_border_patterns_shorthand_named_colors_and_brush_strength() {
+        let sheet = parse_stylesheet(".card { border: gray 2px dotted; border-top: 3px dash-dot red; border-right-style: skeleton; border-style: line dotted brushed skelleton; border-brush-strength: 70%; }").unwrap();
+        let declarations = &sheet.rules()[0].declarations;
+        assert!(matches!(
+            declarations[0],
+            StyleDeclaration::Border(crate::BorderEdge {
+                style: crate::BorderStyle::Dotted,
+                ..
+            })
+        ));
+        assert!(matches!(
+            declarations[1],
+            StyleDeclaration::BorderTop(crate::BorderEdge {
+                style: crate::BorderStyle::DashDot,
+                ..
+            })
+        ));
+        assert!(matches!(
+            declarations[2],
+            StyleDeclaration::BorderRightStyle(crate::BorderStyle::Skeleton)
+        ));
+        assert!(matches!(
+            declarations[3],
+            StyleDeclaration::BorderStyle(crate::Edges {
+                top: crate::BorderStyle::Solid,
+                right: crate::BorderStyle::Dotted,
+                bottom: crate::BorderStyle::Brushed,
+                left: crate::BorderStyle::Skeleton
+            })
+        ));
+        assert!(
+            matches!(declarations[4], StyleDeclaration::BorderBrushStrength(value) if (value - 0.7).abs() < 0.001)
+        );
+        let colors = parse_stylesheet(".card { border-color: red gray blue white; }").unwrap();
+        assert!(matches!(
+            colors.rules()[0].declarations[0],
+            StyleDeclaration::BorderColors(_)
+        ));
     }
 
     #[test]

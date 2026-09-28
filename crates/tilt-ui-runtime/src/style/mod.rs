@@ -4,6 +4,7 @@ mod animated;
 mod apply;
 mod backdrop;
 mod background;
+mod border;
 mod cascade;
 pub(crate) mod convert;
 mod inline;

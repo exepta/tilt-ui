@@ -3,11 +3,11 @@ use cssparser::{Parser, Token};
 use crate::{
     AlignItems, AlignSelf, AnimatedEffect, AnimatedEffectKind, AnimationDirection, AnimationName,
     AnimationSpec, BackgroundAttachment, BackgroundEffect, BackgroundPosition, BackgroundSize,
-    BorderEdge, BoxSizing, CssBackgroundImage, CssBoxShadow, CssCursor, CssGradient, CssLineHeight,
-    CssOverflow, CssTextShadow, CssTime, CssTransform, Display, EffectQuality, FlexDirection,
-    FlexWrap, FontFamily, FontWeight, GradientDirection, IterationCount, JustifyContent,
-    PointerEvents, Position, StyleDeclaration, TextAlign, TextTransform, TextWrap, TimingFunction,
-    TransitionProperty, TransitionSpec,
+    BorderEdge, BorderStyle, BoxSizing, CssBackgroundImage, CssBoxShadow, CssCursor, CssGradient,
+    CssLineHeight, CssOverflow, CssTextShadow, CssTime, CssTransform, Display, EffectQuality,
+    FlexDirection, FlexWrap, FontFamily, FontWeight, GradientDirection, IterationCount,
+    JustifyContent, PointerEvents, Position, StyleDeclaration, TextAlign, TextTransform, TextWrap,
+    TimingFunction, TransitionProperty, TransitionSpec,
 };
 
 use super::{
@@ -188,12 +188,56 @@ pub(crate) fn parse_declaration(
         "border-right-width" => StyleDeclaration::BorderRightWidth(parse_length(input, false)?),
         "border-bottom-width" => StyleDeclaration::BorderBottomWidth(parse_length(input, false)?),
         "border-left-width" => StyleDeclaration::BorderLeftWidth(parse_length(input, false)?),
+        "border-style" => StyleDeclaration::BorderStyle(parse_border_styles(input, property)?),
+        "border-top-style" => {
+            StyleDeclaration::BorderTopStyle(parse_border_style(input, property)?)
+        }
+        "border-right-style" => {
+            StyleDeclaration::BorderRightStyle(parse_border_style(input, property)?)
+        }
+        "border-bottom-style" => {
+            StyleDeclaration::BorderBottomStyle(parse_border_style(input, property)?)
+        }
+        "border-left-style" => {
+            StyleDeclaration::BorderLeftStyle(parse_border_style(input, property)?)
+        }
+        "border-brush-strength" => {
+            StyleDeclaration::BorderBrushStrength(parse_brush_strength(input, property)?)
+        }
         "border" => StyleDeclaration::Border(parse_border(input, property)?),
         "border-top" => StyleDeclaration::BorderTop(parse_border(input, property)?),
         "border-right" => StyleDeclaration::BorderRight(parse_border(input, property)?),
         "border-bottom" => StyleDeclaration::BorderBottom(parse_border(input, property)?),
         "border-left" => StyleDeclaration::BorderLeft(parse_border(input, property)?),
-        "border-color" => StyleDeclaration::BorderColor(parse_color(input)?),
+        "border-color" => {
+            let first = parse_color(input)?;
+            let second = input.try_parse(parse_color).ok();
+            let third = input.try_parse(parse_color).ok();
+            let fourth = input.try_parse(parse_color).ok();
+            match (second, third, fourth) {
+                (None, _, _) => StyleDeclaration::BorderColor(first),
+                (Some(right), None, _) => StyleDeclaration::BorderColors(crate::Edges {
+                    top: first,
+                    right,
+                    bottom: first,
+                    left: right,
+                }),
+                (Some(right), Some(bottom), None) => StyleDeclaration::BorderColors(crate::Edges {
+                    top: first,
+                    right,
+                    bottom,
+                    left: right,
+                }),
+                (Some(right), Some(bottom), Some(left)) => {
+                    StyleDeclaration::BorderColors(crate::Edges {
+                        top: first,
+                        right,
+                        bottom,
+                        left,
+                    })
+                }
+            }
+        }
         "border-top-color" => StyleDeclaration::BorderTopColor(parse_color(input)?),
         "border-right-color" => StyleDeclaration::BorderRightColor(parse_color(input)?),
         "border-bottom-color" => StyleDeclaration::BorderBottomColor(parse_color(input)?),
@@ -325,7 +369,7 @@ fn has_deferred_function(source: &str) -> bool {
 fn parse_border(input: &mut Parser<'_, '_>, property: &str) -> Result<BorderEdge, StyleParseError> {
     let invalid = || StyleParseError::InvalidPropertyValue {
         property: property.to_owned(),
-        value: "expected a solid border with width and color, or none".into(),
+        value: "expected a border width, style and color, or none".into(),
     };
     if input
         .try_parse(|input| input.expect_ident_matching("none"))
@@ -334,6 +378,7 @@ fn parse_border(input: &mut Parser<'_, '_>, property: &str) -> Result<BorderEdge
         return Ok(BorderEdge {
             width: crate::Length::Px(0.0),
             color: crate::CssColor::transparent(),
+            style: BorderStyle::None,
         });
     }
     if input
@@ -351,18 +396,17 @@ fn parse_border(input: &mut Parser<'_, '_>, property: &str) -> Result<BorderEdge
         return Ok(BorderEdge {
             width: crate::Length::Px(0.0),
             color: crate::CssColor::transparent(),
+            style: BorderStyle::None,
         });
     }
     let mut width = None;
     let mut color = None;
-    let mut solid = false;
+    let mut style = None;
     while !input.is_exhausted() {
-        if !solid
-            && input
-                .try_parse(|input| input.expect_ident_matching("solid"))
-                .is_ok()
+        if style.is_none()
+            && let Ok(value) = input.try_parse(|input| parse_border_style(input, property))
         {
-            solid = true;
+            style = Some(value);
         } else if width.is_none() {
             if let Ok(value) = input.try_parse(|input| parse_length(input, false)) {
                 width = Some(value);
@@ -379,13 +423,101 @@ fn parse_border(input: &mut Parser<'_, '_>, property: &str) -> Result<BorderEdge
             return Err(invalid());
         }
     }
-    if !solid {
+    if style.is_none() {
         return Err(invalid());
     }
     Ok(BorderEdge {
         width: width.ok_or_else(invalid)?,
         color: color.ok_or_else(invalid)?,
+        style: style.unwrap(),
     })
+}
+
+fn parse_border_style(
+    input: &mut Parser<'_, '_>,
+    property: &str,
+) -> Result<BorderStyle, StyleParseError> {
+    let value = parse_ident(input, property)?;
+    match value.as_str() {
+        "none" => Ok(BorderStyle::None),
+        "solid" | "line" => Ok(BorderStyle::Solid),
+        "dotted" => Ok(BorderStyle::Dotted),
+        "dashed" => Ok(BorderStyle::Dashed),
+        "dash-dot" | "dot-and-lines" | "dot-and-line" => Ok(BorderStyle::DashDot),
+        "skeleton" | "skelleton" => Ok(BorderStyle::Skeleton),
+        "brushed" => Ok(BorderStyle::Brushed),
+        _ => Err(StyleParseError::InvalidPropertyValue {
+            property: property.to_owned(),
+            value: format!("unknown border style `{value}`"),
+        }),
+    }
+}
+
+fn parse_border_styles(
+    input: &mut Parser<'_, '_>,
+    property: &str,
+) -> Result<crate::Edges<BorderStyle>, StyleParseError> {
+    let first = parse_border_style(input, property)?;
+    let second = input
+        .try_parse(|input| parse_border_style(input, property))
+        .ok();
+    let third = input
+        .try_parse(|input| parse_border_style(input, property))
+        .ok();
+    let fourth = input
+        .try_parse(|input| parse_border_style(input, property))
+        .ok();
+    Ok(match (second, third, fourth) {
+        (None, _, _) => crate::Edges::all(first),
+        (Some(horizontal), None, _) => crate::Edges {
+            top: first,
+            right: horizontal,
+            bottom: first,
+            left: horizontal,
+        },
+        (Some(right), Some(bottom), None) => crate::Edges {
+            top: first,
+            right,
+            bottom,
+            left: right,
+        },
+        (Some(right), Some(bottom), Some(left)) => crate::Edges {
+            top: first,
+            right,
+            bottom,
+            left,
+        },
+    })
+}
+
+fn parse_brush_strength(
+    input: &mut Parser<'_, '_>,
+    property: &str,
+) -> Result<f32, StyleParseError> {
+    let value = input
+        .next()
+        .map_err(|_| StyleParseError::InvalidPropertyValue {
+            property: property.to_owned(),
+            value: "expected a number from 0 to 1 or a percentage".into(),
+        })?
+        .clone();
+    let strength = match value {
+        Token::Number { value, .. } => value,
+        Token::Percentage { unit_value, .. } => unit_value,
+        _ => {
+            return Err(StyleParseError::InvalidPropertyValue {
+                property: property.to_owned(),
+                value: "expected a number from 0 to 1 or a percentage".into(),
+            });
+        }
+    };
+    if !(0.0..=1.0).contains(&strength) {
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: property.to_owned(),
+            value: "brush strength must be between 0 and 1".into(),
+        });
+    }
+    Ok(strength)
 }
 
 fn parse_box_shadows(input: &mut Parser<'_, '_>) -> Result<Vec<CssBoxShadow>, StyleParseError> {
@@ -786,7 +918,11 @@ fn parse_animated_effects(
     }
     let invalid = || StyleParseError::InvalidPropertyValue {
         property: "animated-filter".into(),
-        value: "expected noise, retro-tv, old-film, side-glow or bloom (strength, speed)".into(),
+        value: concat!(
+            "expected noise, signal-lost, old-movie, side-glow, bloom, ",
+            "water-pearls or water-wave (strength, speed)"
+        )
+        .into(),
     };
     let mut effects = Vec::new();
     while !input.is_exhausted() {
@@ -795,10 +931,12 @@ fn parse_animated_effects(
         };
         let kind = match name.to_ascii_lowercase().as_str() {
             "noise" => AnimatedEffectKind::Noise,
-            "retro-tv" => AnimatedEffectKind::RetroTv,
-            "old-film" => AnimatedEffectKind::OldFilm,
+            "signal-lost" | "retro-tv" => AnimatedEffectKind::SignalLost,
+            "old-movie" | "old-film" => AnimatedEffectKind::OldMovie,
             "side-glow" => AnimatedEffectKind::SideGlow,
             "bloom" => AnimatedEffectKind::Bloom,
+            "water-pearls" => AnimatedEffectKind::WaterPearls,
+            "water-wave" => AnimatedEffectKind::WaterWave,
             _ => return Err(invalid()),
         };
         let (strength, speed) = input

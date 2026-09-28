@@ -1,0 +1,25 @@
+[package]
+name = "tilt-ui-example-css-showcase"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "tilt-ui-example-css-showcase"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true, features = [
+    "bevy_core_pipeline",
+    "bevy_ui_render",
+    "bevy_winit",
+    "default_font",
+    "png",
+    "jpeg",
+    "wayland",
+    "x11",
+] }
+tilt-ui.workspace = true
+
+[build-dependencies]
+tilt-ui-build.workspace = true

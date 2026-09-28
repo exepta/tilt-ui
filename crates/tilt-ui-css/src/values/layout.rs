@@ -7,11 +7,24 @@ pub struct Edges<T> {
     pub left: T,
 }
 
-/// A solid border edge as exposed by Bevy UI.
+/// A border edge with a CSS or TiltUI pattern.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BorderEdge {
     pub width: crate::Length,
     pub color: crate::CssColor,
+    pub style: BorderStyle,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BorderStyle {
+    #[default]
+    None,
+    Solid,
+    Dotted,
+    Dashed,
+    DashDot,
+    Skeleton,
+    Brushed,
 }
 
 impl<T: Copy> Edges<T> {

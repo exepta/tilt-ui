@@ -175,10 +175,12 @@ pub(crate) fn effect_rect(
 fn kind_id(kind: AnimatedEffectKind) -> f32 {
     match kind {
         AnimatedEffectKind::Noise => 1.0,
-        AnimatedEffectKind::RetroTv => 2.0,
-        AnimatedEffectKind::OldFilm => 3.0,
+        AnimatedEffectKind::SignalLost | AnimatedEffectKind::RetroTv => 2.0,
+        AnimatedEffectKind::OldMovie | AnimatedEffectKind::OldFilm => 3.0,
         AnimatedEffectKind::SideGlow => 4.0,
         AnimatedEffectKind::Bloom => 5.0,
+        AnimatedEffectKind::WaterPearls => 6.0,
+        AnimatedEffectKind::WaterWave => 7.0,
     }
 }
 

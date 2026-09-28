@@ -5122,6 +5122,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tilt-ui-example-css-showcase"
+version = "0.0.0"
+dependencies = [
+ "bevy",
+ "tilt-ui",
+ "tilt-ui-build",
+]
+
+[[package]]
 name = "tilt-ui-example-hot-reload"
 version = "0.0.0"
 dependencies = [

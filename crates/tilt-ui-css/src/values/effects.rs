@@ -31,10 +31,16 @@ pub enum BackgroundEffect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AnimatedEffectKind {
     Noise,
-    RetroTv,
-    OldFilm,
+    SignalLost,
+    OldMovie,
     SideGlow,
     Bloom,
+    WaterPearls,
+    WaterWave,
+    /// Compatibility name for `SignalLost` in Rust code.
+    RetroTv,
+    /// Compatibility name for `OldMovie` in Rust code.
+    OldFilm,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

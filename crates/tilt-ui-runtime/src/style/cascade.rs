@@ -44,7 +44,7 @@ impl Default for Cascade {
     fn default() -> Self {
         Self {
             style: ComputedStyle::default(),
-            winners: vec![None; 93],
+            winners: vec![None; 98],
             variables: BTreeMap::new(),
             deferred: Vec::new(),
         }
@@ -140,6 +140,17 @@ impl Cascade {
                     self.style
                         .border_color_edges
                         .get_or_insert(Edges::all(tilt_ui_css::CssColor::transparent()))
+                        .$side = $value;
+                }
+            };
+        }
+        macro_rules! set_style_edge {
+            ($slot:expr, $side:ident, $value:expr) => {
+                if self.winners[$slot].is_none_or(|old| key >= old) {
+                    self.winners[$slot] = Some(key);
+                    self.style
+                        .border_style
+                        .get_or_insert(Edges::all(tilt_ui_css::BorderStyle::Solid))
                         .$side = $value;
                 }
             };
@@ -292,25 +303,41 @@ impl Cascade {
                 set_edge!(59, border_width, bottom, *value)
             }
             StyleDeclaration::BorderLeftWidth(value) => set_edge!(60, border_width, left, *value),
+            StyleDeclaration::BorderStyle(value) => {
+                set_style_edge!(93, top, value.top);
+                set_style_edge!(94, right, value.right);
+                set_style_edge!(95, bottom, value.bottom);
+                set_style_edge!(96, left, value.left);
+            }
+            StyleDeclaration::BorderTopStyle(value) => set_style_edge!(93, top, *value),
+            StyleDeclaration::BorderRightStyle(value) => set_style_edge!(94, right, *value),
+            StyleDeclaration::BorderBottomStyle(value) => set_style_edge!(95, bottom, *value),
+            StyleDeclaration::BorderLeftStyle(value) => set_style_edge!(96, left, *value),
+            StyleDeclaration::BorderBrushStrength(value) => set!(97, border_brush_strength, *value),
             StyleDeclaration::Border(edge) => {
                 self.apply(&StyleDeclaration::BorderWidth(Edges::all(edge.width)), key);
                 self.apply(&StyleDeclaration::BorderColor(edge.color), key);
+                self.apply(&StyleDeclaration::BorderStyle(Edges::all(edge.style)), key);
             }
             StyleDeclaration::BorderTop(edge) => {
                 self.apply(&StyleDeclaration::BorderTopWidth(edge.width), key);
                 self.apply(&StyleDeclaration::BorderTopColor(edge.color), key);
+                self.apply(&StyleDeclaration::BorderTopStyle(edge.style), key);
             }
             StyleDeclaration::BorderRight(edge) => {
                 self.apply(&StyleDeclaration::BorderRightWidth(edge.width), key);
                 self.apply(&StyleDeclaration::BorderRightColor(edge.color), key);
+                self.apply(&StyleDeclaration::BorderRightStyle(edge.style), key);
             }
             StyleDeclaration::BorderBottom(edge) => {
                 self.apply(&StyleDeclaration::BorderBottomWidth(edge.width), key);
                 self.apply(&StyleDeclaration::BorderBottomColor(edge.color), key);
+                self.apply(&StyleDeclaration::BorderBottomStyle(edge.style), key);
             }
             StyleDeclaration::BorderLeft(edge) => {
                 self.apply(&StyleDeclaration::BorderLeftWidth(edge.width), key);
                 self.apply(&StyleDeclaration::BorderLeftColor(edge.color), key);
+                self.apply(&StyleDeclaration::BorderLeftStyle(edge.style), key);
             }
             StyleDeclaration::BorderColor(value) => {
                 set!(27, border_color, *value);
@@ -318,6 +345,12 @@ impl Cascade {
                 set_color_edge!(71, right, *value);
                 set_color_edge!(72, bottom, *value);
                 set_color_edge!(73, left, *value);
+            }
+            StyleDeclaration::BorderColors(value) => {
+                set_color_edge!(70, top, value.top);
+                set_color_edge!(71, right, value.right);
+                set_color_edge!(72, bottom, value.bottom);
+                set_color_edge!(73, left, value.left);
             }
             StyleDeclaration::BorderTopColor(value) => set_color_edge!(70, top, *value),
             StyleDeclaration::BorderRightColor(value) => set_color_edge!(71, right, *value),
@@ -398,6 +431,27 @@ mod tests {
             colors.right,
             tilt_ui_css::CssColor::rgba(51.0 / 255.0, 51.0 / 255.0, 51.0 / 255.0, 1.0)
         );
+    }
+
+    #[test]
+    fn patterned_border_styles_keep_side_priority() {
+        let declarations = parse_stylesheet(
+            "* { border: 2px dotted gray; border-left-style: brushed !important; border-style: solid dashed dash-dot skeleton; border-brush-strength: 80%; }",
+        ).unwrap().rules.remove(0).declarations;
+        let mut cascade = Cascade::default();
+        for (index, declaration) in declarations.iter().enumerate() {
+            cascade.apply(
+                declaration,
+                key(StyleOrigin::Author, Specificity(0), 0, index),
+            );
+        }
+        let style = cascade.finish().0;
+        let sides = style.border_style.unwrap();
+        assert_eq!(sides.top, tilt_ui_css::BorderStyle::Solid);
+        assert_eq!(sides.right, tilt_ui_css::BorderStyle::Dashed);
+        assert_eq!(sides.bottom, tilt_ui_css::BorderStyle::DashDot);
+        assert_eq!(sides.left, tilt_ui_css::BorderStyle::Brushed);
+        assert_eq!(style.border_brush_strength, Some(0.8));
     }
 
     #[test]

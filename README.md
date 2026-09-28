@@ -146,6 +146,10 @@ header, plus a 30/45/60/custom FPS control below it. Set
 `TILT_UI_SHOWCASE_LANG=de-DE` to start directly in German; use
 `TILT_UI_SHOWCASE_SIZE=390x844` to inspect its narrow layout.
 
+The separate [CSS showcase](examples/css-showcase/README.md) contains the
+border, image-filter and animated GPU effect galleries. Run it with
+`cargo run -p tilt-ui-example-css-showcase`.
+
 ## CSS priority and calculated values
 
 Component CSS, document stylesheets, themes, and static or bound inline styles
@@ -190,7 +194,7 @@ Common layout CSS now maps to Bevy's block, flex, and grid layouts. For example:
 }
 ```
 
-`flex`/`flex-flow`, side-specific solid borders, `line-height`, `text-wrap`,
+`flex`/`flex-flow`, side-specific borders, `line-height`, `text-wrap`,
 `text-transform`, named font families, `cursor`, `pointer-events`, `z-index`,
 and `scroll-width` also work in stylesheets. `background-image` accepts linear
 gradients and `url(...)`. `background-size: stretch | cover | contain` controls
@@ -205,18 +209,31 @@ UI elements. Filtered content stays sharp above the scene, and rounded corners
 and scroll clipping bound the GPU treatment. Up to eight visible backdrops share
 one GPU pass; no pixel readback is used.
 
-`animated-filter` accepts `noise(strength, speed)`, `retro-tv(...)`,
-`old-film(...)`, `side-glow(...)`, and `bloom(...)`, including chains of effects.
+`animated-filter` accepts `noise(strength, speed)`, `signal-lost(...)`,
+`old-movie(...)`, `water-pearls(...)`, `water-wave(...)`, `side-glow(...)`,
+and `bloom(...)`, including chains of effects. The older `retro-tv` and
+`old-film` names remain accepted as aliases.
 It treats the composited pixels inside the element's bounds, including child
 content.
 Strength ranges from `0` to `1`; speed from `0` to `4` and defaults to `1`.
 `effect-quality: auto | low | medium | high` selects shader sampling quality;
-`auto` uses low quality on WASM, iOS, Android, and narrow viewports. Animated
+`auto` uses low quality on WASM, iOS, Android, and narrow viewports.
 Up to eight visible animated effects use the same GPU pass as backdrops, which
 is removed when no visible effect is active. The
-[widget showcase](examples/component-showcase/src-ui/pages/showcase.component.html)
+[CSS showcase](examples/css-showcase/src-ui/pages/css-gallery.component.html)
 activates its previews on hover or touch so scrolling stays smooth. Named grid
-areas and dashed borders remain open in [TODO.md](TODO.md).
+areas remain open in [TODO.md](TODO.md).
+
+Border shorthands accept width, style and color in any order, for example
+`border: 1px solid gray` or `border-top: 4px dotted #A833EA`. `border-style`
+and `border-color` support one to four side values, plus `border-top-style` and its other side
+forms. Styles include `solid` (`line`), `dotted`, `dashed`, `dash-dot`
+(`dot-and-lines`), `skeleton` (`skelleton`) and `brushed`.
+`skeleton` has chipped gaps and fractures; `brushed` has faded, peeling paint,
+dark weathering and directional grain. `border-brush-strength: 0.8` (or `80%`) controls the
+amount of weathering.
+Patterned borders use one cached material per element and update only when
+layout or style changes; solid borders keep Bevy's native rendering.
 `opacity` multiplies drawable alpha
 through the subtree; overlapping children are not composited as one isolated
 browser layer.

@@ -1,11 +1,11 @@
 use crate::{
     AlignItems, AlignSelf, AnimatedEffect, AnimationDirection, AnimationName, AnimationSpec,
     BackgroundAttachment, BackgroundEffect, BackgroundPosition, BackgroundSize, BorderRadius,
-    BoxSizing, CssBackgroundImage, CssBoxShadow, CssColor, CssCursor, CssLineHeight, CssOverflow,
-    CssTextShadow, CssTime, CssTransform, Display, Edges, EffectQuality, FlexDirection, FlexWrap,
-    FontFamily, FontWeight, GridAutoFlow, GridPlacement, GridTrackGroup, GridTrackSize,
-    IterationCount, JustifyContent, Length, PointerEvents, Position, TextAlign, TextTransform,
-    TextWrap, TimingFunction, TransitionProperty, TransitionSpec,
+    BorderStyle, BoxSizing, CssBackgroundImage, CssBoxShadow, CssColor, CssCursor, CssLineHeight,
+    CssOverflow, CssTextShadow, CssTime, CssTransform, Display, Edges, EffectQuality,
+    FlexDirection, FlexWrap, FontFamily, FontWeight, GridAutoFlow, GridPlacement, GridTrackGroup,
+    GridTrackSize, IterationCount, JustifyContent, Length, PointerEvents, Position, TextAlign,
+    TextTransform, TextWrap, TimingFunction, TransitionProperty, TransitionSpec,
 };
 
 /// Stores the resolved typed CSS values that apply to one TiltUI runtime node.
@@ -64,6 +64,8 @@ pub struct ComputedStyle {
     pub border_width: Option<Edges<Length>>,
     pub border_color: Option<CssColor>,
     pub border_color_edges: Option<Edges<CssColor>>,
+    pub border_style: Option<Edges<BorderStyle>>,
+    pub border_brush_strength: Option<f32>,
     pub border_radius: Option<BorderRadius>,
     pub box_shadow: Option<Vec<CssBoxShadow>>,
     pub text_shadow: Option<CssTextShadow>,

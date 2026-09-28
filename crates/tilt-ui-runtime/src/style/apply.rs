@@ -31,6 +31,7 @@ use crate::style::backdrop::BackdropFilter;
 use crate::style::background::{
     BackgroundLayout, FilteredBackground, PositionedContain, PositionedContainMaterial,
 };
+use crate::style::border::apply_border;
 use crate::{ControlPart, ControlPartKind, TiltText};
 
 use super::{
@@ -701,18 +702,89 @@ fn apply_element_visual(world: &mut World, entity: Entity, style: &ComputedStyle
     if !applied.gradient {
         apply_image_opacity(world, entity, opacity);
     }
-    if let Some(edges) = style.border_color_edges {
+    let procedural_border = apply_border(world, entity, style, opacity);
+    if procedural_border {
+        world
+            .entity_mut(entity)
+            .insert(BorderColor::all(bevy::color::Color::NONE));
+        applied.border_color = true;
+    } else if let Some(edges) = style.border_color_edges {
+        let visible = style
+            .border_style
+            .unwrap_or(tilt_ui_css::Edges::all(tilt_ui_css::BorderStyle::Solid));
         world.entity_mut(entity).insert(BorderColor {
-            top: color_with_opacity(edges.top, opacity),
-            right: color_with_opacity(edges.right, opacity),
-            bottom: color_with_opacity(edges.bottom, opacity),
-            left: color_with_opacity(edges.left, opacity),
+            top: color_with_opacity(
+                edges.top,
+                if visible.top == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+            right: color_with_opacity(
+                edges.right,
+                if visible.right == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+            bottom: color_with_opacity(
+                edges.bottom,
+                if visible.bottom == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+            left: color_with_opacity(
+                edges.left,
+                if visible.left == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
         });
         applied.border_color = true;
     } else if let Some(value) = style.border_color {
-        world
-            .entity_mut(entity)
-            .insert(BorderColor::all(color_with_opacity(value, opacity)));
+        let visible = style
+            .border_style
+            .unwrap_or(tilt_ui_css::Edges::all(tilt_ui_css::BorderStyle::Solid));
+        world.entity_mut(entity).insert(BorderColor {
+            top: color_with_opacity(
+                value,
+                if visible.top == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+            right: color_with_opacity(
+                value,
+                if visible.right == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+            bottom: color_with_opacity(
+                value,
+                if visible.bottom == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+            left: color_with_opacity(
+                value,
+                if visible.left == tilt_ui_css::BorderStyle::None {
+                    0.0
+                } else {
+                    opacity
+                },
+            ),
+        });
         applied.border_color = true;
     } else if applied.border_color {
         world.entity_mut(entity).insert(BorderColor::DEFAULT);
@@ -965,10 +1037,41 @@ pub(crate) fn apply_node(node: &mut Node, style: &ComputedStyle) {
         .unwrap_or(defaults.left);
     node.margin = style.margin.map(convert::rect).unwrap_or(defaults.margin);
     node.padding = style.padding.map(convert::rect).unwrap_or(defaults.padding);
-    node.border = style
-        .border_width
-        .map(convert::rect)
-        .unwrap_or(defaults.border);
+    let border_width = style.border_width.or_else(|| {
+        style.border_style.map(|edges| {
+            let width = |value| {
+                if value == tilt_ui_css::BorderStyle::None {
+                    tilt_ui_css::Length::Px(0.0)
+                } else {
+                    tilt_ui_css::Length::Px(3.0)
+                }
+            };
+            tilt_ui_css::Edges {
+                top: width(edges.top),
+                right: width(edges.right),
+                bottom: width(edges.bottom),
+                left: width(edges.left),
+            }
+        })
+    });
+    let border_width = border_width.map(|mut widths| {
+        if let Some(styles) = style.border_style {
+            if styles.top == tilt_ui_css::BorderStyle::None {
+                widths.top = tilt_ui_css::Length::Px(0.0);
+            }
+            if styles.right == tilt_ui_css::BorderStyle::None {
+                widths.right = tilt_ui_css::Length::Px(0.0);
+            }
+            if styles.bottom == tilt_ui_css::BorderStyle::None {
+                widths.bottom = tilt_ui_css::Length::Px(0.0);
+            }
+            if styles.left == tilt_ui_css::BorderStyle::None {
+                widths.left = tilt_ui_css::Length::Px(0.0);
+            }
+        }
+        widths
+    });
+    node.border = border_width.map(convert::rect).unwrap_or(defaults.border);
     node.row_gap = style.row_gap.map(convert::val).unwrap_or(defaults.row_gap);
     node.column_gap = style
         .column_gap

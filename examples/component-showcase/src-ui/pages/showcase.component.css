@@ -32,28 +32,8 @@
 .showcase-section { display: flex; flex-direction: column; gap: 8px; width: 100%; flex-shrink: 0; padding: 10px 15px 12px 15px; border-radius: 20px; }
 .section-heading { display: flex; align-items: center; gap: 13px; width: 100%; height: 34px; padding: 0px 4px; }
 .section-index { display: flex; align-items: center; justify-content: center; pointer-events: none; width: 36px; height: 36px; color: #FFFFFF; background-color: #A833EA; background-image: linear-gradient(to bottom, #D846EA, #8E25E9); border-radius: 50%; font-size: 21px; font-weight: 700; }
-.effect-index { font-size: 13px; }
 .section-heading headline { font-size: 25px; font-weight: 700; }
 .section-heading p { margin-left: auto; font-size: 14px; }
-.effect-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; width: 100%; }
-.effect-card { width: 100%; height: 154px; gap: 8px; }
-.effect-preview { width: 100%; height: 116px; background-image: url("tilt-ui://media/mountain-lake.png"); background-size: cover; background-position: center; border-radius: 7px; }
-.animated-noise, .animated-retro, .animated-film, .animated-glow, .animated-bloom { cursor: pointer; }
-.effect-blur { background-filter: blur(4px); }
-.effect-gray { background-filter: grayscale(1); }
-.effect-oil { background-filter: oil-paint(3); }
-.effect-contrast { background-filter: contrast(1.8); }
-.effect-invert { background-filter: invert(1); }
-.animated-heading { margin-top: 14px; }
-.animated-noise:hover, .animated-noise:active { animated-filter: noise(0.42, 1); }
-.animated-retro:hover, .animated-retro:active { animated-filter: retro-tv(0.8, 1.2); }
-.animated-film:hover, .animated-film:active { animated-filter: old-film(0.85, 0.7); }
-.animated-glow:hover, .animated-glow:active { animated-filter: side-glow(0.95, 1); }
-.animated-bloom:hover, .animated-bloom:active { animated-filter: bloom(0.9, 0.8); effect-quality: auto; }
-.live-backdrop-scene { display: flex; align-items: center; justify-content: center; width: 100%; height: 142px; margin-top: 14px; background-image: url("tilt-ui://media/mountain-lake.png"); background-size: cover; background-position: center; border-radius: 11px; overflow: hidden; }
-.live-backdrop-panel { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 48%; height: 112px; background-color: #FFFFFF99; backdrop-filter: blur(7px) grayscale(0.5) contrast(1.2) invert(0.1); border-radius: 12px; }
-.live-backdrop-panel h3 { color: #263046; font-size: 18px; font-weight: 700; }
-.live-backdrop-panel p { color: #263046; font-size: 13px; }
 .card-row { display: flex; flex-direction: row; flex-wrap: wrap; gap: 14px; width: 100%; }
 .six-column { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: auto; grid-auto-flow: row; }
 .showcase-card { display: flex; flex-direction: column; box-sizing: border-box; flex-grow: 0; flex-shrink: 0; min-width: 0px; padding: 8px 10px 6px 10px; border-width: 1px; border-radius: calc(12px * sin(90deg)); }
@@ -139,7 +119,6 @@
 .site-footer p { font-size: 12px; }
 
 @media (max-width: 1100px) {
-    .effect-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .site-title headline { font-size: 34px; }
     .site-aside { display: none; }
     .card-row { flex-wrap: wrap; }
@@ -148,9 +127,6 @@
     .event-row .showcase-card { width: 48%; }
 }
 @media (max-width: 650px) {
-    .effect-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-    .effect-card { height: 138px; }
-    .effect-preview { height: 100px; }
     .showcase-page { padding: 8px; }
     .fps-toolbar { padding: 0px 6px; }
     .fps-toolbar p { min-width: 56px; }
