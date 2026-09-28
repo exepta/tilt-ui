@@ -19,6 +19,7 @@ use bevy::{
         world::World,
     },
     prelude::IntoScheduleConfigs,
+    ui::ComputedNode,
     window::{PrimaryWindow, Window},
 };
 
@@ -31,13 +32,17 @@ use crate::{
 };
 use crate::{ProviderContext, ProviderEffect, ProviderScope, UiProviderRegistry, UiThemes};
 
+use super::state::StyleVariables;
 use super::{
-    apply::resolve_and_apply_tree,
+    apply::{resolve_and_apply_tree, sync_text_transform},
     cascade::{Cascade, StyleOrigin, key},
     inline::InlineStyle,
     matcher::{SelectorView, matching_specificity},
     motion::{reconcile_scope, tick_animations},
 };
+
+#[derive(Component, Clone, Copy)]
+struct DeferredValueContext(bevy::math::Vec2);
 
 type SelectorMetadataChanged = bevy::ecs::query::Or<(
     Changed<ElementState>,
@@ -101,6 +106,9 @@ impl TiltUiStyleRuntimePlugin {
 
 impl Plugin for TiltUiStyleRuntimePlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(super::background::BackgroundRuntimePlugin);
+        app.add_plugins(super::backdrop::BackdropRuntimePlugin);
+        app.add_plugins(super::animated::AnimatedRuntimePlugin);
         app.add_message::<AssetEvent<UiStyleSheetAsset>>();
         if self.default_theme && !app.world().contains_resource::<DefaultThemeStyleSheet>() {
             app.insert_resource(DefaultThemeStyleSheet::parse());
@@ -113,9 +121,11 @@ impl Plugin for TiltUiStyleRuntimePlugin {
                 mark_theme_changes,
                 refresh_document_styles,
                 invalidate_responsive_styles,
+                invalidate_deferred_values,
                 mark_ready_author_styles,
                 mark_changed_style_owners,
                 apply_dirty_styles.in_set(TiltUiStyleRuntimeSet::Apply),
+                sync_text_transform,
                 tick_animations,
             )
                 .chain()
@@ -180,24 +190,25 @@ fn mark_theme_changes(
 fn invalidate_responsive_styles(
     mut commands: Commands<'_, '_>,
     mut environment: ResMut<'_, TiltUiMediaEnvironment>,
-    windows: Query<'_, '_, &Window, (bevy::ecs::query::With<PrimaryWindow>, Changed<Window>)>,
+    windows: Query<'_, '_, &Window, bevy::ecs::query::With<PrimaryWindow>>,
     stylesheets: bevy::ecs::system::Res<'_, Assets<UiStyleSheetAsset>>,
     default_theme: Option<bevy::ecs::system::Res<'_, DefaultThemeStyleSheet>>,
     themes: Option<bevy::ecs::system::Res<'_, UiThemes>>,
     providers: Query<'_, '_, &ProviderScope>,
     scopes: Query<'_, '_, (Entity, &ComponentAssetHandles, Option<&MediaMatchState>)>,
+    deferred: Query<'_, '_, &ComponentStyleOwner, bevy::ecs::query::With<DeferredValueContext>>,
 ) {
     let Some(window) = windows.iter().next() else {
         return;
     };
-    let next = tilt_ui_css::MediaEnvironment {
-        width: window.resolution.width(),
-        height: window.resolution.height(),
-    };
+    let next = media_environment_for_window(window);
     if environment.0 == Some(next) {
         return;
     }
     environment.0 = Some(next);
+    for owner in &deferred {
+        commands.entity(owner.0).insert(StyleDirty);
+    }
     let provider_media_possible = !providers.is_empty();
     let named_theme_has_media = themes
         .as_ref()
@@ -241,6 +252,52 @@ fn invalidate_responsive_styles(
     }
 }
 
+fn media_environment_for_window(window: &Window) -> tilt_ui_css::MediaEnvironment {
+    let canvas = tilt_ui_css::MediaEnvironment {
+        width: window.resolution.width(),
+        height: window.resolution.height(),
+    };
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(browser) = web_sys::window() {
+            let width = browser.inner_width().ok().and_then(|value| value.as_f64());
+            let height = browser.inner_height().ok().and_then(|value| value.as_f64());
+            if let (Some(width), Some(height)) = (width, height)
+                && width.is_finite()
+                && height.is_finite()
+                && width > 0.0
+                && height > 0.0
+            {
+                return tilt_ui_css::MediaEnvironment {
+                    width: width as f32,
+                    height: height as f32,
+                };
+            }
+        }
+    }
+    canvas
+}
+
+fn invalidate_deferred_values(
+    mut commands: Commands,
+    deferred: Query<(Entity, &ComponentStyleOwner, &DeferredValueContext)>,
+    parents: Query<&ChildOf>,
+    detached: Query<&super::backdrop::DetachedBackdrop>,
+    nodes: Query<&ComputedNode>,
+    environment: Res<TiltUiMediaEnvironment>,
+) {
+    let viewport = environment.0.unwrap_or(tilt_ui_css::MediaEnvironment {
+        width: 0.0,
+        height: 0.0,
+    });
+    for (entity, owner, previous) in &deferred {
+        if containing_size_from_queries(entity, &parents, &detached, &nodes, viewport) != previous.0
+        {
+            commands.entity(owner.0).insert(StyleDirty);
+        }
+    }
+}
+
 fn mark_ready_author_styles(
     mut commands: Commands<'_, '_>,
     stylesheets: bevy::ecs::system::Res<'_, Assets<UiStyleSheetAsset>>,
@@ -265,10 +322,18 @@ fn mark_changed_style_owners(
     mut commands: Commands<'_, '_>,
     mut invalidations: ResMut<'_, StyleInvalidations>,
     changed: Query<'_, '_, (Entity, &ComponentStyleOwner), SelectorMetadataChanged>,
+    changed_inline: Query<'_, '_, &ComponentStyleOwner, Changed<InlineStyle>>,
     hierarchy_changed: Query<'_, '_, &ComponentStyleOwner, Changed<ChildOf>>,
 ) {
     for (entity, owner) in &changed {
+        // The selector view includes descendants and following siblings in a
+        // partial invalidation. That also propagates changed CSS variables;
+        // marking the whole scope dirty here would restyle every widget on
+        // each hover transition.
         invalidations.0.entry(owner.0).or_default().insert(entity);
+    }
+    for owner in &changed_inline {
+        commands.entity(owner.0).insert(StyleDirty);
     }
     for owner in &hierarchy_changed {
         commands.entity(owner.0).insert(StyleDirty);
@@ -444,8 +509,10 @@ fn restyle_scope(
     );
     let mut overflow_changed = false;
     let mut provider_cache = HashMap::new();
+    let mut affected = affected;
+    affected.sort_by_key(|entity| hierarchy_depth(world, *entity));
     for entity in affected {
-        let mut cascade = Cascade::default();
+        let mut cascade = Cascade::with_variables(inherited_variables(world, entity));
         let (selected_theme, extra_styles) = if has_provider_scopes {
             provider_layers(world, entity, themes, providers, &mut provider_cache)
         } else {
@@ -494,7 +561,7 @@ fn restyle_scope(
             environment,
         );
         apply_inline_style(&mut cascade, world.get::<InlineStyle>(entity));
-        let next = cascade.finish();
+        let next = finish_cascade(world, entity, cascade, environment);
         let previous = world.get::<super::state::CascadedStyle>(entity);
         if previous != Some(&next) {
             overflow_changed |= previous.is_none_or(|previous| {
@@ -510,7 +577,7 @@ fn restyle_scope(
             if world.get::<super::state::CascadedStyle>(entity).is_some() {
                 continue;
             }
-            let mut cascade = Cascade::default();
+            let mut cascade = Cascade::with_variables(inherited_variables(world, entity));
             let (selected_theme, extra_styles) = if has_provider_scopes {
                 provider_layers(world, entity, themes, providers, &mut provider_cache)
             } else {
@@ -559,13 +626,149 @@ fn restyle_scope(
                 environment,
             );
             apply_inline_style(&mut cascade, world.get::<InlineStyle>(entity));
-            world.entity_mut(entity).insert(cascade.finish());
+            let next = finish_cascade(world, entity, cascade, environment);
+            world.entity_mut(entity).insert(next);
         }
     }
     resolve_and_apply_tree(world, owner);
     reconcile_scope(world, owner, stylesheet.as_ref(), default_theme);
     world.entity_mut(owner).insert(StyleSelectorCache(view));
     stylesheet
+}
+
+fn hierarchy_depth(world: &World, entity: Entity) -> usize {
+    let mut current = entity;
+    let mut depth = 0;
+    while let Some(parent) = super::backdrop::logical_parent(world, current) {
+        depth += 1;
+        current = parent;
+    }
+    depth
+}
+
+fn inherited_variables(
+    world: &World,
+    entity: Entity,
+) -> std::collections::BTreeMap<String, String> {
+    let mut current = super::backdrop::logical_parent(world, entity);
+    while let Some(parent) = current {
+        if let Some(variables) = world.get::<StyleVariables>(parent) {
+            return variables.0.clone();
+        }
+        current = super::backdrop::logical_parent(world, parent);
+    }
+    Default::default()
+}
+
+fn containing_size(
+    world: &World,
+    entity: Entity,
+    environment: tilt_ui_css::MediaEnvironment,
+) -> bevy::math::Vec2 {
+    let mut current = super::backdrop::logical_parent(world, entity);
+    while let Some(parent) = current {
+        if let Some(node) = world.get::<ComputedNode>(parent) {
+            let size = (node.content_box().size() * node.inverse_scale_factor())
+                .max(bevy::math::Vec2::ZERO);
+            return size;
+        }
+        current = super::backdrop::logical_parent(world, parent);
+    }
+    bevy::math::Vec2::new(environment.width, environment.height)
+}
+
+fn containing_size_from_queries(
+    entity: Entity,
+    parents: &Query<&ChildOf>,
+    detached: &Query<&super::backdrop::DetachedBackdrop>,
+    nodes: &Query<&ComputedNode>,
+    environment: tilt_ui_css::MediaEnvironment,
+) -> bevy::math::Vec2 {
+    let parent_of = |entity| {
+        parents
+            .get(entity)
+            .ok()
+            .map(|parent| parent.0)
+            .or_else(|| detached.get(entity).ok().map(|marker| marker.parent))
+    };
+    let mut current = parent_of(entity);
+    while let Some(parent) = current {
+        if let Ok(node) = nodes.get(parent) {
+            let size = (node.content_box().size() * node.inverse_scale_factor())
+                .max(bevy::math::Vec2::ZERO);
+            return size;
+        }
+        current = parent_of(parent);
+    }
+    bevy::math::Vec2::new(environment.width, environment.height)
+}
+
+fn finish_cascade(
+    world: &mut World,
+    entity: Entity,
+    mut cascade: Cascade,
+    environment: tilt_ui_css::MediaEnvironment,
+) -> super::state::CascadedStyle {
+    let size = containing_size(world, entity, environment);
+    let font_size = inherited_font_size(world, entity, environment);
+    let has_deferred = cascade.has_deferred();
+    let variables = StyleVariables(cascade.variables());
+    cascade.resolve_deferred(|property| {
+        let vertical = matches!(
+            property,
+            "height" | "min-height" | "max-height" | "top" | "bottom" | "row-gap"
+        );
+        tilt_ui_css::ValueContext {
+            percentage_base: if property == "font-size" {
+                font_size
+            } else if vertical {
+                size.y
+            } else {
+                size.x
+            },
+            viewport_width: environment.width,
+            viewport_height: environment.height,
+        }
+    });
+    if world.get::<StyleVariables>(entity) != Some(&variables) {
+        world.entity_mut(entity).insert(variables);
+    }
+    if has_deferred {
+        world.entity_mut(entity).insert(DeferredValueContext(size));
+    } else {
+        world.entity_mut(entity).remove::<DeferredValueContext>();
+    }
+    cascade.finish()
+}
+
+fn inherited_font_size(
+    world: &World,
+    entity: Entity,
+    environment: tilt_ui_css::MediaEnvironment,
+) -> f32 {
+    let mut ancestors = Vec::new();
+    let mut current = super::backdrop::logical_parent(world, entity);
+    while let Some(parent) = current {
+        ancestors.push(parent);
+        current = super::backdrop::logical_parent(world, parent);
+    }
+    let mut size = 16.0;
+    for ancestor in ancestors.into_iter().rev() {
+        let Some(value) = world
+            .get::<super::state::CascadedStyle>(ancestor)
+            .and_then(|style| style.0.font_size)
+        else {
+            continue;
+        };
+        size = match value {
+            tilt_ui_css::Length::Auto => size,
+            tilt_ui_css::Length::Px(value) => value,
+            tilt_ui_css::Length::Percent(value) => size * value / 100.0,
+            tilt_ui_css::Length::Vw(value) => environment.width * value / 100.0,
+            tilt_ui_css::Length::Vh(value) => environment.height * value / 100.0,
+        };
+    }
+    size
 }
 
 fn provider_layers(
@@ -584,7 +787,7 @@ fn provider_layers(
         if world.get::<ProviderScope>(node).is_some() {
             scopes.push(node);
         }
-        current = world.get::<ChildOf>(node).map(|parent| parent.0);
+        current = super::backdrop::logical_parent(world, node);
     }
     scopes.reverse();
     let mut theme = themes.active().map(str::to_owned);
@@ -699,6 +902,20 @@ mod tests {
     use tilt_ui_css::parse_stylesheet;
 
     use super::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin, merge_author_stylesheets};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn media_environment_uses_logical_window_size_on_native() {
+        let mut window = Window::default();
+        window.resolution.set(640.0, 480.0);
+        assert_eq!(
+            super::media_environment_for_window(&window),
+            tilt_ui_css::MediaEnvironment {
+                width: 640.0,
+                height: 480.0
+            }
+        );
+    }
     use crate::style::InlineStyle;
     use crate::{
         ComponentAssetHandles, ComponentStyleOwner, ControlChecked, ElementClasses, ElementId,
@@ -869,6 +1086,240 @@ mod tests {
         assert_eq!(
             app.world().get::<ComponentStyleOwner>(button).unwrap().0,
             boundary
+        );
+    }
+
+    #[test]
+    fn bound_inline_important_overrides_important_stylesheet() {
+        let mut app = app();
+        app.world_mut().init_resource::<crate::UiBindingStore>();
+        app.world_mut().init_resource::<crate::UiSharedValues>();
+        let author = stylesheet(app.world_mut(), "button { width: 24px !important; }");
+        let boundary = owner(app.world_mut(), author);
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+                InlineStyle::parse("width: 50px;").unwrap(),
+                PropertyBindings {
+                    bindings: vec![PropertyBinding {
+                        name: "style".into(),
+                        expression: "'width: 80px !important;'".into(),
+                    }],
+                },
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(button);
+        crate::component::binding_runtime::apply_bindings(app.world_mut());
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(80.0)
+        );
+        app.world_mut()
+            .get_mut::<PropertyBindings>(button)
+            .unwrap()
+            .bindings[0]
+            .expression = "''".into();
+        crate::component::binding_runtime::apply_bindings(app.world_mut());
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(24.0)
+        );
+    }
+
+    #[test]
+    fn root_variables_math_and_important_restyle_descendants() {
+        let mut app = app();
+        let author = stylesheet(
+            app.world_mut(),
+            ":root { --space: calc(50% + 5px); font-size: 20px; } button { width: var(--space); font-size: calc(100% + 2px); color: #111111 !important; }",
+        );
+        let boundary = owner(app.world_mut(), author);
+        let root = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+                bevy::ui::ComputedNode {
+                    size: bevy::math::Vec2::new(200.0, 100.0),
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+                InlineStyle::parse("color: #ffffff;").unwrap(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(root);
+        app.world_mut().entity_mut(root).add_child(button);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(105.0)
+        );
+        assert_eq!(
+            app.world()
+                .get::<crate::RuntimeComputedStyle>(button)
+                .unwrap()
+                .0
+                .font_size,
+            Some(tilt_ui_css::Length::Px(22.0))
+        );
+        assert_eq!(
+            app.world()
+                .get::<crate::RuntimeComputedStyle>(button)
+                .unwrap()
+                .0
+                .color,
+            Some(tilt_ui_css::CssColor::rgba(
+                17.0 / 255.0,
+                17.0 / 255.0,
+                17.0 / 255.0,
+                1.0
+            ))
+        );
+
+        app.world_mut()
+            .entity_mut(root)
+            .insert(InlineStyle::parse("--space: 40px;").unwrap());
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(40.0)
+        );
+
+        app.world_mut()
+            .entity_mut(root)
+            .insert(InlineStyle::parse("").unwrap());
+        app.world_mut()
+            .get_mut::<bevy::ui::ComputedNode>(root)
+            .unwrap()
+            .size
+            .x = 300.0;
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(155.0)
+        );
+    }
+
+    #[test]
+    fn mixed_viewport_lengths_recompute_after_resize() {
+        let mut app = app();
+        let mut window = Window::default();
+        window.resolution.set(800.0, 600.0);
+        let window = app.world_mut().spawn((window, PrimaryWindow)).id();
+        let author = stylesheet(
+            app.world_mut(),
+            "button { width: max(calc(10vw + 5px), 40px); }",
+        );
+        let boundary = owner(app.world_mut(), author);
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(button);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(85.0)
+        );
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(1000.0, 600.0);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(105.0)
+        );
+    }
+
+    #[test]
+    fn theme_variables_recompute_existing_elements() {
+        let mut app = app();
+        register_ui_theme(app.world_mut(), "light", ":root { --ink: #222222; }").unwrap();
+        register_ui_theme(app.world_mut(), "dark", ":root { --ink: #eeeeee; }").unwrap();
+        switch_ui_theme(app.world_mut(), "light").unwrap();
+        let author = stylesheet(app.world_mut(), "button { color: var(--ink); }");
+        let boundary = owner(app.world_mut(), author);
+        let root = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(root);
+        app.world_mut().entity_mut(root).add_child(button);
+        app.update();
+        let light = app
+            .world()
+            .get::<crate::RuntimeComputedStyle>(button)
+            .unwrap()
+            .0
+            .color;
+        switch_ui_theme(app.world_mut(), "dark").unwrap();
+        app.update();
+        let dark = app
+            .world()
+            .get::<crate::RuntimeComputedStyle>(button)
+            .unwrap()
+            .0
+            .color;
+        assert_eq!(
+            light,
+            Some(tilt_ui_css::CssColor::rgba(
+                34.0 / 255.0,
+                34.0 / 255.0,
+                34.0 / 255.0,
+                1.0
+            ))
+        );
+        assert_eq!(
+            dark,
+            Some(tilt_ui_css::CssColor::rgba(
+                238.0 / 255.0,
+                238.0 / 255.0,
+                238.0 / 255.0,
+                1.0
+            ))
         );
     }
 
@@ -1361,6 +1812,77 @@ mod tests {
     }
 
     #[test]
+    fn hover_variable_restyles_its_descendants() {
+        let mut app = app();
+        let author = stylesheet(
+            app.world_mut(),
+            ":root { --space: 10px; } .card:hover { --space: 24px; } button { width: var(--space); }",
+        );
+        let boundary = owner(app.world_mut(), author);
+        let root = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        let card = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ComponentStyleOwner(boundary),
+                ElementClasses {
+                    classes: vec!["card".into()],
+                },
+                ElementState::default(),
+                Node::default(),
+            ))
+            .id();
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(boundary),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(boundary).add_child(root);
+        app.world_mut().entity_mut(root).add_child(card);
+        app.world_mut().entity_mut(card).add_child(button);
+
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(10.0)
+        );
+        app.world_mut()
+            .get_mut::<ElementState>(card)
+            .unwrap()
+            .hovered = true;
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(24.0)
+        );
+        app.world_mut()
+            .get_mut::<ElementState>(card)
+            .unwrap()
+            .hovered = false;
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(10.0)
+        );
+    }
+
+    #[test]
     fn pseudo_state_restyles_descendants_and_following_siblings_only() {
         let mut app = app();
         let handle = stylesheet(
@@ -1705,7 +2227,7 @@ mod tests {
         let thumb_node = app.world().get::<Node>(thumb).unwrap();
         assert_eq!(track_node.height, Val::Px(6.0));
         assert_eq!(thumb_node.height, Val::Px(18.0));
-        assert_eq!(thumb_node.top, Val::Px(3.0));
+        assert_eq!(thumb_node.top, Val::Px(-6.0));
     }
 
     #[test]

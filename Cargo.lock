@@ -5178,6 +5178,7 @@ dependencies = [
  "bevy_picking",
  "bevy_window",
  "fluent-bundle",
+ "image",
  "inventory",
  "parley",
  "resvg",
@@ -5192,6 +5193,7 @@ dependencies = [
  "tilt-ui-html",
  "unic-langid",
  "wasm-bindgen-futures",
+ "web-sys",
  "wgpu-types",
 ]
 

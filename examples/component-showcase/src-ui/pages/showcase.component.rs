@@ -8,7 +8,7 @@ use tilt_ui::{
     EditableTextCommitted, ElementId, HtmlClick, HtmlEvent, OptionData, OptionSelectionChanged,
     ShowDialog, SliderChanged, SliderCommitted, UiFrameRate, UiLocalization, UiThemes,
     component_init, component_update, html_fn, html_shared, open_dialog, set_option_selected,
-    spawn_component, switch_ui_theme,
+    set_progress_value, spawn_component, switch_ui_theme,
 };
 
 use super::tilt_ui_component_id;
@@ -31,8 +31,6 @@ const SHOWCASE_COMPONENT: ShowcaseComponentMetadata = ShowcaseComponentMetadata 
 #[html_shared]
 #[derive(Resource, serde::Serialize)]
 struct ShowcaseState {
-    progress: f32,
-    progress_label: u32,
     slider_value: u32,
     event_name: String,
     event_detail: String,
@@ -59,8 +57,6 @@ fn show_page(mut commands: Commands, mut localization: ResMut<UiLocalization>) {
         }
     });
     commands.insert_resource(ShowcaseState {
-        progress: 40.0,
-        progress_label: 40,
         slider_value: 75,
         event_name: "init".into(),
         event_detail: String::new(),
@@ -77,11 +73,37 @@ fn show_page(mut commands: Commands, mut localization: ResMut<UiLocalization>) {
 }
 
 #[component_update]
-fn animate_progress(time: Res<Time>, mut state: ResMut<ShowcaseState>) {
+fn animate_progress(
+    time: Res<Time>,
+    state: Res<ShowcaseState>,
+    mut commands: Commands,
+    elements: Query<(Entity, &ElementId)>,
+    mut labels: Query<&mut Text>,
+    mut targets: Local<Option<(Entity, Entity)>>,
+) {
     let next = ((time.elapsed_secs() - state.started_at) * 15.0) % 100.0;
-    if (state.progress - next).abs() > 0.01 {
-        state.progress = next;
-        state.progress_label = next.round() as u32;
+    if targets.is_none_or(|(progress, label)| {
+        elements.get(progress).is_err() || labels.get(label).is_err()
+    }) {
+        let progress = elements
+            .iter()
+            .find(|(_, id)| id.0 == "demo-progress")
+            .map(|(entity, _)| entity);
+        let label = elements
+            .iter()
+            .find(|(_, id)| id.0 == "demo-progress-label")
+            .map(|(entity, _)| entity);
+        *targets = progress.zip(label);
+    }
+    let Some((progress, label)) = *targets else { return; };
+    commands.queue(move |world: &mut World| {
+        set_progress_value(world, progress, next);
+    });
+    if let Ok(mut text) = labels.get_mut(label) {
+        let value = format!("{}%", next.round() as u32);
+        if text.0 != value {
+            text.0 = value;
+        }
     }
 }
 
@@ -310,8 +332,6 @@ fn rust_dialog(localization: &UiLocalization) -> DialogConfig {
 
 #[html_fn("reset_progress")]
 fn reset_progress(In(_event): In<HtmlEvent>, time: Res<Time>, mut state: ResMut<ShowcaseState>) {
-    state.progress = 0.0;
-    state.progress_label = 0;
     state.started_at = time.elapsed_secs();
 }
 
@@ -378,6 +398,7 @@ fn capture_showcase(
     mut commands: Commands,
     time: Res<Time>,
     mut captured: Local<bool>,
+    mut screenshot_delay: Local<Option<f32>>,
     mut dialog_preview_opened: Local<bool>,
     dialogs: Query<(Entity, &ElementId), With<DialogState>>,
     elements: Query<(Entity, &ElementId)>,
@@ -397,7 +418,13 @@ fn capture_showcase(
             *dialog_preview_opened = true;
         }
     }
-    if *captured || time.elapsed_secs() < 2.0 {
+    let delay = screenshot_delay.get_or_insert_with(|| {
+        std::env::var("TILT_UI_SCREENSHOT_DELAY")
+            .ok()
+            .and_then(|value| value.parse::<f32>().ok())
+            .unwrap_or(2.0)
+    });
+    if *captured || time.elapsed_secs() < *delay {
         return;
     }
     let Ok(path) = std::env::var("TILT_UI_SCREENSHOT") else {
@@ -426,8 +453,6 @@ mod tests {
     fn table_button_and_input_actions_update_the_visible_result() {
         let mut app = App::new();
         app.insert_resource(ShowcaseState {
-            progress: 0.0,
-            progress_label: 0,
             slider_value: 0,
             event_name: String::new(),
             event_detail: String::new(),
@@ -473,8 +498,6 @@ mod tests {
         let mut app = App::new();
         app.add_message::<SliderChanged>()
             .insert_resource(ShowcaseState {
-                progress: 40.0,
-                progress_label: 40,
                 slider_value: 75,
                 event_name: String::new(),
                 event_detail: String::new(),
@@ -646,8 +669,6 @@ mod tests {
             .add_message::<EditableTextChanged>()
             .insert_resource(UiFrameRate::Fps60)
             .insert_resource(ShowcaseState {
-                progress: 0.0,
-                progress_label: 0,
                 slider_value: 75,
                 event_name: String::new(),
                 event_detail: String::new(),
@@ -710,7 +731,7 @@ fn replace_showcase_content(world: &mut World, button: Entity, mode: u8) {
         _ => tilt_ui::set_inner_bindings(
             world,
             target,
-            "{{ i18n.widget-progress-bar }}: {{ demo.progress_label + 5 }}%",
+            "{{ i18n.widget-progress-bar }}: {{ demo.slider_value + 5 }}%",
         ),
     };
     if let Err(error) = result {

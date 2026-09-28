@@ -5,6 +5,13 @@ use tilt_ui::prelude::*;
 tilt_ui::include_components!();
 
 fn main() {
+    let resolution = std::env::var("TILT_UI_ROUTING_SIZE")
+        .ok()
+        .and_then(|size| {
+            let (width, height) = size.split_once('x')?;
+            Some((width.parse::<u32>().ok()?, height.parse::<u32>().ok()?))
+        })
+        .unwrap_or((1320, 1060));
     App::new()
         .add_plugins(
             TiltUiPlugin::new(tilt_ui_component_catalog())
@@ -13,7 +20,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "TiltUI routing showcase".into(),
-                resolution: (1320, 1060).into(),
+                resolution: resolution.into(),
                 ..default()
             }),
             ..default()

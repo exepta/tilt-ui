@@ -6,6 +6,8 @@ Run from the repository root:
 cargo run -p tilt-ui-example-basic
 ```
 
+Use `TILT_UI_BASIC_SIZE=390x844` to inspect the narrow layout. Set `TILT_UI_BASIC_SCREENSHOT=/tmp/tilt-basic.png` to save a window screenshot after startup.
+
 The page exercises reactive `@if`/`@else`, Rust-style `@match`, tracked and range-based `@for`, and lexical `@let` values. Type in the input to test string truthiness, `equals`, `equalsIgnoreCase`, `startWith`, `endsWith`, and `contains`. The buttons toggle a boolean, change a count and match arm, and add, remove, or reverse tracked list items. The list uses `track item.id`, so reversing it retains each item's entity and widget state.
 
 The "UI lifecycle" panel at the top reads the current `UiDocumentState` and the `UiState` components for `main` and `state-probe`. It also shows the latest `UiStateEvent` messages and a total transition count. Click **Hide probe** and **Show probe**: the green component disappears and returns, while its card and event list report `Hidden` and `Visible`. Repeatedly clicking the same button should not increase the count. `track_ui_lifecycle` in `main.component.rs` is registered after `UiStateRuntimeSet::Observe` in `src/main.rs` so it receives transitions in the same update. Loading, Loaded, and Ready appear during startup; asset errors appear in the log if a required source fails to load.

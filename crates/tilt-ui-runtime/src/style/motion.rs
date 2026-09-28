@@ -23,7 +23,7 @@ pub struct ActiveAnimations(Vec<ActiveAnimation>);
 pub(crate) struct ActiveTransitions(Vec<ActiveTransition>);
 
 #[derive(Component, Debug, Clone)]
-struct MotionDisplayedStyle(ComputedStyle);
+pub(crate) struct MotionDisplayedStyle(pub ComputedStyle);
 
 #[derive(Debug, Clone)]
 struct ActiveAnimation {
@@ -397,11 +397,14 @@ fn property_changed(
                 || from.font_size != to.font_size
                 || from.transform != to.transform
                 || from.border_color != to.border_color
+                || from.border_color_edges != to.border_color_edges
                 || from.border_radius != to.border_radius
         }
         TransitionProperty::Color => from.color != to.color,
         TransitionProperty::BackgroundColor => from.background_color != to.background_color,
-        TransitionProperty::BorderColor => from.border_color != to.border_color,
+        TransitionProperty::BorderColor => {
+            from.border_color != to.border_color || from.border_color_edges != to.border_color_edges
+        }
         TransitionProperty::BorderRadius => from.border_radius != to.border_radius,
         TransitionProperty::FontSize => from.font_size != to.font_size,
         TransitionProperty::Opacity => from.opacity != to.opacity,
@@ -430,6 +433,12 @@ fn interpolate_property(
         }
         TransitionProperty::BorderColor => {
             target.border_color = blend_option(from.border_color, to.border_color, t, color);
+            target.border_color_edges = blend_option(
+                from.border_color_edges,
+                to.border_color_edges,
+                t,
+                border_edges,
+            );
         }
         TransitionProperty::BorderRadius => {
             target.border_radius = blend_option(from.border_radius, to.border_radius, t, radius);
@@ -572,7 +581,26 @@ fn interpolate(target: &mut ComputedStyle, from: &ComputedStyle, to: &ComputedSt
     target.font_size = blend_option(from.font_size, to.font_size, t, length);
     target.transform = blend_option(from.transform, to.transform, t, transform);
     target.border_color = blend_option(from.border_color, to.border_color, t, color);
+    target.border_color_edges = blend_option(
+        from.border_color_edges,
+        to.border_color_edges,
+        t,
+        border_edges,
+    );
     target.border_radius = blend_option(from.border_radius, to.border_radius, t, radius);
+}
+
+fn border_edges(
+    from: tilt_ui_css::Edges<tilt_ui_css::CssColor>,
+    to: tilt_ui_css::Edges<tilt_ui_css::CssColor>,
+    t: f32,
+) -> Option<tilt_ui_css::Edges<tilt_ui_css::CssColor>> {
+    Some(tilt_ui_css::Edges {
+        top: color(from.top, to.top, t)?,
+        right: color(from.right, to.right, t)?,
+        bottom: color(from.bottom, to.bottom, t)?,
+        left: color(from.left, to.left, t)?,
+    })
 }
 
 fn blend_option<T: Copy>(

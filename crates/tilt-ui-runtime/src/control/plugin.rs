@@ -8,10 +8,12 @@ use bevy::{
         query::{Changed, With},
         schedule::SystemSet,
         system::{Commands, Query, Res, ResMut},
+        world::World,
     },
     input::{
-        ButtonState,
+        ButtonInput, ButtonState,
         keyboard::{KeyCode, KeyboardInput},
+        mouse::MouseButton,
     },
     prelude::IntoScheduleConfigs,
     ui::{
@@ -25,10 +27,11 @@ use bevy_input_focus::{
 };
 use bevy_picking::{
     events::{Click, Pointer},
+    hover::HoverMap,
     pointer::PointerButton,
 };
 
-use crate::{ControlPart, ControlTabIndex, ElementState, TiltControl};
+use crate::{ControlPart, ControlTabIndex, ElementState, TiltControl, TiltElement};
 
 use super::{
     ControlActivated,
@@ -88,6 +91,12 @@ type ActivatableControlQuery<'w, 's> = Query<
     With<TiltControl>,
 >;
 
+#[derive(bevy::ecs::resource::Resource, Default)]
+struct ProjectedElementHover {
+    current: Vec<bevy::ecs::entity::Entity>,
+    next: Vec<(bevy::ecs::entity::Entity, bool)>,
+}
+
 /// Orders shared TiltUI control processing.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TiltControlSystems {
@@ -131,9 +140,14 @@ impl Plugin for TiltUiControlRuntimePlugin {
             .add_observer(sync_native_edit)
             .add_observer(project_disabled_added)
             .add_observer(project_disabled_removed)
+            .init_resource::<ProjectedElementHover>()
             .add_systems(
                 Update,
                 project_interaction.in_set(TiltControlSystems::Interaction),
+            )
+            .add_systems(
+                Update,
+                project_element_hover.in_set(TiltControlSystems::Interaction),
             )
             .add_systems(Update, super::cursor::update_ui_cursor)
             .add_systems(
@@ -305,6 +319,82 @@ fn project_interaction(mut controls: InteractionControlQuery<'_, '_>) {
             state.active = active;
         }
     }
+}
+
+/// Projects pointer hover onto regular elements so CSS pseudo-classes work on
+/// containers as well as controls. Only the current and previous hit paths are
+/// touched, regardless of document size.
+fn project_element_hover(world: &mut World) {
+    world.resource_scope(
+        |world, mut projected: bevy::ecs::change_detection::Mut<ProjectedElementHover>| {
+            projected.next.clear();
+            let mouse_pressed = world
+                .get_resource::<ButtonInput<MouseButton>>()
+                .is_some_and(|buttons| buttons.pressed(MouseButton::Left));
+            if let Some(hover) = world.get_resource::<HoverMap>() {
+                for (pointer, hits) in hover.iter() {
+                    let Some((target, _)) = hits
+                        .iter()
+                        .min_by(|(_, a), (_, b)| a.depth.total_cmp(&b.depth))
+                    else {
+                        continue;
+                    };
+                    let active = pointer.is_touch() || pointer.is_mouse() && mouse_pressed;
+                    let mut current = Some(*target);
+                    while let Some(entity) = current {
+                        if world.get::<TiltElement>(entity).is_some()
+                            && world.get::<TiltControl>(entity).is_none()
+                        {
+                            if let Some((_, existing_active)) = projected
+                                .next
+                                .iter_mut()
+                                .find(|(candidate, _)| *candidate == entity)
+                            {
+                                *existing_active |= active;
+                            } else {
+                                projected.next.push((entity, active));
+                            }
+                        }
+                        current = world.get::<ChildOf>(entity).map(ChildOf::parent);
+                    }
+                }
+            }
+            for entity in &projected.current {
+                if projected
+                    .next
+                    .iter()
+                    .any(|(candidate, _)| candidate == entity)
+                {
+                    continue;
+                }
+                if let Some(mut state) = world.get_mut::<ElementState>(*entity)
+                    && (state.hovered || state.active)
+                {
+                    state.hovered = false;
+                    state.active = false;
+                }
+            }
+            for (entity, active) in &projected.next {
+                if let Some(mut state) = world.get_mut::<ElementState>(*entity) {
+                    if !state.hovered || state.active != *active {
+                        state.hovered = true;
+                        state.active = *active;
+                    }
+                } else {
+                    world.entity_mut(*entity).insert(ElementState {
+                        hovered: true,
+                        active: *active,
+                        ..Default::default()
+                    });
+                }
+            }
+            let projected = &mut *projected;
+            projected.current.clear();
+            projected
+                .current
+                .extend(projected.next.iter().map(|(entity, _)| *entity));
+        },
+    );
 }
 
 fn project_disabled(mut controls: DisabledControlQuery<'_, '_>) {
@@ -480,12 +570,21 @@ mod tests {
             hierarchy::ChildOf,
             message::{MessageCursor, MessageWriter, Messages},
             system::{In, Query, RunSystemOnce},
+            world::World,
         },
+        input::{ButtonInput, mouse::MouseButton},
         ui::{Interaction, InteractionDisabled},
     };
+    use bevy_picking::{backend::HitData, hover::HoverMap, pointer::PointerId};
+    use tilt_ui_core::ElementKind;
 
-    use super::{TiltUiControlRuntimePlugin, activate_pointer_target, nearest_control_root};
-    use crate::{ControlActivated, ControlPart, ControlPartKind, ElementState, TiltControl};
+    use super::{
+        ProjectedElementHover, TiltUiControlRuntimePlugin, activate_pointer_target,
+        nearest_control_root, project_element_hover,
+    };
+    use crate::{
+        ControlActivated, ControlPart, ControlPartKind, ElementState, TiltControl, TiltElement,
+    };
 
     fn resolve_control_root(
         In(target): In<bevy::ecs::entity::Entity>,
@@ -536,6 +635,60 @@ mod tests {
         app.update();
         assert!(!app.world().get::<ElementState>(entity).unwrap().hovered);
         assert!(!app.world().get::<ElementState>(entity).unwrap().active);
+    }
+
+    #[test]
+    fn pointer_projects_hover_and_active_to_regular_elements_and_ancestors() {
+        let mut world = World::new();
+        world.init_resource::<ProjectedElementHover>();
+        world.insert_resource(HoverMap::default());
+        world.insert_resource(ButtonInput::<MouseButton>::default());
+        let camera = world.spawn_empty().id();
+        let parent = world
+            .spawn(TiltElement {
+                kind: ElementKind::Div,
+            })
+            .id();
+        let child = world
+            .spawn(TiltElement {
+                kind: ElementKind::Div,
+            })
+            .id();
+        let unrelated = world
+            .spawn(TiltElement {
+                kind: ElementKind::Div,
+            })
+            .id();
+        world.entity_mut(parent).add_child(child);
+        world
+            .resource_mut::<HoverMap>()
+            .entry(PointerId::Mouse)
+            .or_default()
+            .insert(child, HitData::new(camera, 0.0, None, None));
+
+        project_element_hover(&mut world);
+        assert!(world.get::<ElementState>(parent).unwrap().hovered);
+        assert!(world.get::<ElementState>(child).unwrap().hovered);
+        assert!(world.get::<ElementState>(unrelated).is_none());
+
+        world
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        project_element_hover(&mut world);
+        assert!(world.get::<ElementState>(child).unwrap().active);
+
+        world.resource_mut::<HoverMap>().clear();
+        project_element_hover(&mut world);
+        assert!(!world.get::<ElementState>(parent).unwrap().hovered);
+        assert!(!world.get::<ElementState>(child).unwrap().active);
+
+        world
+            .resource_mut::<HoverMap>()
+            .entry(PointerId::Touch(1))
+            .or_default()
+            .insert(child, HitData::new(camera, 0.0, None, None));
+        project_element_hover(&mut world);
+        assert!(world.get::<ElementState>(child).unwrap().active);
     }
 
     #[test]

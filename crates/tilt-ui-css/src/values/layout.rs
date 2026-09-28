@@ -7,6 +7,13 @@ pub struct Edges<T> {
     pub left: T,
 }
 
+/// A solid border edge as exposed by Bevy UI.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BorderEdge {
+    pub width: crate::Length,
+    pub color: crate::CssColor,
+}
+
 impl<T: Copy> Edges<T> {
     /// Creates edge values with the same value on every side.
     pub const fn all(value: T) -> Self {
@@ -30,6 +37,84 @@ pub enum Display {
     Grid,
     /// Does not generate a layout box.
     None,
+}
+
+/// Which box boundary `width` and `height` describe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoxSizing {
+    ContentBox,
+    BorderBox,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PointerEvents {
+    Auto,
+    None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CssCursor {
+    Auto,
+    Default,
+    Pointer,
+    Text,
+    Move,
+    Wait,
+    Progress,
+    Crosshair,
+    Help,
+    Grab,
+    Grabbing,
+    NotAllowed,
+    ColResize,
+    RowResize,
+}
+
+/// The sizing function for one CSS grid track.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridTrackSize {
+    Auto,
+    MinContent,
+    MaxContent,
+    Length(crate::Length),
+    Fraction(f32),
+    MinMax(Box<GridTrackSize>, Box<GridTrackSize>),
+}
+
+/// An explicit grid track, optionally repeated as a group.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GridTrackGroup {
+    pub repetition: GridRepetition,
+    pub tracks: Vec<GridTrackSize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridRepetition {
+    Count(u16),
+    AutoFill,
+    AutoFit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridAutoFlow {
+    Row,
+    Column,
+    RowDense,
+    ColumnDense,
+}
+
+/// One axis of an item's placement; CSS grid lines are one-based.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GridLine {
+    Auto,
+    Index(i16),
+    Span(u16),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridPlacement {
+    pub start: GridLine,
+    pub end: GridLine,
 }
 
 /// Describes clipping and scrolling on one box axis.

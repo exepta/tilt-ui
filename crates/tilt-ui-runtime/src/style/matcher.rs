@@ -3,11 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use bevy::ecs::{
-    entity::Entity,
-    hierarchy::{ChildOf, Children},
-    world::World,
-};
+use bevy::ecs::{entity::Entity, hierarchy::Children, world::World};
 use selectors::{
     Element, OpaqueElement,
     attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint},
@@ -138,7 +134,7 @@ impl SelectorView {
                 continue;
             }
             let mut current = node.entity;
-            while let Some(parent) = world.get::<ChildOf>(current).map(|parent| parent.0) {
+            while let Some(parent) = super::backdrop::logical_parent(world, current) {
                 if let Some(parent_index) = by_entity.get(&parent).copied() {
                     node.parent = Some(parent_index);
                     break;
@@ -267,12 +263,13 @@ fn document_order_key(world: &World, entity: Entity, owner: Entity) -> Vec<usize
     let mut key = Vec::new();
     let mut current = entity;
     while current != owner {
-        let Some(parent) = world.get::<ChildOf>(current).map(|parent| parent.0) else {
+        let Some(parent) = super::backdrop::logical_parent(world, current) else {
             break;
         };
+        let sibling = super::backdrop::logical_sibling_entity(world, current);
         let position = world
             .get::<Children>(parent)
-            .and_then(|children| children.iter().position(|child| *child == current))
+            .and_then(|children| children.iter().position(|child| *child == sibling))
             .unwrap_or(usize::MAX);
         key.push(position);
         current = parent;

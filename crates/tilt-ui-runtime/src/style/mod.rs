@@ -1,6 +1,9 @@
 //! Component-scoped CSS matching, cascade resolution, and Bevy UI application.
 
+mod animated;
 mod apply;
+mod backdrop;
+mod background;
 mod cascade;
 pub(crate) mod convert;
 mod inline;

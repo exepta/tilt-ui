@@ -8,14 +8,15 @@ use cssparser::{
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser,
 };
 
-use super::{StyleParseError, declaration::parse_declaration};
+use super::{StyleParseError, declaration::parse_authored_declaration};
 
 /// Parses a TiltUI component stylesheet into its typed core representation.
 ///
 /// The parser operates on source text and does not access files, assets, or
 /// runtime style state.
 pub fn parse_stylesheet(source: &str) -> Result<StyleSheet, StyleParseError> {
-    let mut input = ParserInput::new(source);
+    let expanded = super::nesting::expand_nesting(source)?;
+    let mut input = ParserInput::new(&expanded);
     let mut input = Parser::new(&mut input);
     let mut parser = StyleRuleParser { source_order: 0 };
     let mut rules = Vec::new();
@@ -541,8 +542,15 @@ impl<'i> DeclarationParser<'i> for DeclarationParserAdapter {
         input: &mut Parser<'i, 't>,
         _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, cssparser::ParseError<'i, Self::Error>> {
-        let property = name.to_ascii_lowercase();
-        parse_declaration(&property, input).map_err(|error| input.new_custom_error(error))
+        let property = if name.starts_with("--") {
+            name.to_string()
+        } else {
+            name.to_ascii_lowercase()
+        };
+        let start = input.position();
+        while input.next_including_whitespace_and_comments().is_ok() {}
+        let value = input.slice_from(start).to_owned();
+        parse_authored_declaration(&property, &value).map_err(|error| input.new_custom_error(error))
     }
 }
 
@@ -587,6 +595,33 @@ mod tests {
     use super::parse_stylesheet;
 
     #[test]
+    fn preserves_important_custom_properties_and_deferred_values() {
+        let sheet = parse_stylesheet(":root { --Space: calc(2vw + 4px); } button { width: var(--Space, 10px) !important; color: #ffffff; }").unwrap();
+        assert_eq!(
+            sheet.rules[0].declarations,
+            vec![StyleDeclaration::CustomProperty(
+                "--Space".into(),
+                "calc(2vw + 4px)".into()
+            )]
+        );
+        assert_eq!(
+            sheet.rules[1].declarations[0],
+            StyleDeclaration::Important(Box::new(StyleDeclaration::Deferred(
+                "width".into(),
+                "var(--Space, 10px)".into()
+            )))
+        );
+        assert!(parse_stylesheet("button { width: 10px !urgent; }").is_err());
+        assert_eq!(
+            parse_stylesheet("button { width: 10px ! /* priority */ important /* end */; }")
+                .unwrap()
+                .rules[0]
+                .declarations[0],
+            StyleDeclaration::Important(Box::new(StyleDeclaration::Width(Length::Px(10.0))))
+        );
+    }
+
+    #[test]
     fn shipped_theme_and_showcase_stylesheets_parse() {
         parse_stylesheet(include_str!(
             "../../../tilt-ui-runtime/src/theme/default.css"
@@ -604,8 +639,9 @@ mod tests {
             "button { background-image: linear-gradient(to right, #D34CED, #8424F5); }",
         )
         .unwrap();
-        let StyleDeclaration::BackgroundImage(Some(gradient)) =
-            &stylesheet.rules()[0].declarations[0]
+        let StyleDeclaration::BackgroundImage(Some(crate::CssBackgroundImage::LinearGradient(
+            gradient,
+        ))) = &stylesheet.rules()[0].declarations[0]
         else {
             panic!("expected a typed linear gradient");
         };
@@ -613,6 +649,72 @@ mod tests {
         assert_eq!(gradient.stops.len(), 2);
         assert!(gradient.stops[0].red > gradient.stops[1].red);
         assert!(parse_stylesheet("button { background-image: linear-gradient(red); }").is_err());
+        let url = parse_stylesheet(".hero { background-image: url('images/hero.png'); }").unwrap();
+        assert_eq!(
+            url.rules()[0].declarations,
+            [StyleDeclaration::BackgroundImage(Some(
+                crate::CssBackgroundImage::Url("images/hero.png".into())
+            ))]
+        );
+    }
+
+    #[test]
+    fn parses_cached_background_effects_and_image_layout() {
+        let sheet = parse_stylesheet(
+            ".photo { background-size: cover; background-position: 25% bottom; background-attachment: fixed; background-filter: blur(4px) grayscale(100%) oil-paint(2) contrast(1.5) invert(1); }",
+        )
+        .unwrap();
+        assert_eq!(
+            sheet.rules()[0].declarations,
+            [
+                StyleDeclaration::BackgroundSize(crate::BackgroundSize::Cover),
+                StyleDeclaration::BackgroundPosition(crate::BackgroundPosition { x: 0.25, y: 1.0 }),
+                StyleDeclaration::BackgroundAttachment(crate::BackgroundAttachment::Fixed),
+                StyleDeclaration::BackgroundFilter(vec![
+                    crate::BackgroundEffect::Blur(4),
+                    crate::BackgroundEffect::Grayscale(100),
+                    crate::BackgroundEffect::OilPaint(2),
+                    crate::BackgroundEffect::Contrast(150),
+                    crate::BackgroundEffect::Invert(100),
+                ]),
+            ]
+        );
+        assert!(parse_stylesheet(".photo { background-filter: blur(80px); }").is_err());
+        let backdrop = parse_stylesheet("dialog { backdrop-filter: blur(8px); }").unwrap();
+        assert_eq!(
+            backdrop.rules()[0].declarations,
+            [StyleDeclaration::BackdropFilter(vec![
+                crate::BackgroundEffect::Blur(8)
+            ])]
+        );
+        assert!(parse_stylesheet("dialog { backdrop-filter: oil-paint(2); }").is_err());
+    }
+
+    #[test]
+    fn parses_animated_gpu_effects_and_quality() {
+        let sheet = parse_stylesheet(
+            ".image { animated-filter: noise(0.4, 1.5) bloom(0.8); effect-quality: low; }",
+        )
+        .unwrap();
+        assert_eq!(
+            sheet.rules()[0].declarations,
+            [
+                StyleDeclaration::AnimatedEffects(vec![
+                    crate::AnimatedEffect {
+                        kind: crate::AnimatedEffectKind::Noise,
+                        strength: 40,
+                        speed: 150
+                    },
+                    crate::AnimatedEffect {
+                        kind: crate::AnimatedEffectKind::Bloom,
+                        strength: 80,
+                        speed: 100
+                    },
+                ]),
+                StyleDeclaration::EffectQuality(crate::EffectQuality::Low),
+            ]
+        );
+        assert!(parse_stylesheet(".image { animated-filter: noise(5); }").is_err());
     }
 
     #[test]
@@ -913,8 +1015,191 @@ mod tests {
             Err(StyleParseError::InvalidLength(_))
         ));
         assert!(matches!(
-            parse_stylesheet("button { box-shadow: 1px 1px; }"),
-            Err(StyleParseError::UnsupportedProperty(property)) if property == "box-shadow"
+            parse_stylesheet("button { filter: blur(4px); }"),
+            Err(StyleParseError::UnsupportedProperty(property)) if property == "filter"
         ));
+    }
+
+    #[test]
+    fn parses_authored_grid_tracks_placement_and_box_layout() {
+        use crate::{BoxSizing, GridAutoFlow, GridLine, GridRepetition, GridTrackSize};
+        let sheet = parse_stylesheet(
+            ".gallery { display: grid; box-sizing: content-box; grid-template-columns: repeat(3, minmax(0, 1fr)) 120px; grid-template-rows: auto 40px; grid-auto-columns: 20%; grid-auto-rows: minmax(32px, auto); grid-auto-flow: column dense; } .card { grid-column: 2 / span 2; grid-row: 1 / 3; flex-basis: 120px; border-left-width: 2px; }",
+        ).unwrap();
+        let declarations = &sheet.rules()[0].declarations;
+        assert!(declarations.contains(&StyleDeclaration::BoxSizing(BoxSizing::ContentBox)));
+        assert!(declarations.contains(&StyleDeclaration::GridAutoFlow(GridAutoFlow::ColumnDense)));
+        let Some(StyleDeclaration::GridTemplateColumns(columns)) = declarations
+            .iter()
+            .find(|declaration| matches!(declaration, StyleDeclaration::GridTemplateColumns(_)))
+        else {
+            panic!("missing columns: {declarations:?}")
+        };
+        assert_eq!(columns[0].repetition, GridRepetition::Count(3));
+        assert!(matches!(columns[0].tracks[0], GridTrackSize::MinMax(_, _)));
+        assert_eq!(columns.len(), 2);
+        assert!(declarations.contains(&StyleDeclaration::GridAutoRows(vec![
+            GridTrackSize::MinMax(
+                Box::new(GridTrackSize::Length(Length::Px(32.0))),
+                Box::new(GridTrackSize::Auto),
+            )
+        ])));
+        assert!(
+            sheet.rules()[1]
+                .declarations
+                .contains(&StyleDeclaration::GridColumn(crate::GridPlacement {
+                    start: GridLine::Index(2),
+                    end: GridLine::Span(2),
+                }))
+        );
+        assert!(
+            sheet.rules()[1]
+                .declarations
+                .contains(&StyleDeclaration::GridRow(crate::GridPlacement {
+                    start: GridLine::Index(1),
+                    end: GridLine::Index(3),
+                }))
+        );
+        assert!(parse_stylesheet(".bad { grid-template-columns: repeat(0, 1fr); }").is_err());
+        assert!(parse_stylesheet(".bad { grid-column: 0 / 2; }").is_err());
+    }
+
+    #[test]
+    fn parses_web_style_flex_shorthands() {
+        let sheet = parse_stylesheet(
+            ".a { flex: 1 0 120px; flex-flow: wrap column; } .b { flex: none; } .c { flex: 0; }",
+        )
+        .unwrap();
+        assert_eq!(
+            sheet.rules()[0].declarations,
+            [
+                StyleDeclaration::Flex(1.0, 0.0, Length::Px(120.0)),
+                StyleDeclaration::FlexFlow(crate::FlexDirection::Column, crate::FlexWrap::Wrap),
+            ]
+        );
+        assert_eq!(
+            sheet.rules()[1].declarations,
+            [StyleDeclaration::Flex(0.0, 0.0, Length::Auto)]
+        );
+        assert_eq!(
+            sheet.rules()[2].declarations,
+            [StyleDeclaration::Flex(0.0, 1.0, Length::Percent(0.0))]
+        );
+    }
+
+    #[test]
+    fn parses_solid_border_shorthands_and_individual_sides() {
+        let sheet = parse_stylesheet(
+            ".card { border: 2px solid #123456; border-top: none; border-left: #abcdef solid 4px; border-right-color: #ffffff; }",
+        ).unwrap();
+        assert!(matches!(
+            sheet.rules()[0].declarations[0],
+            StyleDeclaration::Border(_)
+        ));
+        assert!(matches!(
+            sheet.rules()[0].declarations[1],
+            StyleDeclaration::BorderTop(_)
+        ));
+        assert!(matches!(
+            sheet.rules()[0].declarations[2],
+            StyleDeclaration::BorderLeft(_)
+        ));
+        assert!(matches!(
+            sheet.rules()[0].declarations[3],
+            StyleDeclaration::BorderRightColor(_)
+        ));
+        assert!(parse_stylesheet(".bad { border: 2px dashed #123456; }").is_err());
+    }
+
+    #[test]
+    fn expands_nested_selectors_in_order_and_inside_media() {
+        let sheet = parse_stylesheet(
+            ".card, button { color: #111111; &:hover, &.active { color: #222222; .label { color: #333333; } } width: 20px; } /* nested breakpoint */ @media (max-width: 600px) { .card { &:focus { color: #444444; } } }",
+        ).unwrap();
+        assert_eq!(sheet.rules().len(), 4);
+        assert_eq!(sheet.rules()[0].selectors.slice().len(), 2);
+        assert_eq!(sheet.rules()[1].selectors.slice().len(), 4);
+        assert_eq!(sheet.rules()[2].selectors.slice().len(), 4);
+        assert!(matches!(
+            sheet.rules()[3].declarations[0],
+            StyleDeclaration::Width(Length::Px(20.0))
+        ));
+        assert_eq!(sheet.media_rules()[0].rules.len(), 1);
+    }
+
+    #[test]
+    fn parses_common_typography_properties_and_named_family() {
+        use crate::{CssLineHeight, TextTransform, TextWrap};
+        let sheet = parse_stylesheet(
+            "p { font-family: 'Inter', sans-serif; line-height: 1.5; text-wrap: nowrap; text-transform: capitalize; } h1 { line-height: 32px; }",
+        ).unwrap();
+        assert!(
+            sheet.rules()[0]
+                .declarations
+                .contains(&StyleDeclaration::FontFamily(FontFamily::Named(
+                    "Inter".into()
+                )))
+        );
+        assert!(
+            sheet.rules()[0]
+                .declarations
+                .contains(&StyleDeclaration::LineHeight(CssLineHeight::Relative(1.5)))
+        );
+        assert!(
+            sheet.rules()[0]
+                .declarations
+                .contains(&StyleDeclaration::TextWrap(TextWrap::NoWrap))
+        );
+        assert!(
+            sheet.rules()[0]
+                .declarations
+                .contains(&StyleDeclaration::TextTransform(TextTransform::Capitalize))
+        );
+        assert!(
+            sheet.rules()[1]
+                .declarations
+                .contains(&StyleDeclaration::LineHeight(CssLineHeight::Pixels(32.0)))
+        );
+    }
+
+    #[test]
+    fn parses_cursor_pointer_stacking_and_scroll_gutter() {
+        use crate::{CssCursor, PointerEvents};
+        let sheet = parse_stylesheet(
+            ".overlay { cursor: help; pointer-events: none; z-index: 12; scroll-width: 8px; }",
+        )
+        .unwrap();
+        assert_eq!(
+            sheet.rules()[0].declarations,
+            [
+                StyleDeclaration::Cursor(CssCursor::Help),
+                StyleDeclaration::PointerEvents(PointerEvents::None),
+                StyleDeclaration::ZIndex(12),
+                StyleDeclaration::ScrollWidth(8.0),
+            ]
+        );
+        assert!(parse_stylesheet(".bad { z-index: 1.5; }").is_err());
+        assert!(parse_stylesheet(".bad { scroll-width: -2px; }").is_err());
+    }
+
+    #[test]
+    fn parses_shadows_and_outline() {
+        let sheet = parse_stylesheet(
+            ".card { box-shadow: 0 4px 12px #00000044, 2px 2px 0 #ffffff; outline: 2px solid #336699; outline-offset: 3px; } .label { text-shadow: 1px 2px #123456; }",
+        ).unwrap();
+        let declarations = &sheet.rules()[0].declarations;
+        assert!(
+            matches!(&declarations[0], StyleDeclaration::BoxShadow(shadows) if shadows.len() == 2)
+        );
+        assert!(matches!(declarations[1], StyleDeclaration::Outline(_)));
+        assert!(matches!(
+            declarations[2],
+            StyleDeclaration::OutlineOffset(Length::Px(3.0))
+        ));
+        assert!(matches!(
+            sheet.rules()[1].declarations[0],
+            StyleDeclaration::TextShadow(Some(_))
+        ));
+        assert!(parse_stylesheet(".bad { box-shadow: 1px 2px -4px #000000; }").is_err());
     }
 }

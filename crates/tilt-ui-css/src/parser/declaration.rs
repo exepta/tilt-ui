@@ -1,10 +1,13 @@
 use cssparser::{Parser, Token};
 
 use crate::{
-    AlignItems, AlignSelf, AnimationDirection, AnimationName, AnimationSpec, CssGradient,
-    CssOverflow, CssTime, CssTransform, Display, FlexDirection, FlexWrap, FontFamily, FontWeight,
-    GradientDirection, IterationCount, JustifyContent, Position, StyleDeclaration, TextAlign,
-    TimingFunction, TransitionProperty, TransitionSpec,
+    AlignItems, AlignSelf, AnimatedEffect, AnimatedEffectKind, AnimationDirection, AnimationName,
+    AnimationSpec, BackgroundAttachment, BackgroundEffect, BackgroundPosition, BackgroundSize,
+    BorderEdge, BoxSizing, CssBackgroundImage, CssBoxShadow, CssCursor, CssGradient, CssLineHeight,
+    CssOverflow, CssTextShadow, CssTime, CssTransform, Display, EffectQuality, FlexDirection,
+    FlexWrap, FontFamily, FontWeight, GradientDirection, IterationCount, JustifyContent,
+    PointerEvents, Position, StyleDeclaration, TextAlign, TextTransform, TextWrap, TimingFunction,
+    TransitionProperty, TransitionSpec,
 };
 
 use super::{
@@ -18,6 +21,59 @@ pub(crate) fn parse_declaration(
 ) -> Result<StyleDeclaration, StyleParseError> {
     let declaration = match property {
         "display" => StyleDeclaration::Display(parse_display(input)?),
+        "box-sizing" => StyleDeclaration::BoxSizing(
+            match input
+                .expect_ident()
+                .map_err(|_| StyleParseError::InvalidPropertyValue {
+                    property: property.into(),
+                    value: "expected box sizing".into(),
+                })?
+                .as_ref()
+            {
+                "content-box" => BoxSizing::ContentBox,
+                "border-box" => BoxSizing::BorderBox,
+                _ => {
+                    return Err(StyleParseError::InvalidPropertyValue {
+                        property: property.into(),
+                        value: "expected content-box or border-box".into(),
+                    });
+                }
+            },
+        ),
+        "pointer-events" => {
+            StyleDeclaration::PointerEvents(match parse_ident(input, property)?.as_str() {
+                "auto" => PointerEvents::Auto,
+                "none" => PointerEvents::None,
+                value => return invalid_keyword(property, value),
+            })
+        }
+        "cursor" => StyleDeclaration::Cursor(match parse_ident(input, property)?.as_str() {
+            "auto" => CssCursor::Auto,
+            "default" => CssCursor::Default,
+            "pointer" => CssCursor::Pointer,
+            "text" => CssCursor::Text,
+            "move" => CssCursor::Move,
+            "wait" => CssCursor::Wait,
+            "progress" => CssCursor::Progress,
+            "crosshair" => CssCursor::Crosshair,
+            "help" => CssCursor::Help,
+            "grab" => CssCursor::Grab,
+            "grabbing" => CssCursor::Grabbing,
+            "not-allowed" => CssCursor::NotAllowed,
+            "col-resize" => CssCursor::ColResize,
+            "row-resize" => CssCursor::RowResize,
+            value => return invalid_keyword(property, value),
+        }),
+        "z-index" => StyleDeclaration::ZIndex(parse_z_index(input)?),
+        "scroll-width" => StyleDeclaration::ScrollWidth(match parse_length(input, false)? {
+            crate::Length::Px(value) if value >= 0.0 => value,
+            _ => {
+                return Err(StyleParseError::InvalidPropertyValue {
+                    property: property.into(),
+                    value: "expected a non-negative px length".into(),
+                });
+            }
+        }),
         "overflow" => {
             let x = parse_overflow_value(input)?;
             let y = input.try_parse(parse_overflow_value).unwrap_or(x);
@@ -56,8 +112,50 @@ pub(crate) fn parse_declaration(
         "align-self" => StyleDeclaration::AlignSelf(parse_align_self(input)?),
         "flex-grow" => StyleDeclaration::FlexGrow(parse_non_negative_number(input, property)?),
         "flex-shrink" => StyleDeclaration::FlexShrink(parse_non_negative_number(input, property)?),
+        "flex-basis" => StyleDeclaration::FlexBasis(parse_length(input, true)?),
+        "flex" => {
+            let (grow, shrink, basis) = parse_flex(input)?;
+            StyleDeclaration::Flex(grow, shrink, basis)
+        }
+        "flex-flow" => {
+            let (direction, wrap) = parse_flex_flow(input)?;
+            StyleDeclaration::FlexFlow(direction, wrap)
+        }
         "background-color" => StyleDeclaration::BackgroundColor(parse_color(input)?),
         "background-image" => StyleDeclaration::BackgroundImage(parse_background_image(input)?),
+        "background-size" => StyleDeclaration::BackgroundSize(parse_background_size(input)?),
+        "background-position" => {
+            StyleDeclaration::BackgroundPosition(parse_background_position(input)?)
+        }
+        "background-attachment" => {
+            StyleDeclaration::BackgroundAttachment(parse_background_attachment(input)?)
+        }
+        "background-filter" => {
+            StyleDeclaration::BackgroundFilter(parse_effect_filter(input, "background-filter")?)
+        }
+        "backdrop-filter" => {
+            let effects = parse_effect_filter(input, "backdrop-filter")?;
+            if effects
+                .iter()
+                .any(|effect| matches!(effect, BackgroundEffect::OilPaint(_)))
+            {
+                return Err(StyleParseError::InvalidPropertyValue {
+                    property: "backdrop-filter".into(),
+                    value: "oil-paint is only supported for cached background images".into(),
+                });
+            }
+            StyleDeclaration::BackdropFilter(effects)
+        }
+        "animated-filter" => StyleDeclaration::AnimatedEffects(parse_animated_effects(input)?),
+        "effect-quality" => {
+            StyleDeclaration::EffectQuality(match parse_ident(input, property)?.as_str() {
+                "auto" => EffectQuality::Auto,
+                "low" => EffectQuality::Low,
+                "medium" => EffectQuality::Medium,
+                "high" => EffectQuality::High,
+                value => return invalid_keyword(property, value),
+            })
+        }
         "color" => StyleDeclaration::Color(parse_color(input)?),
         "opacity" => StyleDeclaration::Opacity(parse_opacity(input)?),
         "transform" => StyleDeclaration::Transform(parse_transform(input)?),
@@ -86,12 +184,46 @@ pub(crate) fn parse_declaration(
             StyleDeclaration::TransitionTimingFunction(parse_timing_list(input)?)
         }
         "border-width" => StyleDeclaration::BorderWidth(parse_edges(input, false)?),
+        "border-top-width" => StyleDeclaration::BorderTopWidth(parse_length(input, false)?),
+        "border-right-width" => StyleDeclaration::BorderRightWidth(parse_length(input, false)?),
+        "border-bottom-width" => StyleDeclaration::BorderBottomWidth(parse_length(input, false)?),
+        "border-left-width" => StyleDeclaration::BorderLeftWidth(parse_length(input, false)?),
+        "border" => StyleDeclaration::Border(parse_border(input, property)?),
+        "border-top" => StyleDeclaration::BorderTop(parse_border(input, property)?),
+        "border-right" => StyleDeclaration::BorderRight(parse_border(input, property)?),
+        "border-bottom" => StyleDeclaration::BorderBottom(parse_border(input, property)?),
+        "border-left" => StyleDeclaration::BorderLeft(parse_border(input, property)?),
         "border-color" => StyleDeclaration::BorderColor(parse_color(input)?),
+        "border-top-color" => StyleDeclaration::BorderTopColor(parse_color(input)?),
+        "border-right-color" => StyleDeclaration::BorderRightColor(parse_color(input)?),
+        "border-bottom-color" => StyleDeclaration::BorderBottomColor(parse_color(input)?),
+        "border-left-color" => StyleDeclaration::BorderLeftColor(parse_color(input)?),
         "border-radius" => StyleDeclaration::BorderRadius(parse_border_radius(input)?),
+        "box-shadow" => StyleDeclaration::BoxShadow(parse_box_shadows(input)?),
+        "text-shadow" => StyleDeclaration::TextShadow(parse_text_shadow(input)?),
+        "outline" => StyleDeclaration::Outline(parse_border(input, property)?),
+        "outline-width" => StyleDeclaration::OutlineWidth(parse_length(input, false)?),
+        "outline-color" => StyleDeclaration::OutlineColor(parse_color(input)?),
+        "outline-offset" => StyleDeclaration::OutlineOffset(parse_length(input, false)?),
         "font-size" => StyleDeclaration::FontSize(parse_length(input, false)?),
+        "line-height" => StyleDeclaration::LineHeight(parse_line_height(input)?),
         "font-family" => StyleDeclaration::FontFamily(parse_font_family(input)?),
         "font-weight" => StyleDeclaration::FontWeight(parse_font_weight(input)?),
         "text-align" => StyleDeclaration::TextAlign(parse_text_align(input)?),
+        "text-wrap" => StyleDeclaration::TextWrap(match parse_ident(input, property)?.as_str() {
+            "wrap" => TextWrap::Wrap,
+            "nowrap" => TextWrap::NoWrap,
+            value => return invalid_keyword(property, value),
+        }),
+        "text-transform" => {
+            StyleDeclaration::TextTransform(match parse_ident(input, property)?.as_str() {
+                "none" => TextTransform::None,
+                "uppercase" => TextTransform::Uppercase,
+                "lowercase" => TextTransform::Lowercase,
+                "capitalize" => TextTransform::Capitalize,
+                value => return invalid_keyword(property, value),
+            })
+        }
         _ => return Err(StyleParseError::UnsupportedProperty(property.to_owned())),
     };
 
@@ -104,9 +236,270 @@ pub(crate) fn parse_declaration(
     Ok(declaration)
 }
 
+/// Parses an authored declaration after removing its optional priority suffix.
+pub(crate) fn parse_authored_declaration(
+    property: &str,
+    source: &str,
+) -> Result<StyleDeclaration, StyleParseError> {
+    let source = source.trim();
+    let (value, important) = strip_important(source);
+    let declaration = if property.starts_with("--") {
+        if property.len() <= 2 || value.trim().is_empty() {
+            return Err(StyleParseError::InvalidDeclaration(property.to_owned()));
+        }
+        StyleDeclaration::CustomProperty(property.to_owned(), value.trim().to_owned())
+    } else if has_deferred_function(value) {
+        if matches!(
+            parse_declaration_value(property, "__invalid_probe__"),
+            Err(StyleParseError::UnsupportedProperty(_))
+        ) {
+            return Err(StyleParseError::UnsupportedProperty(property.to_owned()));
+        }
+        StyleDeclaration::Deferred(property.to_owned(), value.trim().to_owned())
+    } else {
+        parse_declaration_value(property, value)?
+    };
+    Ok(if important {
+        StyleDeclaration::Important(Box::new(declaration))
+    } else {
+        declaration
+    })
+}
+
+/// Parses a resolved property value into the existing typed declaration model.
+pub fn parse_declaration_value(
+    property: &str,
+    source: &str,
+) -> Result<StyleDeclaration, StyleParseError> {
+    if let Some(declaration) = super::grid::parse_grid_declaration(property, source)? {
+        return Ok(declaration);
+    }
+    let mut input = cssparser::ParserInput::new(source);
+    parse_declaration(property, &mut cssparser::Parser::new(&mut input))
+}
+
+fn strip_important(source: &str) -> (&str, bool) {
+    let trimmed = trim_css_end(source);
+    let word_start = trimmed
+        .trim_end_matches(|ch: char| ch.is_ascii_alphabetic())
+        .len();
+    let word = &trimmed[word_start..];
+    if !word.eq_ignore_ascii_case("important") {
+        return (source, false);
+    }
+    let before_word = trim_css_end(&trimmed[..word_start]);
+    if let Some(value) = before_word.strip_suffix('!') {
+        (value.trim_end(), true)
+    } else {
+        (source, false)
+    }
+}
+
+fn trim_css_end(mut source: &str) -> &str {
+    loop {
+        source = source.trim_end();
+        if source.ends_with("*/")
+            && let Some(start) = source.rfind("/*")
+        {
+            source = &source[..start];
+        } else {
+            return source;
+        }
+    }
+}
+
+fn has_deferred_function(source: &str) -> bool {
+    let lower = source.to_ascii_lowercase();
+    ["var(", "calc(", "min(", "max(", "sin("]
+        .iter()
+        .any(|name| {
+            lower.match_indices(name).any(|(index, _)| {
+                !lower[..index]
+                    .chars()
+                    .last()
+                    .is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+            })
+        })
+}
+
+fn parse_border(input: &mut Parser<'_, '_>, property: &str) -> Result<BorderEdge, StyleParseError> {
+    let invalid = || StyleParseError::InvalidPropertyValue {
+        property: property.to_owned(),
+        value: "expected a solid border with width and color, or none".into(),
+    };
+    if input
+        .try_parse(|input| input.expect_ident_matching("none"))
+        .is_ok()
+    {
+        return Ok(BorderEdge {
+            width: crate::Length::Px(0.0),
+            color: crate::CssColor::transparent(),
+        });
+    }
+    if input
+        .try_parse(|input| {
+            let value = input.expect_number()?;
+            if value == 0.0 {
+                input.expect_exhausted()?;
+                Ok(())
+            } else {
+                Err(input.new_custom_error::<_, ()>(()))
+            }
+        })
+        .is_ok()
+    {
+        return Ok(BorderEdge {
+            width: crate::Length::Px(0.0),
+            color: crate::CssColor::transparent(),
+        });
+    }
+    let mut width = None;
+    let mut color = None;
+    let mut solid = false;
+    while !input.is_exhausted() {
+        if !solid
+            && input
+                .try_parse(|input| input.expect_ident_matching("solid"))
+                .is_ok()
+        {
+            solid = true;
+        } else if width.is_none() {
+            if let Ok(value) = input.try_parse(|input| parse_length(input, false)) {
+                width = Some(value);
+                continue;
+            }
+            if color.is_none() {
+                color = Some(parse_color(input)?);
+            } else {
+                return Err(invalid());
+            }
+        } else if color.is_none() {
+            color = Some(parse_color(input)?);
+        } else {
+            return Err(invalid());
+        }
+    }
+    if !solid {
+        return Err(invalid());
+    }
+    Ok(BorderEdge {
+        width: width.ok_or_else(invalid)?,
+        color: color.ok_or_else(invalid)?,
+    })
+}
+
+fn parse_box_shadows(input: &mut Parser<'_, '_>) -> Result<Vec<CssBoxShadow>, StyleParseError> {
+    if input
+        .try_parse(|input| input.expect_ident_matching("none"))
+        .is_ok()
+    {
+        return Ok(Vec::new());
+    }
+    let mut shadows = Vec::new();
+    loop {
+        let mut lengths = Vec::new();
+        let mut color = None;
+        loop {
+            if input.is_exhausted() || input.try_parse(|input| input.expect_comma()).is_ok() {
+                break;
+            }
+            if let Ok(length) = input.try_parse(|input| parse_length(input, false)) {
+                lengths.push(length);
+                if lengths.len() > 4 {
+                    return Err(StyleParseError::InvalidPropertyValue {
+                        property: "box-shadow".into(),
+                        value: "expected 2-4 lengths".into(),
+                    });
+                }
+            } else if color.is_none() {
+                color = Some(parse_color(input)?);
+            } else {
+                return Err(StyleParseError::InvalidPropertyValue {
+                    property: "box-shadow".into(),
+                    value: "duplicate color or unsupported inset shadow".into(),
+                });
+            }
+        }
+        if !(2..=4).contains(&lengths.len()) {
+            return Err(StyleParseError::InvalidPropertyValue {
+                property: "box-shadow".into(),
+                value: "expected x and y offsets".into(),
+            });
+        }
+        let blur = lengths.get(2).copied().unwrap_or(crate::Length::Px(0.0));
+        if !non_negative_length(blur) {
+            return Err(StyleParseError::InvalidPropertyValue {
+                property: "box-shadow".into(),
+                value: "blur radius must be non-negative".into(),
+            });
+        }
+        shadows.push(CssBoxShadow {
+            x: lengths[0],
+            y: lengths[1],
+            blur,
+            spread: lengths.get(3).copied().unwrap_or(crate::Length::Px(0.0)),
+            color: color.unwrap_or(crate::CssColor::rgba(0.0, 0.0, 0.0, 1.0)),
+        });
+        if input.is_exhausted() {
+            break;
+        }
+    }
+    Ok(shadows)
+}
+
+fn parse_text_shadow(input: &mut Parser<'_, '_>) -> Result<Option<CssTextShadow>, StyleParseError> {
+    if input
+        .try_parse(|input| input.expect_ident_matching("none"))
+        .is_ok()
+    {
+        return Ok(None);
+    }
+    let mut lengths = Vec::new();
+    let mut color = None;
+    while !input.is_exhausted() {
+        if let Ok(length) = input.try_parse(|input| parse_length(input, false)) {
+            lengths.push(length);
+        } else if color.is_none() {
+            color = Some(parse_color(input)?);
+        } else {
+            return Err(StyleParseError::InvalidPropertyValue {
+                property: "text-shadow".into(),
+                value: "expected two offsets and an optional color".into(),
+            });
+        }
+    }
+    let [x, y] = lengths.as_slice() else {
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: "text-shadow".into(),
+            value: "expected two offsets".into(),
+        });
+    };
+    if !matches!(x, crate::Length::Px(_)) || !matches!(y, crate::Length::Px(_)) {
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: "text-shadow".into(),
+            value: "text offsets require px".into(),
+        });
+    }
+    Ok(Some(CssTextShadow {
+        x: *x,
+        y: *y,
+        color: color.unwrap_or(crate::CssColor::rgba(0.0, 0.0, 0.0, 1.0)),
+    }))
+}
+
+fn non_negative_length(length: crate::Length) -> bool {
+    match length {
+        crate::Length::Px(value)
+        | crate::Length::Percent(value)
+        | crate::Length::Vw(value)
+        | crate::Length::Vh(value) => value >= 0.0,
+        crate::Length::Auto => false,
+    }
+}
+
 fn parse_background_image(
     input: &mut Parser<'_, '_>,
-) -> Result<Option<CssGradient>, StyleParseError> {
+) -> Result<Option<CssBackgroundImage>, StyleParseError> {
     if input
         .try_parse(|input| input.expect_ident_matching("none"))
         .is_ok()
@@ -118,7 +511,33 @@ fn parse_background_image(
         .map_err(|_| StyleParseError::InvalidPropertyValue {
             property: "background-image".into(),
             value: "expected linear-gradient()".into(),
-        })?;
+        })?
+        .clone();
+    match &token {
+        Token::UnquotedUrl(value) if !value.trim().is_empty() => {
+            return Ok(Some(CssBackgroundImage::Url(value.to_string())));
+        }
+        Token::Function(name) if name.eq_ignore_ascii_case("url") => {
+            let source = input
+                .parse_nested_block(|input| {
+                    let source = input.expect_string()?.to_string();
+                    input.expect_exhausted()?;
+                    Ok::<_, cssparser::ParseError<'_, StyleParseError>>(source)
+                })
+                .map_err(|_| StyleParseError::InvalidPropertyValue {
+                    property: "background-image".into(),
+                    value: "invalid url()".into(),
+                })?;
+            if source.trim().is_empty() {
+                return Err(StyleParseError::InvalidPropertyValue {
+                    property: "background-image".into(),
+                    value: "empty url()".into(),
+                });
+            }
+            return Ok(Some(CssBackgroundImage::Url(source)));
+        }
+        _ => {}
+    }
     if !matches!(token, Token::Function(name) if name.eq_ignore_ascii_case("linear-gradient")) {
         return Err(StyleParseError::InvalidPropertyValue {
             property: "background-image".into(),
@@ -191,15 +610,226 @@ fn parse_background_image(
                     },
                 ));
             }
-            Ok(Some(CssGradient {
+            Ok(Some(CssBackgroundImage::LinearGradient(CssGradient {
                 direction: direction.unwrap_or(GradientDirection::Down),
                 stops,
-            }))
+            })))
         })
         .map_err(|_| StyleParseError::InvalidPropertyValue {
             property: "background-image".into(),
             value: "invalid linear-gradient()".into(),
         })
+}
+
+fn parse_background_size(input: &mut Parser<'_, '_>) -> Result<BackgroundSize, StyleParseError> {
+    match parse_ident(input, "background-size")?.as_str() {
+        "cover" => Ok(BackgroundSize::Cover),
+        "contain" => Ok(BackgroundSize::Contain),
+        "stretch" => Ok(BackgroundSize::Stretch),
+        value => invalid_keyword("background-size", value),
+    }
+}
+
+fn parse_background_position(
+    input: &mut Parser<'_, '_>,
+) -> Result<BackgroundPosition, StyleParseError> {
+    let mut position = BackgroundPosition::default();
+    let mut axes = [false, false];
+    while !input.is_exhausted() {
+        let token = input
+            .next()
+            .map_err(|_| StyleParseError::InvalidPropertyValue {
+                property: "background-position".into(),
+                value: "expected keywords or percentages".into(),
+            })?
+            .clone();
+        let (axis, value) = match token {
+            Token::Ident(value) if value.eq_ignore_ascii_case("left") => (0, 0.0),
+            Token::Ident(value) if value.eq_ignore_ascii_case("right") => (0, 1.0),
+            Token::Ident(value) if value.eq_ignore_ascii_case("top") => (1, 0.0),
+            Token::Ident(value) if value.eq_ignore_ascii_case("bottom") => (1, 1.0),
+            Token::Ident(value) if value.eq_ignore_ascii_case("center") => {
+                (if axes[0] { 1 } else { 0 }, 0.5)
+            }
+            Token::Percentage { unit_value, .. } if (0.0..=1.0).contains(&unit_value) => {
+                (if axes[0] { 1 } else { 0 }, unit_value)
+            }
+            _ => {
+                return Err(StyleParseError::InvalidPropertyValue {
+                    property: "background-position".into(),
+                    value: "expected left, center, right, top, bottom or a percentage".into(),
+                });
+            }
+        };
+        if axes[axis] {
+            return Err(StyleParseError::InvalidPropertyValue {
+                property: "background-position".into(),
+                value: "duplicate position axis".into(),
+            });
+        }
+        axes[axis] = true;
+        if axis == 0 {
+            position.x = value;
+        } else {
+            position.y = value;
+        }
+    }
+    if !axes[0] && !axes[1] {
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: "background-position".into(),
+            value: "expected a position".into(),
+        });
+    }
+    Ok(position)
+}
+
+fn parse_background_attachment(
+    input: &mut Parser<'_, '_>,
+) -> Result<BackgroundAttachment, StyleParseError> {
+    match parse_ident(input, "background-attachment")?.as_str() {
+        "scroll" => Ok(BackgroundAttachment::Scroll),
+        "fixed" => Ok(BackgroundAttachment::Fixed),
+        value => invalid_keyword("background-attachment", value),
+    }
+}
+
+fn parse_effect_filter(
+    input: &mut Parser<'_, '_>,
+    property: &str,
+) -> Result<Vec<BackgroundEffect>, StyleParseError> {
+    if input
+        .try_parse(|input| input.expect_ident_matching("none"))
+        .is_ok()
+    {
+        return Ok(Vec::new());
+    }
+    let invalid = || {
+        StyleParseError::InvalidPropertyValue {
+        property: property.into(),
+        value: "expected blur(px), grayscale(amount), oil-paint(radius), contrast(amount) or invert(amount)".into(),
+    }
+    };
+    let mut effects = Vec::new();
+    while !input.is_exhausted() {
+        let Token::Function(name) = input.next().map_err(|_| invalid())?.clone() else {
+            return Err(invalid());
+        };
+        let effect = input
+            .parse_nested_block(|input| {
+                let effect = match name.to_ascii_lowercase().as_str() {
+                    "blur" => {
+                        let Token::Dimension { value, unit, .. } = input.next()?.clone() else {
+                            return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                        };
+                        if !unit.eq_ignore_ascii_case("px") || !(0.0..=24.0).contains(&value) {
+                            return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                        }
+                        BackgroundEffect::Blur(value.round() as u8)
+                    }
+                    "oil-paint" | "oil" => {
+                        let radius = input.expect_number()?;
+                        if !(1.0..=3.0).contains(&radius) {
+                            return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                        }
+                        BackgroundEffect::OilPaint(radius.round() as u8)
+                    }
+                    "grayscale" | "black-white" | "invert" | "contrast" => {
+                        let value = match input.next()?.clone() {
+                            Token::Number { value, .. } => value,
+                            Token::Percentage { unit_value, .. } => unit_value,
+                            _ => {
+                                return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                            }
+                        };
+                        if name.eq_ignore_ascii_case("contrast") {
+                            if !(0.0..=4.0).contains(&value) {
+                                return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                            }
+                            BackgroundEffect::Contrast((value * 100.0).round() as u16)
+                        } else {
+                            if !(0.0..=1.0).contains(&value) {
+                                return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                            }
+                            let amount = (value * 100.0).round() as u8;
+                            if name.eq_ignore_ascii_case("invert") {
+                                BackgroundEffect::Invert(amount)
+                            } else {
+                                BackgroundEffect::Grayscale(amount)
+                            }
+                        }
+                    }
+                    _ => return Err(input.new_custom_error::<_, StyleParseError>(invalid())),
+                };
+                input.expect_exhausted()?;
+                Ok(effect)
+            })
+            .map_err(|_| invalid())?;
+        effects.push(effect);
+        if effects.len() > 8 {
+            return Err(invalid());
+        }
+    }
+    if effects.is_empty() {
+        return Err(invalid());
+    }
+    Ok(effects)
+}
+
+fn parse_animated_effects(
+    input: &mut Parser<'_, '_>,
+) -> Result<Vec<AnimatedEffect>, StyleParseError> {
+    if input
+        .try_parse(|input| input.expect_ident_matching("none"))
+        .is_ok()
+    {
+        return Ok(Vec::new());
+    }
+    let invalid = || StyleParseError::InvalidPropertyValue {
+        property: "animated-filter".into(),
+        value: "expected noise, retro-tv, old-film, side-glow or bloom (strength, speed)".into(),
+    };
+    let mut effects = Vec::new();
+    while !input.is_exhausted() {
+        let Token::Function(name) = input.next().map_err(|_| invalid())?.clone() else {
+            return Err(invalid());
+        };
+        let kind = match name.to_ascii_lowercase().as_str() {
+            "noise" => AnimatedEffectKind::Noise,
+            "retro-tv" => AnimatedEffectKind::RetroTv,
+            "old-film" => AnimatedEffectKind::OldFilm,
+            "side-glow" => AnimatedEffectKind::SideGlow,
+            "bloom" => AnimatedEffectKind::Bloom,
+            _ => return Err(invalid()),
+        };
+        let (strength, speed) = input
+            .parse_nested_block(|input| {
+                let strength = input.expect_number()?;
+                let speed = input
+                    .try_parse(|input| {
+                        input.expect_comma()?;
+                        input.expect_number()
+                    })
+                    .unwrap_or(1.0);
+                if !(0.0..=1.0).contains(&strength) || !(0.0..=4.0).contains(&speed) {
+                    return Err(input.new_custom_error::<_, StyleParseError>(invalid()));
+                }
+                input.expect_exhausted()?;
+                Ok((strength, speed))
+            })
+            .map_err(|_| invalid())?;
+        effects.push(AnimatedEffect {
+            kind,
+            strength: (strength * 100.0).round() as u8,
+            speed: (speed * 100.0).round() as u16,
+        });
+        if effects.len() > 8 {
+            return Err(invalid());
+        }
+    }
+    if effects.is_empty() {
+        return Err(invalid());
+    }
+    Ok(effects)
 }
 
 fn parse_animation_list(input: &mut Parser<'_, '_>) -> Result<Vec<AnimationSpec>, StyleParseError> {
@@ -624,6 +1254,72 @@ fn parse_position(input: &mut Parser<'_, '_>) -> Result<Position, StyleParseErro
     }
 }
 
+fn parse_flex(input: &mut Parser<'_, '_>) -> Result<(f32, f32, crate::Length), StyleParseError> {
+    let invalid = || StyleParseError::InvalidPropertyValue {
+        property: "flex".into(),
+        value: "expected grow, optional shrink and basis, or none/auto/initial".into(),
+    };
+    if let Ok(keyword) =
+        input.try_parse(|input| input.expect_ident().map(|word| word.to_ascii_lowercase()))
+    {
+        return match keyword.as_str() {
+            "none" => Ok((0.0, 0.0, crate::Length::Auto)),
+            "auto" => Ok((1.0, 1.0, crate::Length::Auto)),
+            "initial" => Ok((0.0, 1.0, crate::Length::Auto)),
+            _ => Err(invalid()),
+        };
+    }
+    let Ok(grow) = input.try_parse(|input| parse_non_negative_number(input, "flex")) else {
+        let basis = parse_length(input, true)?;
+        if input.is_exhausted() {
+            return Ok((1.0, 1.0, basis));
+        }
+        return Err(invalid());
+    };
+    let shrink = input
+        .try_parse(|input| parse_non_negative_number(input, "flex"))
+        .unwrap_or(1.0);
+    let basis = input
+        .try_parse(|input| parse_length(input, true))
+        .unwrap_or(crate::Length::Percent(0.0));
+    Ok((grow, shrink, basis))
+}
+
+fn parse_flex_flow(
+    input: &mut Parser<'_, '_>,
+) -> Result<(FlexDirection, FlexWrap), StyleParseError> {
+    let mut direction = None;
+    let mut wrap = None;
+    while !input.is_exhausted() {
+        if direction.is_none() {
+            if let Ok(value) = input.try_parse(|input| parse_flex_direction(input)) {
+                direction = Some(value);
+                continue;
+            }
+        }
+        if wrap.is_none() {
+            if let Ok(value) = input.try_parse(|input| parse_flex_wrap(input)) {
+                wrap = Some(value);
+                continue;
+            }
+        }
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: "flex-flow".into(),
+            value: "expected a direction and/or wrap mode".into(),
+        });
+    }
+    if direction.is_none() && wrap.is_none() {
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: "flex-flow".into(),
+            value: "empty value".into(),
+        });
+    }
+    Ok((
+        direction.unwrap_or(FlexDirection::Row),
+        wrap.unwrap_or(FlexWrap::NoWrap),
+    ))
+}
+
 fn parse_flex_direction(input: &mut Parser<'_, '_>) -> Result<FlexDirection, StyleParseError> {
     match parse_ident(input, "flex-direction")?.as_str() {
         "row" => Ok(FlexDirection::Row),
@@ -677,11 +1373,87 @@ fn parse_align_self(input: &mut Parser<'_, '_>) -> Result<AlignSelf, StyleParseE
 }
 
 fn parse_font_family(input: &mut Parser<'_, '_>) -> Result<FontFamily, StyleParseError> {
-    match parse_ident(input, "font-family")?.as_str() {
+    let mut family = Vec::new();
+    while !input.is_exhausted() {
+        let token = input
+            .next()
+            .map_err(|_| StyleParseError::InvalidPropertyValue {
+                property: "font-family".into(),
+                value: "expected a family name".into(),
+            })?
+            .clone();
+        match token {
+            Token::Ident(value) => family.push(value.to_string()),
+            Token::QuotedString(value) if family.is_empty() => family.push(value.to_string()),
+            Token::Comma if !family.is_empty() => {
+                while !input.is_exhausted() {
+                    input
+                        .next()
+                        .map_err(|_| StyleParseError::InvalidPropertyValue {
+                            property: "font-family".into(),
+                            value: "invalid fallback list".into(),
+                        })?;
+                }
+                break;
+            }
+            _ => {
+                return Err(StyleParseError::InvalidPropertyValue {
+                    property: "font-family".into(),
+                    value: "invalid family name".into(),
+                });
+            }
+        }
+    }
+    let family = family.join(" ");
+    if family.is_empty() {
+        return Err(StyleParseError::InvalidPropertyValue {
+            property: "font-family".into(),
+            value: "empty family name".into(),
+        });
+    }
+    Ok(match family.to_ascii_lowercase().as_str() {
         "sans-serif" => Ok(FontFamily::SansSerif),
         "ui-symbols" => Ok(FontFamily::UiSymbols),
         "monospace" => Ok(FontFamily::Monospace),
-        value => invalid_keyword("font-family", value),
+        "serif" => Ok(FontFamily::Serif),
+        "cursive" => Ok(FontFamily::Cursive),
+        "fantasy" => Ok(FontFamily::Fantasy),
+        "system-ui" => Ok(FontFamily::SystemUi),
+        "emoji" => Ok(FontFamily::Emoji),
+        _ => Ok(FontFamily::Named(family)),
+    }?)
+}
+
+fn parse_line_height(input: &mut Parser<'_, '_>) -> Result<CssLineHeight, StyleParseError> {
+    let invalid = || StyleParseError::InvalidPropertyValue {
+        property: "line-height".into(),
+        value: "expected normal, a positive number, percentage, or px length".into(),
+    };
+    match input.next().map_err(|_| invalid())?.clone() {
+        Token::Ident(value) if value.eq_ignore_ascii_case("normal") => Ok(CssLineHeight::Normal),
+        Token::Number { value, .. } if value >= 0.0 => Ok(CssLineHeight::Relative(value)),
+        Token::Percentage { unit_value, .. } if unit_value >= 0.0 => {
+            Ok(CssLineHeight::Relative(unit_value))
+        }
+        Token::Dimension { value, unit, .. } if value >= 0.0 && unit.eq_ignore_ascii_case("px") => {
+            Ok(CssLineHeight::Pixels(value))
+        }
+        _ => Err(invalid()),
+    }
+}
+
+fn parse_z_index(input: &mut Parser<'_, '_>) -> Result<i32, StyleParseError> {
+    let invalid = || StyleParseError::InvalidPropertyValue {
+        property: "z-index".into(),
+        value: "expected an integer or auto".into(),
+    };
+    match input.next().map_err(|_| invalid())?.clone() {
+        Token::Ident(value) if value.eq_ignore_ascii_case("auto") => Ok(0),
+        Token::Number {
+            int_value: Some(value),
+            ..
+        } => Ok(value),
+        _ => Err(invalid()),
     }
 }
 

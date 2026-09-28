@@ -50,6 +50,39 @@
 
     <div class="showcase-section">
         <div class="section-heading">
+            <div class="section-index effect-index">FX</div>
+            <h2>{{ i18n.background-effects-title }}</h2>
+            <p>{{ i18n.background-effects-subtitle }}</p>
+        </div>
+        <div class="effect-grid">
+            <div class="showcase-card effect-card"><div class="effect-preview effect-blur"></div><p class="card-name">{{ i18n.effect-blur }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview effect-gray"></div><p class="card-name">{{ i18n.effect-gray }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview effect-oil"></div><p class="card-name">{{ i18n.effect-oil }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview effect-contrast"></div><p class="card-name">{{ i18n.effect-contrast }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview effect-invert"></div><p class="card-name">{{ i18n.effect-invert }}</p></div>
+        </div>
+        <div class="section-heading animated-heading">
+            <div class="section-index effect-index">GPU</div>
+            <h2>{{ i18n.animated-effects-title }}</h2>
+            <p>{{ i18n.animated-effects-subtitle }}</p>
+        </div>
+        <div class="effect-grid">
+            <div class="showcase-card effect-card"><div class="effect-preview animated-noise"></div><p class="card-name">{{ i18n.animated-noise }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview animated-retro"></div><p class="card-name">{{ i18n.animated-retro }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview animated-film"></div><p class="card-name">{{ i18n.animated-film }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview animated-glow"></div><p class="card-name">{{ i18n.animated-glow }}</p></div>
+            <div class="showcase-card effect-card"><div class="effect-preview animated-bloom"></div><p class="card-name">{{ i18n.animated-bloom }}</p></div>
+        </div>
+        <div class="live-backdrop-scene">
+            <div class="live-backdrop-panel">
+                <h3>{{ i18n.live-backdrop-title }}</h3>
+                <p>{{ i18n.live-backdrop-subtitle }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="showcase-section">
+        <div class="section-heading">
             <div class="section-index">1</div>
             <h2>{{ i18n.structure-title }}</h2>
             <p>{{ i18n.structure-subtitle }}</p>
@@ -411,8 +444,8 @@
             <div class="showcase-card">
                 <div class="card-preview">
                     <div class="progress-demo">
-                        <progress-bar min="0" max="100" [value]="showcaseState.progress" />
-                        <p>{{ showcaseState.progress_label }}%</p>
+                        <progress-bar id="demo-progress" min="0" max="100" value="40" />
+                        <p id="demo-progress-label">40%</p>
                     </div>
                 </div>
                 <p class="card-name">{{ i18n.widget-progress-bar }}</p>
@@ -430,7 +463,7 @@
             <div class="showcase-card">
                 <div class="card-preview">
                     <div class="tooltip-demo">
-                        <button id="help-anchor" class="help-anchor">i</button>
+                        <button id="help-anchor" class="help-anchor" style="border-color: #ff4757;">i</button>
                         <tooltip for="help-anchor" variant="point" prio="top" trigger="hover">{{ i18n.tooltip-demo }}</tooltip>
                     </div>
                 </div>
@@ -577,7 +610,7 @@
                             <button onclick="runtime_bindings">Bindings</button>
                         </div>
                         <div id="runtime-content">
-                            <p>{{ i18n.runtime-initial }} {{ demo.progress_label + 5 }}</p>
+                            <p>{{ i18n.runtime-initial }} {{ demo.slider_value + 5 }}</p>
                         </div>
                     </div>
                 </div>

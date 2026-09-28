@@ -1,8 +1,11 @@
 mod declaration;
 mod error;
+mod grid;
+mod nesting;
 mod stylesheet;
 mod value;
 
+pub use declaration::parse_declaration_value;
 pub use error::StyleParseError;
 pub use stylesheet::parse_stylesheet;
 

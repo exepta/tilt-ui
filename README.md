@@ -146,6 +146,83 @@ header, plus a 30/45/60/custom FPS control below it. Set
 `TILT_UI_SHOWCASE_LANG=de-DE` to start directly in German; use
 `TILT_UI_SHOWCASE_SIZE=390x844` to inspect its narrow layout.
 
+## CSS priority and calculated values
+
+Component CSS, document stylesheets, themes, and static or bound inline styles
+share one cascade. `!important` takes precedence over normal declarations;
+specificity and source order break ties within a layer. Edge shorthands and
+individual sides are resolved independently.
+
+```css
+:root { --gutter: 12px; --accent: #8424f5; }
+.card {
+  padding: max(var(--gutter), 2vw);
+  width: calc(50% + 8px);
+  color: var(--accent, #000000) !important;
+}
+```
+
+Custom properties inherit through the UI tree and update when an inline style
+or theme changes. `calc()`, `min()`, `max()`, and `sin()` can be nested; `sin()`
+accepts numbers in radians or angles in `deg`/`rad`. Mixed `%`, `px`, `vw`, and
+`vh` lengths resolve against the containing block and viewport, then update
+after layout or viewport changes. A missing or cyclic variable can use the
+second argument of `var()` as a fallback.
+The [widget showcase stylesheet](examples/component-showcase/src-ui/pages/showcase.component.css)
+uses all four functions. Its light and dark themes set `--showcase-accent`;
+the help button's `!important` border color overrides its static inline color.
+
+Common layout CSS now maps to Bevy's block, flex, and grid layouts. For example:
+
+```css
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  gap: 12px;
+}
+.gallery > .featured { grid-column: 1 / span 2; }
+.card {
+  box-sizing: border-box;
+  border: 1px solid #d8d4ea;
+  box-shadow: 0 4px 12px #00000033;
+  &:hover { outline: 2px solid var(--accent); outline-offset: 2px; }
+}
+```
+
+`flex`/`flex-flow`, side-specific solid borders, `line-height`, `text-wrap`,
+`text-transform`, named font families, `cursor`, `pointer-events`, `z-index`,
+and `scroll-width` also work in stylesheets. `background-image` accepts linear
+gradients and `url(...)`. `background-size: stretch | cover | contain` controls
+fitting; `background-position` accepts edge/center keywords or percentages for
+cover and contain images, and `background-attachment: fixed` pins cover crops to the viewport.
+`background-filter` accepts chains of `blur(px)`, `grayscale(amount)` (also
+`black-white`), `oil-paint(radius)`, `contrast(amount)` and `invert(amount)`.
+Filtered images are processed asynchronously at most twice in parallel, capped
+in resolution, and shared by source asset and filter chain. `backdrop-filter`
+supports live `blur`, `grayscale`, `contrast`, and `invert` on dialogs and regular
+UI elements. Filtered content stays sharp above the scene, and rounded corners
+and scroll clipping bound the GPU treatment. Up to eight visible backdrops share
+one GPU pass; no pixel readback is used.
+
+`animated-filter` accepts `noise(strength, speed)`, `retro-tv(...)`,
+`old-film(...)`, `side-glow(...)`, and `bloom(...)`, including chains of effects.
+It treats the composited pixels inside the element's bounds, including child
+content.
+Strength ranges from `0` to `1`; speed from `0` to `4` and defaults to `1`.
+`effect-quality: auto | low | medium | high` selects shader sampling quality;
+`auto` uses low quality on WASM, iOS, Android, and narrow viewports. Animated
+Up to eight visible animated effects use the same GPU pass as backdrops, which
+is removed when no visible effect is active. The
+[widget showcase](examples/component-showcase/src-ui/pages/showcase.component.html)
+activates its previews on hover or touch so scrolling stays smooth. Named grid
+areas and dashed borders remain open in [TODO.md](TODO.md).
+`opacity` multiplies drawable alpha
+through the subtree; overlapping children are not composited as one isolated
+browser layer.
+On WASM, media queries and `vw`/`vh` use the browser viewport even when the
+Bevy canvas has a different size; native builds use the primary Bevy window.
+
 ## Providers and themes
 
 On native targets, `UiRuntimeConfiguration` discovers `.css` files below any

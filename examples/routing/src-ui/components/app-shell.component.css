@@ -66,4 +66,19 @@
 .footer { display: flex; justify-content: space-between; width: 100%; padding: 0px 4px; }
 .footer p { color: #9aa6b7; font-size: 10px; }
 @media (max-width: 900px) { .workspace { padding: 18px; } .intro-art { display: none; } .sidebar { width: 210px; min-width: 210px; } .feature-row { flex-wrap: wrap; } .feature-card { width: 48%; } }
-@media (max-width: 650px) { .topbar { padding: 0px 18px; } .content-grid { flex-direction: column; } .sidebar { width: 100%; min-width: 0px; } .route-frame { min-height: 400px; } .feature-card { width: 100%; } }
+@media (max-width: 650px) {
+    .topbar { padding: 0px 18px; }
+    .brand-mark { min-width: 40px; min-height: 40px; flex-shrink: 0; }
+    .brand-copy { min-width: 120px; flex-shrink: 0; }
+    .topbar-badge { display: none; }
+    .workspace { gap: 14px; padding: 14px; }
+    .intro { min-height: 0px; padding: 22px; }
+    .intro headline { font-size: 26px; }
+    .content-grid { flex-direction: column; gap: 14px; }
+    .sidebar { flex-direction: row; flex-wrap: wrap; width: 100%; min-width: 0px; padding: 12px; gap: 6px; }
+    .side-label, .side-rule, .side-note, .nav-tag { display: none; }
+    .nav-item { width: 48%; min-width: 0px; height: 40px; min-height: 40px; flex-grow: 1; }
+    .route-frame { min-height: 400px; }
+    .route-stage { padding: 14px; }
+    .feature-card { width: 100%; }
+}

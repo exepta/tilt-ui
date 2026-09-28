@@ -1,3 +1,4 @@
+:root { --showcase-accent: #A833EA; --showcase-hover: #F0D9FF; }
 .showcase-page { background-color: #F5F5FF; }
 .showcase-section, .showcase-card { background-color: #FFFFFF; }
 .showcase-card { border-color: #E8E7F7; }

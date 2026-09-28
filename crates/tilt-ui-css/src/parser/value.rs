@@ -14,6 +14,7 @@ pub(crate) fn parse_length(
         .clone();
     match token {
         Token::Ident(value) if allow_auto && value.eq_ignore_ascii_case("auto") => Ok(Length::Auto),
+        Token::Number { value, .. } if value == 0.0 => Ok(Length::Px(0.0)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => {
             Ok(Length::Px(value))
         }

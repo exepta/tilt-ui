@@ -314,13 +314,15 @@ slider::thumb, scrollbar::thumb {
     width: 18px;
     height: 18px;
     position: absolute;
-    top: 3px;
+    top: -6px;
     background-color: #A833EA;
     border-width: 2px;
     border-color: #FFFFFF;
     border-radius: 9px;
     margin-left: -9px;
 }
+
+scrollbar::thumb { top: 3px; }
 
 slider[orientation="vertical"]::thumb {
     top: auto;
@@ -421,6 +423,7 @@ dialog {
     justify-content: center;
     padding: 16px;
     background-color: #14152BBD;
+    backdrop-filter: blur(8px);
 }
 dialog::popup {
     position: relative;

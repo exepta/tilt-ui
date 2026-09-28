@@ -131,7 +131,7 @@ impl Default for UiMotionSettings {
     fn default() -> Self {
         Self {
             slider_seconds: 0.10,
-            wheel_seconds: 0.14,
+            wheel_seconds: 0.08,
             caret_seconds: 0.075,
             input_text_seconds: 0.28,
         }

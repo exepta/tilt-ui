@@ -21,6 +21,10 @@ use crate::TiltElement;
 #[derive(bevy::prelude::Component, Debug, Clone, PartialEq, Eq)]
 pub struct UiCursor(pub CursorIcon);
 
+/// Cursor selected by CSS; `None` represents an explicit `cursor: auto` reset.
+#[derive(bevy::prelude::Component, Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CssCursor(pub Option<CursorIcon>);
+
 /// Sets an element cursor; pass `None` to restore inherited/default behavior.
 pub fn set_ui_cursor(
     world: &mut bevy::prelude::World,
@@ -44,11 +48,18 @@ fn cursor_for_target(
     elements: &Query<&TiltElement>,
     buttons: &Query<(), With<Button>>,
     cursors: &Query<&UiCursor>,
+    css_cursors: &Query<&CssCursor>,
 ) -> CursorIcon {
     let mut ancestor = entity;
     loop {
         if let Ok(cursor) = cursors.get(ancestor) {
             return cursor.0.clone();
+        }
+        if let Ok(cursor) = css_cursors.get(ancestor) {
+            if let Some(icon) = &cursor.0 {
+                return icon.clone();
+            }
+            break;
         }
         let Ok(parent) = parents.get(ancestor) else {
             break;
@@ -86,6 +97,7 @@ pub(super) fn update_ui_cursor(
     elements: Query<&TiltElement>,
     buttons: Query<(), With<Button>>,
     cursors: Query<&UiCursor>,
+    css_cursors: Query<&CssCursor>,
     mut windows: Query<(Entity, &Window, Option<&mut CursorIcon>)>,
 ) {
     let hovered = hover
@@ -96,8 +108,16 @@ pub(super) fn update_ui_cursor(
                 .min_by(|(_, left), (_, right)| left.depth.total_cmp(&right.depth))
                 .map(|(entity, _)| *entity)
         });
-    let hovered_icon =
-        hovered.map(|entity| cursor_for_target(entity, &parents, &elements, &buttons, &cursors));
+    let hovered_icon = hovered.map(|entity| {
+        cursor_for_target(
+            entity,
+            &parents,
+            &elements,
+            &buttons,
+            &cursors,
+            &css_cursors,
+        )
+    });
     for (entity, window, current) in &mut windows {
         let icon = if window.cursor_position().is_some() {
             hovered_icon.clone().unwrap_or_default()
@@ -209,6 +229,40 @@ mod tests {
         assert_eq!(
             app.world().get::<CursorIcon>(window),
             Some(&CursorIcon::default())
+        );
+    }
+
+    #[test]
+    fn css_cursor_inherits_and_auto_resets_to_control_default() {
+        use super::CssCursor;
+        let mut app = App::new();
+        app.insert_resource(HoverMap::default())
+            .add_systems(Update, update_ui_cursor);
+        let mut window = Window::default();
+        window.set_cursor_position(Some(Vec2::ONE));
+        let window = app.world_mut().spawn(window).id();
+        let parent = app
+            .world_mut()
+            .spawn(CssCursor(Some(SystemCursorIcon::Help.into())))
+            .id();
+        let button = app
+            .world_mut()
+            .spawn(TiltElement {
+                kind: ElementKind::Button,
+            })
+            .id();
+        app.world_mut().entity_mut(parent).add_child(button);
+        hover(&mut app, button, window);
+        app.update();
+        assert_eq!(
+            app.world().get::<CursorIcon>(window),
+            Some(&SystemCursorIcon::Help.into())
+        );
+        app.world_mut().entity_mut(button).insert(CssCursor(None));
+        app.update();
+        assert_eq!(
+            app.world().get::<CursorIcon>(window),
+            Some(&SystemCursorIcon::Pointer.into())
         );
     }
 

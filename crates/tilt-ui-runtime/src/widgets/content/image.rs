@@ -2,6 +2,8 @@
 
 use std::{collections::HashMap, path::Path};
 
+#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
+use bevy::log::warn;
 use bevy::{
     asset::{AssetServer, Assets, Handle, RenderAssetUsages},
     ecs::{
@@ -14,10 +16,10 @@ use bevy::{
         world::World,
     },
     image::{CompressedImageFormats, Image, ImageSampler, ImageType},
-    log::warn,
     ui::widget::ImageNode,
 };
 use tilt_ui_core::TemplateAttribute;
+#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
 use wgpu_types::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::{
@@ -257,6 +259,7 @@ fn resolve_image_path(source: &str) -> Option<std::path::PathBuf> {
     asset_path.is_file().then_some(asset_path)
 }
 
+#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
 fn rgba8_srgb_linear_image(width: u32, height: u32, data: Vec<u8>) -> Image {
     let mut image = Image::new(
         Extent3d {

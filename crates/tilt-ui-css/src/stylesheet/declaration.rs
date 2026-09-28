@@ -1,14 +1,28 @@
 use crate::{
-    AlignItems, AlignSelf, AnimationSpec, BorderRadius, CssColor, CssGradient, CssOverflow,
-    CssTransform, Display, Edges, FlexDirection, FlexWrap, FontFamily, FontWeight, JustifyContent,
-    Length, Position, TextAlign, TransitionSpec,
+    AlignItems, AlignSelf, AnimatedEffect, AnimationSpec, BackgroundAttachment, BackgroundEffect,
+    BackgroundPosition, BackgroundSize, BorderEdge, BorderRadius, BoxSizing, CssBackgroundImage,
+    CssBoxShadow, CssColor, CssCursor, CssLineHeight, CssOverflow, CssTextShadow, CssTransform,
+    Display, Edges, EffectQuality, FlexDirection, FlexWrap, FontFamily, FontWeight, GridAutoFlow,
+    GridPlacement, GridTrackGroup, GridTrackSize, JustifyContent, Length, PointerEvents, Position,
+    TextAlign, TextTransform, TextWrap, TransitionSpec,
 };
 
 /// Describes a stylesheet declaration that has already been parsed into a typed value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StyleDeclaration {
+    /// A declaration with CSS `!important` priority.
+    Important(Box<StyleDeclaration>),
+    /// A cascading custom property, inherited by descendants.
+    CustomProperty(String, String),
+    /// A value containing `var()` or a runtime math function.
+    Deferred(String, String),
     /// Sets the box display mode.
     Display(Display),
+    BoxSizing(BoxSizing),
+    PointerEvents(PointerEvents),
+    Cursor(CssCursor),
+    ZIndex(i32),
+    ScrollWidth(f32),
     /// Sets overflow behavior on both axes.
     Overflow(CssOverflow, CssOverflow),
     /// Sets horizontal overflow behavior.
@@ -77,10 +91,27 @@ pub enum StyleDeclaration {
     FlexGrow(f32),
     /// Sets the flex shrink factor.
     FlexShrink(f32),
+    FlexBasis(Length),
+    Flex(f32, f32, Length),
+    FlexFlow(FlexDirection, FlexWrap),
+    GridTemplateRows(Vec<GridTrackGroup>),
+    GridTemplateColumns(Vec<GridTrackGroup>),
+    GridAutoRows(Vec<GridTrackSize>),
+    GridAutoColumns(Vec<GridTrackSize>),
+    GridAutoFlow(GridAutoFlow),
+    GridRow(GridPlacement),
+    GridColumn(GridPlacement),
     /// Sets the background color.
     BackgroundColor(CssColor),
     /// Sets a linear gradient background or clears the background image.
-    BackgroundImage(Option<CssGradient>),
+    BackgroundImage(Option<CssBackgroundImage>),
+    BackgroundSize(BackgroundSize),
+    BackgroundPosition(BackgroundPosition),
+    BackgroundAttachment(BackgroundAttachment),
+    BackgroundFilter(Vec<BackgroundEffect>),
+    BackdropFilter(Vec<BackgroundEffect>),
+    AnimatedEffects(Vec<AnimatedEffect>),
+    EffectQuality(EffectQuality),
     /// Sets the foreground text color.
     Color(CssColor),
     /// Sets opacity as a normalized factor.
@@ -113,16 +144,38 @@ pub enum StyleDeclaration {
     TransitionTimingFunction(Vec<crate::TimingFunction>),
     /// Sets border widths for all box edges.
     BorderWidth(Edges<Length>),
+    BorderTopWidth(Length),
+    BorderRightWidth(Length),
+    BorderBottomWidth(Length),
+    BorderLeftWidth(Length),
+    Border(BorderEdge),
+    BorderTop(BorderEdge),
+    BorderRight(BorderEdge),
+    BorderBottom(BorderEdge),
+    BorderLeft(BorderEdge),
     /// Sets the border color.
     BorderColor(CssColor),
+    BorderTopColor(CssColor),
+    BorderRightColor(CssColor),
+    BorderBottomColor(CssColor),
+    BorderLeftColor(CssColor),
     /// Sets border corner radii.
     BorderRadius(BorderRadius),
+    BoxShadow(Vec<CssBoxShadow>),
+    TextShadow(Option<CssTextShadow>),
+    Outline(BorderEdge),
+    OutlineWidth(Length),
+    OutlineColor(CssColor),
+    OutlineOffset(Length),
     /// Sets the text font size.
     FontSize(Length),
+    LineHeight(CssLineHeight),
     /// Selects a supported font family.
     FontFamily(FontFamily),
     /// Sets the text font weight.
     FontWeight(FontWeight),
     /// Sets horizontal text alignment.
     TextAlign(TextAlign),
+    TextWrap(TextWrap),
+    TextTransform(TextTransform),
 }

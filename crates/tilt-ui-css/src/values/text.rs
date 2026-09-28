@@ -1,5 +1,5 @@
 /// Identifies a font family supported by the TiltUI text renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FontFamily {
     /// Uses the bundled proportional UI typeface.
     SansSerif,
@@ -7,6 +7,34 @@ pub enum FontFamily {
     UiSymbols,
     /// Uses Bevy's default monospace typeface.
     Monospace,
+    Serif,
+    Cursive,
+    Fantasy,
+    SystemUi,
+    Emoji,
+    /// Resolves a named family from Bevy's font database.
+    Named(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CssLineHeight {
+    Normal,
+    Pixels(f32),
+    Relative(f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextWrap {
+    Wrap,
+    NoWrap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextTransform {
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
 }
 
 /// Describes the supported CSS font-weight values.

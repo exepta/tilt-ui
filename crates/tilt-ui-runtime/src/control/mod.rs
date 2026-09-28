@@ -3,6 +3,7 @@
 mod activation;
 pub(crate) mod context_menu;
 mod cursor;
+pub(crate) use cursor::CssCursor;
 pub use cursor::{UiCursor, set_ui_cursor};
 pub(crate) mod drag;
 mod editable;
