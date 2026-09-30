@@ -25,8 +25,8 @@ css = [
 
 hot-reload = ["bevy/file_watcher"]
 file-dialog = ["dep:rfd", "dep:wasm-bindgen-futures"]
-fluent = ["component", "dep:fluent-bundle", "dep:unic-langid"]
-svg = ["dep:resvg"]
+fluent = ["component", "dep:fluent-bundle", "dep:unic-langid", "dep:sys-locale"]
+svg = ["dep:resvg", "bevy/bevy_image"]
 tilt-icons = ["component", "svg", "dep:tilt-ui-icons"]
 
 [dependencies]
@@ -64,7 +64,10 @@ resvg = { version = "0.47", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = { version = "0.4", optional = true }
-web-sys = { version = "0.3", features = ["Window"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+sys-locale = { version = "0.3", optional = true }
 
 [dependencies.bevy_window]
 version = "0.19"

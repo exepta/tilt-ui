@@ -346,7 +346,7 @@ mod tests {
     };
     use tilt_ui_runtime::UiTemplateAsset;
     #[cfg(feature = "fluent")]
-    use tilt_ui_runtime::{UiFluentAsset, UiFluentConfig, UiLocalization};
+    use tilt_ui_runtime::{UiFluentAsset, UiFluentConfig, UiLang, UiLocalization};
 
     use super::{
         CameraSetup, FramePacer, TiltUiCameraMode, TiltUiPlugin, UiCameraConfiguration,
@@ -380,6 +380,7 @@ mod tests {
             .with_catalog("en-US", "locales/en-US.ftl")
             .unwrap();
         let mut app = App::new();
+        app.insert_resource(UiLang::new("en-US"));
         app.add_plugins(
             TiltUiPlugin::new(Default::default())
                 .with_source_root("test-src-ui")

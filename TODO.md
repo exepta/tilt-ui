@@ -58,8 +58,8 @@ Vergleichsbasis: Quellcode von `bevy_extended_ui` **1.6.0** und der aktuelle Til
 
 ## Lokalisierung und Plattform
 
-- [ ] **Automatische Sprachauswahl:** Im alten System kann `<html lang="...">` die Sprache erzwingen; sonst gelten `UILang` und anschließend die Systemsprache. TiltUI startet mit konfiguriertem Fallback und bietet `UiLocalization::set_locale`, liest aber Dokument-`lang` und OS-/Browser-Sprache nicht automatisch.
-- [ ] **SVG-Bilder auf WASM:** Der alte `SvgImageLoader` rasterisiert SVG-Assets bei aktiviertem `svg`-Feature auch ohne ausdrückliche WASM-Sperre. TiltUIs direkte SVG-Rasterisierung ist mit `not(target_arch = "wasm32")` geschützt; ein entsprechender Asset-Loader fehlt. Browser-Ziel verifizieren und bei Bedarf ergänzen.
+- [x] **Automatische Sprachauswahl:** Beim Dokumentstart gilt `<html lang="...">`, sonst die optionale `UiLang`-Ressource, danach OS- bzw. Browser-Sprache und schließlich der konfigurierte Fluent-Fallback. `UiLocalization::set_locale` schaltet später weiter zur Laufzeit um. Ungültige Sprach-Tags werden übersprungen; das WASM-Example zeigt Browser-Sprache und deutsche/englische Kataloge.
+- [x] **SVG-Bilder auf WASM:** Ein `.svg`-Asset-Loader rasterisiert SVGs über Bevy auch für `wasm32`, begrenzt Eingabe und Bildgröße und unterstützt `tilt-ui://`-Bilder im Browser. Das WASM-Example zeigt ein SVG; der Browser-Target-Build wird in CI geprüft.
 
 ## Validierung im laufenden Fenster
 

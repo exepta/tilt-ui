@@ -45,6 +45,36 @@ pub struct UiFluentConfig {
     catalogs: BTreeMap<LanguageIdentifier, String>,
 }
 
+/// Preferred startup language when the document has no `<html lang>`.
+/// Insert this resource before the app starts. `UiLocalization::set_locale`
+/// remains available for user-driven language changes at runtime.
+#[derive(Resource, Debug, Clone)]
+pub struct UiLang(pub String);
+
+impl UiLang {
+    pub fn new(locale: impl Into<String>) -> Self {
+        Self(locale.into())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn platform_locale() -> Option<String> {
+    sys_locale::get_locale()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn platform_locale() -> Option<String> {
+    web_sys::window()?.navigator().language()
+}
+
+fn initial_locale(configured: Option<&str>, platform: Option<&str>, fallback: &str) -> String {
+    configured
+        .into_iter()
+        .chain(platform)
+        .find_map(|tag| parse_locale(tag).ok())
+        .map_or_else(|| fallback.to_owned(), |locale| locale.to_string())
+}
+
 impl UiFluentConfig {
     /// Creates configuration with a required fallback language.
     pub fn new(fallback: &str) -> Result<Self, UiFluentError> {
@@ -197,6 +227,13 @@ impl UiLocalization {
             {
                 candidates.push(base);
             }
+            // A browser may report only "de" while the app ships "de-DE".
+            // Prefer a catalog for that language before falling back to English.
+            for available in self.catalogs.keys() {
+                if available.language == locale.language && !candidates.contains(available) {
+                    candidates.push(available.clone());
+                }
+            }
         }
         // Check regional and base catalogs for the selection before the fallback.
         for locale in candidates {
@@ -326,11 +363,24 @@ impl UiFluentPlugin {
 
 impl Plugin for UiFluentPlugin {
     fn build(&self, app: &mut App) {
+        let configured = app
+            .world()
+            .get_resource::<UiLang>()
+            .map(|lang| lang.0.as_str());
+        let platform = platform_locale();
+        let selected = initial_locale(
+            configured,
+            platform.as_deref(),
+            &self.config.fallback.to_string(),
+        );
+        let mut localization =
+            UiLocalization::new(&self.config.fallback.to_string()).expect("valid fallback");
+        localization
+            .set_locale(&selected)
+            .expect("validated startup locale");
         app.init_asset::<UiFluentAsset>()
             .register_asset_loader(UiFluentAssetLoader)
-            .insert_resource(
-                UiLocalization::new(&self.config.fallback.to_string()).expect("valid fallback"),
-            )
+            .insert_resource(localization)
             .init_resource::<UiFluentArgs>()
             .init_resource::<LastCalendarLocaleRevision>();
         let server = app.world().resource::<AssetServer>();
@@ -409,6 +459,32 @@ mod tests {
             Some("Greeting")
         );
         assert!(localization.insert_ftl("de", "broken = {").is_err());
+        assert_eq!(
+            localization.translate("title", None).as_deref(),
+            Some("Hallo")
+        );
+    }
+
+    #[test]
+    fn startup_language_prefers_configuration_then_platform_then_fallback() {
+        assert_eq!(
+            initial_locale(Some("de_DE"), Some("fr-FR"), "en-US"),
+            "de-DE"
+        );
+        assert_eq!(initial_locale(None, Some("fr-FR"), "en-US"), "fr-FR");
+        assert_eq!(
+            initial_locale(Some("invalid tag !"), Some("fr-FR"), "en-US"),
+            "fr-FR"
+        );
+        assert_eq!(initial_locale(None, None, "en-US"), "en-US");
+    }
+
+    #[test]
+    fn base_browser_language_uses_an_available_regional_catalog() {
+        let mut localization = UiLocalization::new("en-US").unwrap();
+        localization.insert_ftl("en-US", "title = Hello").unwrap();
+        localization.insert_ftl("de-DE", "title = Hallo").unwrap();
+        localization.set_locale("de").unwrap();
         assert_eq!(
             localization.translate("title", None).as_deref(),
             Some("Hallo")

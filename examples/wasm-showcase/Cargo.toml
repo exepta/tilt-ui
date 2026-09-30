@@ -16,7 +16,7 @@ bevy = { workspace = true, features = [
     "default_font",
     "png",
 ] }
-tilt-ui.workspace = true
+tilt-ui = { workspace = true, features = ["fluent"] }
 
 [build-dependencies]
 tilt-ui-build.workspace = true

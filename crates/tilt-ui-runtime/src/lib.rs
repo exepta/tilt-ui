@@ -70,7 +70,7 @@ pub use control::{
 #[cfg(feature = "fluent")]
 pub use localization::{
     UiFluentArgs, UiFluentAsset, UiFluentAssetLoader, UiFluentConfig, UiFluentError,
-    UiFluentPlugin, UiFluentValue, UiLocalization,
+    UiFluentPlugin, UiFluentValue, UiLang, UiLocalization,
 };
 #[cfg(feature = "tilt-icons")]
 pub use render::set_icon_size;

@@ -237,6 +237,13 @@ fn instantiate_document(world: &mut World) {
             return;
         }
     }
+    #[cfg(feature = "fluent")]
+    if let Some(lang) = head.lang.as_deref()
+        && let Some(mut localization) = world.get_resource_mut::<crate::UiLocalization>()
+        && let Err(error) = localization.set_locale(lang)
+    {
+        bevy::log::warn!("Ignoring invalid document language {lang:?}: {error}");
+    }
     let styles = head
         .stylesheet_links
         .iter()
@@ -433,6 +440,43 @@ mod tests {
         assert_eq!(world.query::<&UiDocumentInfo>().iter(world).count(), 1);
         assert_eq!(world.query::<&TiltElement>().iter(world).count(), 0);
         assert!(world.resource::<PendingDocument>().finished);
+    }
+
+    #[cfg(feature = "fluent")]
+    #[test]
+    fn document_language_overrides_the_preferred_startup_language() {
+        let mut app = App::new();
+        app.add_plugins(bevy::app::TaskPoolPlugin::default())
+            .add_plugins(AssetPlugin::default())
+            .add_plugins(TiltUiAssetsPlugin);
+        app.world_mut()
+            .insert_resource(ComponentCatalog::new(&[], component_id, metadata));
+        app.world_mut()
+            .insert_resource(ComponentAssetStore::default());
+        let mut localization = crate::UiLocalization::new("en-US").unwrap();
+        localization.set_locale("fr-FR").unwrap();
+        app.world_mut().insert_resource(localization);
+        let document =
+            parse_document("<!doctype html><html lang='de-DE'><head></head><body></body></html>")
+                .unwrap();
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<UiTemplateAsset>>()
+            .add(UiTemplateAsset::from_document(document));
+        app.world_mut().insert_resource(PendingDocument {
+            handle,
+            parsed: None,
+            finished: false,
+            failure: None,
+        });
+        instantiate_document(app.world_mut());
+        assert_eq!(
+            app.world()
+                .resource::<crate::UiLocalization>()
+                .locale()
+                .to_string(),
+            "de-DE"
+        );
     }
 
     #[cfg(feature = "hot-reload")]
