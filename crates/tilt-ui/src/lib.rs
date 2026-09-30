@@ -19,7 +19,7 @@ pub use tilt_ui_runtime::{icon_image, set_icon_size};
 #[cfg(feature = "fluent")]
 pub use tilt_ui_runtime::{
     UiFluentArgs, UiFluentAsset, UiFluentAssetLoader, UiFluentConfig, UiFluentError,
-    UiFluentPlugin, UiFluentValue, UiLocalization,
+    UiFluentPlugin, UiFluentValue, UiLang, UiLocalization,
 };
 
 /// Re-exports procedural macros implemented by `tilt-ui-macros`.

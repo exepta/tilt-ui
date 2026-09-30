@@ -319,9 +319,15 @@ Use `{{ i18n.welcome }}` in template text or `[text]="i18n.welcome"`
 on an element; Fluent attributes use `{{ i18n.welcome.tooltip }}`. Set Fluent arguments from component logic with
 `ResMut<UiFluentArgs>::set("welcome", "name", "Ada")`, and switch language with
 `ResMut<UiLocalization>::set_locale("de-DE")`. Text updates automatically.
-Language lookup tries the selected locale, its base language, then the
-configured fallback. Missing translations display their message ID; invalid
+Language lookup tries the selected locale, its base language, a matching
+regional catalog, then the configured fallback. Missing translations display their message ID; invalid
 catalog reloads leave the last valid catalog in place.
+At startup, `<html lang="de-DE">` in `src-ui/index.html` takes precedence.
+Without it, `UiLang::new("de-DE")` inserted as an app resource is used, then
+the OS or browser language, then the configured fallback. `set_locale` can
+still switch language after startup. Invalid tags are skipped.
+The component showcase uses `UiLang` for an English default; the WASM
+showcase leaves the choice to the browser.
 
 `UiRuntimeConfiguration` is a Bevy resource: changing its directories during
 an update discovers the new files and removes entries previously discovered
@@ -332,6 +338,9 @@ relative image sources and refreshes existing images. Explicit `tilt-ui://`
 paths are preserved. The physical source root remains fixed because Bevy
 registers it before `AssetPlugin`. Directory scanning uses the native file
 system; on WebAssembly, register themes and catalogs explicitly.
+When the `svg` runtime feature is enabled, `.svg` paths such as
+`tilt-ui://media/logo.svg` load as Bevy images on native and WebAssembly.
+The browser example includes a vector image and localized text.
 
 ## Text interaction
 

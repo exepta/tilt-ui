@@ -5212,6 +5212,7 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
+ "sys-locale",
  "thiserror 2.0.21",
  "tilt-ui-core",
  "tilt-ui-css",

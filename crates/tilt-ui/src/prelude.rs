@@ -20,7 +20,7 @@ pub use crate::{Icon, IconSize};
 pub use crate::{icon_image, set_icon_size};
 
 #[cfg(feature = "fluent")]
-pub use crate::{UiFluentArgs, UiFluentConfig, UiLocalization};
+pub use crate::{UiFluentArgs, UiFluentConfig, UiLang, UiLocalization};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::refresh_ui_directories;
