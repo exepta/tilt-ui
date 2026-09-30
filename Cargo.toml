@@ -19,14 +19,14 @@ repository = "https://github.com/exepta/tilt-ui"
 
 [workspace.dependencies]
 # TiltUI internal crates
-tilt-ui = { path = "crates/tilt-ui" }
-tilt-ui-core = { path = "crates/tilt-ui-core" }
-tilt-ui-html = { path = "crates/tilt-ui-html" }
-tilt-ui-css = { path = "crates/tilt-ui-css" }
-tilt-ui-runtime = { path = "crates/tilt-ui-runtime" }
-tilt-ui-icons = { path = "crates/tilt-ui-icons" }
-tilt-ui-macros = { path = "crates/tilt-ui-macros" }
-tilt-ui-build = { path = "crates/tilt-ui-build" }
+tilt-ui = { path = "crates/tilt-ui", version = "=0.1.0" }
+tilt-ui-core = { path = "crates/tilt-ui-core", version = "=0.1.0" }
+tilt-ui-html = { path = "crates/tilt-ui-html", version = "=0.1.0" }
+tilt-ui-css = { path = "crates/tilt-ui-css", version = "=0.1.0" }
+tilt-ui-runtime = { path = "crates/tilt-ui-runtime", version = "=0.1.0" }
+tilt-ui-icons = { path = "crates/tilt-ui-icons", version = "=0.1.0" }
+tilt-ui-macros = { path = "crates/tilt-ui-macros", version = "=0.1.0" }
+tilt-ui-build = { path = "crates/tilt-ui-build", version = "=0.1.0" }
 
 # Bevy
 bevy = { version = "0.19", default-features = false }

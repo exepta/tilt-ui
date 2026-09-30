@@ -419,3 +419,6 @@ background, or `Icon::Home` and `icon_image` from Rust. CSS `color` tints icons;
 each name and size shares one cached Bevy image asset. See the
 [icon catalog](docs/widgets/icons.md) and the
 [interactive showcase](examples/icons-catalog/README.md).
+
+The [release guide](docs/release.md) explains CI checks, `RC:` pull requests,
+`release-X.Y.Z` branches, GitHub Releases, and crates.io publishing.

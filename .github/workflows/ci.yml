@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'release-*'
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  release-version:
+    name: Release version guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Warn on duplicate or mismatched release versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.mjs pr-check
+
+  test:
+    name: Rust workspace tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Bevy Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ pkg-config libx11-dev libasound2-dev libudev-dev \
+            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup component add rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test release planning
+        run: node --test scripts/release.test.mjs
+      - name: Test workspace and examples
+        run: cargo test --workspace --all-features --locked

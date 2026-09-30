@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - 'release-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tilt-ui-crates-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan release
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.release_plan.outputs.publish }}
+      version: ${{ steps.release_plan.outputs.version }}
+      tag: ${{ steps.release_plan.outputs.tag }}
+      kind: ${{ steps.release_plan.outputs.kind }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Plan release from branch or merged RC PR
+        id: release_plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release.mjs plan
+
+  release:
+    name: Publish crates and GitHub release
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Bevy Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ pkg-config libx11-dev libasound2-dev libudev-dev \
+            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+      - name: Install Rust toolchain
+        run: rustup update stable
+      - name: Test release planning
+        run: node --test scripts/release.test.mjs
+      - name: Prepare exact Cargo release versions
+        run: node scripts/release.mjs prepare '${{ needs.plan.outputs.version }}'
+      - name: Test release snapshot
+        run: cargo test --workspace --all-features
+      - name: Record versioned source snapshot
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Cargo.toml Cargo.lock
+          if ! git diff --cached --quiet; then
+            git commit -m "release: ${RELEASE_TAG}"
+          fi
+      - name: Publish all eight crates to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: node scripts/release.mjs publish '${{ needs.plan.outputs.version }}'
+      - name: Tag source and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_KIND: ${{ needs.plan.outputs.kind }}
+        run: |
+          git tag -a "${RELEASE_TAG}" -m "${RELEASE_TAG}"
+          gh auth setup-git
+          git push origin "${RELEASE_TAG}"
+          if [ "${RELEASE_KIND}" = 'rc' ]; then
+            gh release create "${RELEASE_TAG}" --verify-tag --generate-notes --prerelease --latest=false
+          else
+            gh release create "${RELEASE_TAG}" --verify-tag --generate-notes --latest
+          fi
