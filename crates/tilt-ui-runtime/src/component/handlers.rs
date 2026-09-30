@@ -26,8 +26,8 @@ use bevy_picking::{
 };
 
 use crate::{
-    ColorPickerChanged, ControlActivated, ControlCheckedChanged, EditableTextChanged,
-    FormSubmitted, OptionSelectionChanged, SliderChanged,
+    ColorPickerChanged, ControlActivated, ControlCheckedChanged, EditableTextChanged, FormData,
+    FormSubmitted, FormValue, OptionSelectionChanged, SliderChanged,
 };
 
 use super::{
@@ -53,6 +53,8 @@ pub struct HtmlEvent {
     pub submitter: Option<Entity>,
     /// Named event data (form fields, pointer coordinates, key details, or scroll position).
     pub data: BTreeMap<String, String>,
+    /// Complete typed data for submit events, including repeated names and files.
+    pub form_data: Option<FormData>,
     /// Name of the registered Rust handler.
     pub handler: String,
 }
@@ -99,6 +101,7 @@ pub struct HtmlSubmit {
     pub target: Entity,
     pub submitter: Entity,
     pub data: BTreeMap<String, String>,
+    pub form_data: FormData,
 }
 
 impl TryFrom<HtmlEvent> for HtmlSubmit {
@@ -111,6 +114,7 @@ impl TryFrom<HtmlEvent> for HtmlSubmit {
             target: event.target,
             submitter: event.submitter.ok_or(())?,
             data: event.data,
+            form_data: event.form_data.ok_or(())?,
         })
     }
 }
@@ -304,6 +308,7 @@ fn emit_bound(
                 value: None,
                 submitter: None,
                 data,
+                form_data: None,
                 handler,
             });
             break;
@@ -358,6 +363,7 @@ fn forward_initialization(
                     value: None,
                     submitter: None,
                     data: BTreeMap::new(),
+                    form_data: None,
                     handler,
                 });
             }
@@ -707,6 +713,7 @@ fn forward_activations(
                 value: None,
                 submitter: None,
                 data: BTreeMap::new(),
+                form_data: None,
                 handler,
             });
         }
@@ -733,6 +740,7 @@ fn forward_checked(
                 value: Some(change.checked.to_string()),
                 submitter: None,
                 data,
+                form_data: None,
                 handler,
             });
         }
@@ -755,6 +763,7 @@ fn forward_edited(
                 value: Some(change.value.clone()),
                 submitter: None,
                 data: BTreeMap::new(),
+                form_data: None,
                 handler,
             });
         }
@@ -782,6 +791,7 @@ fn forward_slider_changed(
                 value: Some(change.value.to_string()),
                 submitter: None,
                 data,
+                form_data: None,
                 handler,
             });
         }
@@ -807,6 +817,7 @@ fn forward_option_changed(
                 value: Some(change.value.clone()),
                 submitter: None,
                 data,
+                form_data: None,
                 handler,
             });
         }
@@ -848,6 +859,7 @@ fn forward_color_changed(
                 value: Some(hex),
                 submitter: None,
                 data,
+                form_data: None,
                 handler,
             });
         }
@@ -866,12 +878,28 @@ fn forward_submissions(
         let handler =
             handler_for("submit", attributes, bindings).or_else(|| submission.action.clone());
         if let Some(handler) = handler {
+            let data = submission
+                .data
+                .iter()
+                .filter_map(|(name, values)| {
+                    values.first().map(|value| {
+                        (
+                            name.clone(),
+                            match value {
+                                FormValue::Text(value) => value.clone(),
+                                FormValue::File(file) => file.name.clone(),
+                            },
+                        )
+                    })
+                })
+                .collect();
             events.write(HtmlEvent {
                 target: submission.form,
                 kind: "submit",
                 value: None,
                 submitter: Some(submission.submitter),
-                data: submission.data.clone(),
+                data,
+                form_data: Some(submission.data.clone()),
                 handler,
             });
         }

@@ -1,3 +1,5 @@
+#[cfg(feature = "tilt-icons")]
+use bevy::{app::PostUpdate, ui::UiSystems};
 use bevy::{
     app::{App, Plugin, Startup, Update},
     asset::{AssetServer, Assets},
@@ -93,6 +95,18 @@ impl Plugin for TiltUiComponentRuntimePlugin {
                 TiltUiControlRuntimePlugin,
                 TiltUiScrollRuntimePlugin,
             ));
+        #[cfg(feature = "tilt-icons")]
+        app.add_systems(
+            PostUpdate,
+            crate::render::image::refresh_lazy_icons
+                .after(UiSystems::PostLayout)
+                .after(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
+        );
+        #[cfg(feature = "tilt-icons")]
+        app.add_systems(
+            PostUpdate,
+            crate::render::image::animate_icons.before(UiSystems::Layout),
+        );
         super::document::install(app);
         super::state::install(app);
         if !app.is_plugin_added::<super::handlers::TiltUiCodePlugin>() {
@@ -110,6 +124,7 @@ impl Plugin for TiltUiComponentRuntimePlugin {
         }
         crate::widgets::structure::form::install(app);
         crate::widgets::advanced::dialog::install(app);
+        crate::widgets::advanced::toast::install(app);
         #[cfg(feature = "hot-reload")]
         super::hot_reload::install(app);
         if !app.is_plugin_added::<super::router::TiltUiRouterPlugin>() {
@@ -163,6 +178,13 @@ fn refresh_asset_paths(world: &mut World) {
         .query::<(Entity, &crate::ImageMetadata)>()
         .iter(world)
         .filter_map(|(entity, metadata)| {
+            #[cfg(feature = "tilt-icons")]
+            if world
+                .get::<crate::render::image::LazyIcon>(entity)
+                .is_some()
+            {
+                return None;
+            }
             metadata
                 .source
                 .as_ref()
@@ -172,9 +194,10 @@ fn refresh_asset_paths(world: &mut World) {
     for (entity, source) in images {
         let handle = crate::widgets::content::image::load_image_handle(world, &source);
         if let Some(mut node) = world.get_mut::<bevy::ui::widget::ImageNode>(entity) {
-            node.image = handle.unwrap_or_default();
+            node.image = handle.unwrap_or_else(|| bevy::ui::widget::ImageNode::default().image);
         }
     }
+    crate::widgets::controls::checkbox::refresh_marker_asset_paths(world);
 }
 
 fn load_component_assets(

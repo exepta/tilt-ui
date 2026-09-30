@@ -17,10 +17,11 @@ use bevy::{
         keyboard::{Key, KeyboardInput},
     },
     prelude::Visibility,
-    text::{EditableText as NativeEditableText, Font, FontSource, TextEdit, TextFont},
+    text::{EditableText as NativeEditableText, Font, FontSource, TextColor, TextEdit, TextFont},
     ui::{
-        AlignItems, BackgroundColor, BorderColor, BorderRadius, ComputedNode, FlexDirection,
-        GlobalZIndex, Interaction, JustifyContent, Node, PositionType, UiRect, Val,
+        AlignItems, BackgroundColor, BorderColor, BorderRadius, ComputedNode,
+        ComputedUiRenderTargetInfo, FlexDirection, GlobalZIndex, Interaction, JustifyContent, Node,
+        PositionType, UiGlobalTransform, UiRect, UiScale, Val,
         widget::{Button, Text},
     },
     window::{PrimaryWindow, Window},
@@ -33,7 +34,9 @@ use bevy_picking::{
 use tilt_ui_core::{InputType, TemplateAttribute};
 
 use super::text_selection::{ActiveStaticTextSelection, SelectableStaticText};
-use crate::{ComponentElementIds, ComponentStyleOwner, EditableText};
+use crate::{
+    ComponentElementIds, ComponentStyleOwner, EditableText, StaticAttributes, WidgetLayoutOverride,
+};
 
 /// Identifies a TiltUI context menu popup.
 #[derive(Component, Debug, Clone, Copy)]
@@ -49,6 +52,25 @@ pub(crate) struct AuthoredContextMenu {
     parent: Option<Entity>,
 }
 
+#[derive(Component, Debug, Clone, Copy)]
+struct SubmenuTrigger(Entity);
+
+#[derive(Component, Debug, Clone, Copy)]
+struct SubmenuPanel {
+    root: Entity,
+    trigger: Entity,
+}
+
+/// The new position must pass through UI layout before this panel is shown.
+#[derive(Component)]
+struct SubmenuPlacementPending;
+
+/// Translation that was used to position the submenu in the last UI layout.
+#[derive(Component, Debug, Clone, Copy)]
+struct SubmenuPlacement(bevy::math::Vec2);
+
+const CONTEXT_MENU_Z_INDEX: i32 = 20_000;
+
 pub(crate) fn materialize(
     world: &mut bevy::ecs::world::World,
     entity: Entity,
@@ -61,7 +83,7 @@ pub(crate) fn materialize(
             target: None,
             parent: None,
         },
-        GlobalZIndex(20_000),
+        GlobalZIndex(CONTEXT_MENU_Z_INDEX),
         Visibility::Hidden,
     ));
 }
@@ -92,6 +114,117 @@ pub(crate) fn resolve_targets(world: &mut bevy::ecs::world::World, scope: Entity
             menu.target = Some(target);
             menu.parent = parent;
         }
+        resolve_submenus(world, scope, entity);
+    }
+}
+
+fn is_inside_world(world: &bevy::ecs::world::World, mut child: Entity, ancestor: Entity) -> bool {
+    loop {
+        if child == ancestor {
+            return true;
+        }
+        let Some(parent) = world.get::<ChildOf>(child) else {
+            return false;
+        };
+        child = parent.parent();
+    }
+}
+
+fn static_value<'a>(attributes: &'a StaticAttributes, name: &str) -> Option<&'a str> {
+    attributes
+        .attributes
+        .iter()
+        .find(|attribute| attribute.name == name)
+        .map(|attribute| attribute.value.as_str())
+}
+
+fn resolve_submenus(world: &mut bevy::ecs::world::World, scope: Entity, root: Entity) {
+    let mut pending = vec![root];
+    let mut triggers = Vec::new();
+    let mut panels = Vec::new();
+    while let Some(entity) = pending.pop() {
+        if let Some(children) = world.get::<bevy::ecs::hierarchy::Children>(entity) {
+            pending.extend(children.iter().copied());
+        }
+        let Some(attributes) = world.get::<StaticAttributes>(entity) else {
+            continue;
+        };
+        if world.get::<Button>(entity).is_some()
+            && let Some(panel_id) = static_value(attributes, "submenu")
+        {
+            triggers.push((entity, panel_id.to_owned()));
+        }
+    }
+    for (trigger, panel_id) in triggers {
+        let Some(panel) = world
+            .get::<ComponentElementIds>(scope)
+            .and_then(|ids| ids.get(&panel_id))
+        else {
+            continue;
+        };
+        if !is_inside_world(world, panel, root)
+            || !world
+                .get::<StaticAttributes>(panel)
+                .is_some_and(|attributes| static_value(attributes, "submenu-panel").is_some())
+        {
+            continue;
+        }
+        world.entity_mut(trigger).insert(SubmenuTrigger(panel));
+        world
+            .entity_mut(panel)
+            .insert((SubmenuPanel { root, trigger }, Visibility::Hidden));
+        panels.push(panel);
+        let has_arrow = world
+            .get::<bevy::ecs::hierarchy::Children>(trigger)
+            .into_iter()
+            .flatten()
+            .any(|child| {
+                world.get::<crate::ControlPart>(*child).is_some_and(|part| {
+                    part.owner == trigger && part.kind == crate::ControlPartKind::Indicator
+                })
+            });
+        if !has_arrow {
+            let arrow = crate::widgets::controls::spawn_text_part(
+                world,
+                trigger,
+                crate::ControlPartKind::Indicator,
+                ">",
+            );
+            world.entity_mut(arrow).insert((
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: Val::Px(9.0),
+                    top: Val::Px(6.0),
+                    width: Val::Px(12.0),
+                    height: Val::Px(22.0),
+                    ..Default::default()
+                },
+                TextFont {
+                    font_size: bevy::text::FontSize::Px(16.0),
+                    ..Default::default()
+                },
+                TextColor(Color::srgb(0.48, 0.43, 0.60)),
+            ));
+            world.entity_mut(trigger).add_child(arrow);
+        }
+    }
+    // GlobalZIndex breaks panels out of their parent's draw order. Each nested
+    // panel must paint after the menu and after the panel that opened it.
+    for panel in panels {
+        let mut depth = 1i32;
+        let mut ancestor = panel;
+        while let Some(parent) = world.get::<ChildOf>(ancestor) {
+            ancestor = parent.parent();
+            if ancestor == root {
+                break;
+            }
+            if world.get::<SubmenuPanel>(ancestor).is_some() {
+                depth = depth.saturating_add(1);
+            }
+        }
+        world
+            .entity_mut(panel)
+            .insert(GlobalZIndex(CONTEXT_MENU_Z_INDEX.saturating_add(depth)));
     }
 }
 
@@ -146,15 +279,90 @@ fn is_inside(mut hit: Entity, parent: Entity, parents: &Query<&ChildOf>) -> bool
     }
 }
 
+fn popup_position(
+    position: bevy::math::Vec2,
+    size: bevy::math::Vec2,
+    viewport: bevy::math::Vec2,
+) -> bevy::math::Vec2 {
+    let margin = 6.0;
+    let x = if position.x + size.x > viewport.x - margin {
+        position.x - size.x
+    } else {
+        position.x
+    };
+    let y = if position.y + size.y > viewport.y - margin {
+        position.y - size.y
+    } else {
+        position.y
+    };
+    bevy::math::Vec2::new(
+        x.clamp(margin, (viewport.x - size.x - margin).max(margin)),
+        y.clamp(margin, (viewport.y - size.y - margin).max(margin)),
+    )
+}
+
+fn submenu_position(
+    anchor: bevy::math::Vec2,
+    anchor_size: bevy::math::Vec2,
+    size: bevy::math::Vec2,
+    viewport: bevy::math::Vec2,
+) -> bevy::math::Vec2 {
+    let margin = 6.0;
+    let right = anchor.x + anchor_size.x - 2.0;
+    let left = anchor.x - size.x + 2.0;
+    let x = if right + size.x <= viewport.x - margin {
+        right
+    } else if left >= margin || anchor.x > viewport.x * 0.5 {
+        left
+    } else {
+        right
+    };
+    let down = anchor.y;
+    let up = anchor.y + anchor_size.y - size.y;
+    let y = if down + size.y <= viewport.y - margin {
+        down
+    } else if up >= margin {
+        up
+    } else {
+        down
+    };
+    bevy::math::Vec2::new(
+        x.clamp(margin, (viewport.x - size.x - margin).max(margin)),
+        y.clamp(margin, (viewport.y - size.y - margin).max(margin)),
+    )
+}
+
 #[derive(SystemParam)]
 pub(crate) struct MenuGeometry<'w, 's> {
     computed_nodes: Query<'w, 's, &'static ComputedNode>,
+    render_targets: Query<'w, 's, &'static ComputedUiRenderTargetInfo>,
+    ui_scale: Option<Res<'w, UiScale>>,
+    buttons: Query<'w, 's, &'static Button>,
+    submenu_triggers: Query<'w, 's, &'static SubmenuTrigger>,
     theme_fonts: Option<Res<'w, crate::theme::DefaultThemeFonts>>,
     #[cfg(feature = "fluent")]
     localization: Option<Res<'w, crate::UiLocalization>>,
 }
 
 impl MenuGeometry<'_, '_> {
+    fn logical_size(&self, entity: Entity) -> Option<bevy::math::Vec2> {
+        let scale = self
+            .render_targets
+            .get(entity)
+            .map_or(1.0, ComputedUiRenderTargetInfo::scale_factor)
+            / self.ui_scale.as_ref().map_or(1.0, |scale| scale.0);
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        self.computed_nodes
+            .get(entity)
+            .ok()
+            .map(|node| node.size() / scale)
+            .filter(|size| size.min_element() > 0.0)
+    }
+
     fn label_for(&self, action: MenuAction) -> String {
         let (key, fallback) = match action {
             MenuAction::Copy => ("context-copy", "Copy"),
@@ -239,20 +447,21 @@ fn spawn_menu(
 ) -> Entity {
     let width = 178.0;
     let height = actions.len() as f32 * 34.0 + 10.0;
-    let (left, top) = window.map_or((position.x, position.y), |window| {
-        (
-            position.x.min((window.width() - width - 6.0).max(0.0)),
-            position.y.min((window.height() - height - 6.0).max(0.0)),
+    let placed = window.map_or(position, |window| {
+        popup_position(
+            position,
+            bevy::math::Vec2::new(width, height),
+            bevy::math::Vec2::new(window.width(), window.height()),
         )
     });
     let menu = commands
         .spawn((
             ContextMenu { target },
-            GlobalZIndex(20_000),
+            GlobalZIndex(CONTEXT_MENU_Z_INDEX),
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(left.max(0.0)),
-                top: Val::Px(top.max(0.0)),
+                left: Val::Px(placed.x.max(0.0)),
+                top: Val::Px(placed.y.max(0.0)),
                 width: Val::Px(width),
                 padding: UiRect::all(Val::Px(5.0)),
                 flex_direction: FlexDirection::Column,
@@ -385,9 +594,18 @@ pub(crate) fn context_menu_pointer_input(
                 close_menu(&mut commands, &mut open, &authored);
                 continue;
             }
-            if open.0.is_some_and(|menu| {
-                authored.get(menu).is_ok() && is_inside(press.entity, menu, &parents)
-            }) {
+            if let Some(menu) = open.0
+                && authored.get(menu).is_ok()
+                && is_inside(press.entity, menu, &parents)
+            {
+                if let Some(button) = ancestor_with(press.entity, &parents, &geometry.buttons)
+                    && is_inside(button, menu, &parents)
+                {
+                    if geometry.submenu_triggers.get(button).is_ok() {
+                        continue;
+                    }
+                    close_menu(&mut commands, &mut open, &authored);
+                }
                 continue;
             }
             close_menu(&mut commands, &mut open, &authored);
@@ -406,24 +624,23 @@ pub(crate) fn context_menu_pointer_input(
             }
             let position = press.pointer_location.position;
             let size = geometry
-                .computed_nodes
-                .get(entity)
-                .ok()
-                .map(ComputedNode::size)
-                .filter(|size| size.x > 0.0 && size.y > 0.0)
+                .logical_size(entity)
                 .unwrap_or(bevy::math::Vec2::new(180.0, 46.0));
-            let (left, top) = windows
-                .iter()
-                .next()
-                .map_or((position.x, position.y), |window| {
-                    (
-                        position.x.min((window.width() - size.x - 6.0).max(0.0)),
-                        position.y.min((window.height() - size.y - 6.0).max(0.0)),
-                    )
-                });
+            let placed = windows.iter().next().map_or(position, |window| {
+                popup_position(
+                    position,
+                    size,
+                    bevy::math::Vec2::new(window.width(), window.height()),
+                )
+            });
             node.position_type = PositionType::Absolute;
-            node.left = Val::Px(left.max(0.0));
-            node.top = Val::Px(top.max(0.0));
+            node.left = Val::Px(placed.x.max(0.0));
+            node.top = Val::Px(placed.y.max(0.0));
+            commands.entity(entity).insert(WidgetLayoutOverride {
+                left: Some(node.left),
+                top: Some(node.top),
+                ..Default::default()
+            });
             commands.entity(entity).remove::<ChildOf>();
             commands.entity(entity).insert(Visibility::Visible);
             open.0 = Some(entity);
@@ -473,6 +690,192 @@ pub(crate) fn context_menu_pointer_input(
             &labels,
             geometry.theme_fonts.as_ref().map(|fonts| &fonts.regular),
         ));
+    }
+}
+
+fn position_submenu_panel(
+    world: &mut bevy::ecs::world::World,
+    panel: Entity,
+    viewport: bevy::math::Vec2,
+) -> Option<bool> {
+    let Some(info) = world.get::<SubmenuPanel>(panel).copied() else {
+        return None;
+    };
+    let Some(parent) = world.get::<ChildOf>(panel).map(ChildOf::parent) else {
+        return None;
+    };
+    let (Some(anchor_transform), Some(anchor_node), Some(parent_transform)) = (
+        world.get::<UiGlobalTransform>(info.trigger),
+        world.get::<ComputedNode>(info.trigger),
+        world.get::<UiGlobalTransform>(parent),
+    ) else {
+        return None;
+    };
+    let Some(inverse) = parent_transform.try_inverse() else {
+        return None;
+    };
+    if anchor_node.size().min_element() <= 0.0 {
+        return None;
+    }
+    let scale = world
+        .get::<ComputedUiRenderTargetInfo>(panel)
+        .map_or(1.0, |target| target.scale_factor())
+        / world.get_resource::<UiScale>().map_or(1.0, |scale| scale.0);
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let size = world.get::<ComputedNode>(panel).map(ComputedNode::size)?;
+    if size.min_element() <= 0.0 {
+        return None;
+    }
+    let anchor = anchor_transform.affine().translation - anchor_node.size() * 0.5;
+    let placed = submenu_position(anchor, anchor_node.size(), size, viewport * scale);
+    let current_center = world.get::<UiGlobalTransform>(panel)?.affine().translation;
+    let correction = inverse.transform_vector2(placed + size * 0.5 - current_center) / scale;
+    let old_translation = world.get::<SubmenuPlacement>(panel).map_or_else(
+        || {
+            world
+                .get::<bevy::ui::UiTransform>(panel)
+                .map_or(bevy::math::Vec2::ZERO, |transform| {
+                    let px = |value| match value {
+                        Val::Px(value) => value,
+                        _ => 0.0,
+                    };
+                    bevy::math::Vec2::new(px(transform.translation.x), px(transform.translation.y))
+                })
+        },
+        |placement| placement.0,
+    );
+    let position_changed = correction.length_squared() > 0.25;
+    if !position_changed && world.get::<SubmenuPlacement>(panel).is_none() {
+        return Some(false);
+    }
+    let translation = if position_changed {
+        old_translation + correction
+    } else {
+        old_translation
+    };
+    if let Some(mut node) = world.get_mut::<Node>(panel)
+        && node.position_type != PositionType::Absolute
+    {
+        node.position_type = PositionType::Absolute;
+    }
+    if let Some(mut transform) = world.get_mut::<bevy::ui::UiTransform>(panel) {
+        let next_x = Val::Px(translation.x);
+        let next_y = Val::Px(translation.y);
+        if transform.translation.x != next_x || transform.translation.y != next_y {
+            transform.translation.x = next_x;
+            transform.translation.y = next_y;
+        }
+    }
+    if world
+        .get::<SubmenuPlacement>(panel)
+        .is_none_or(|old| old.0 != translation)
+    {
+        world
+            .entity_mut(panel)
+            .insert(SubmenuPlacement(translation));
+    }
+    Some(position_changed)
+}
+
+fn hide_submenu_panel(world: &mut bevy::ecs::world::World, panel: Entity) {
+    if world.get::<Visibility>(panel) != Some(&Visibility::Hidden) {
+        world.entity_mut(panel).insert(Visibility::Hidden);
+    }
+    if world.get::<SubmenuPlacement>(panel).is_some() {
+        if let Some(mut transform) = world.get_mut::<bevy::ui::UiTransform>(panel) {
+            transform.translation.x = Val::Px(0.0);
+            transform.translation.y = Val::Px(0.0);
+        }
+        world.entity_mut(panel).remove::<SubmenuPlacement>();
+    }
+    if world.get::<SubmenuPlacementPending>(panel).is_some() {
+        world.entity_mut(panel).remove::<SubmenuPlacementPending>();
+    }
+}
+
+pub(crate) fn update_context_submenus(world: &mut bevy::ecs::world::World) {
+    let root = world.resource::<OpenContextMenu>().0;
+    let panels = {
+        let mut query = world.query::<(Entity, &SubmenuPanel)>();
+        query
+            .iter(world)
+            .map(|(entity, info)| (entity, *info))
+            .collect::<Vec<_>>()
+    };
+    let Some(root) = root.filter(|root| world.get::<AuthoredContextMenu>(*root).is_some()) else {
+        for (panel, _) in panels {
+            hide_submenu_panel(world, panel);
+        }
+        return;
+    };
+    let hovered = {
+        let mut query = world.query::<(Entity, &Interaction, &Button)>();
+        query
+            .iter(world)
+            .filter(|(entity, interaction, _)| {
+                **interaction != Interaction::None && is_inside_world(world, *entity, root)
+            })
+            .max_by_key(|(entity, _, _)| {
+                let mut depth = 0;
+                let mut current = *entity;
+                while let Some(parent) = world.get::<ChildOf>(current) {
+                    depth += 1;
+                    current = parent.parent();
+                    if current == root {
+                        break;
+                    }
+                }
+                depth
+            })
+            .map(|(entity, _, _)| entity)
+    };
+    let Some(hovered) = hovered else {
+        return;
+    };
+    let mut visible = Vec::new();
+    let mut current = hovered;
+    while current != root {
+        if world.get::<SubmenuPanel>(current).is_some() {
+            visible.push(current);
+        }
+        let Some(parent) = world.get::<ChildOf>(current) else {
+            break;
+        };
+        current = parent.parent();
+    }
+    if let Some(trigger) = world.get::<SubmenuTrigger>(hovered) {
+        visible.push(trigger.0);
+    }
+    let viewport = {
+        let mut windows = world.query_filtered::<&Window, bevy::ecs::query::With<PrimaryWindow>>();
+        windows
+            .iter(world)
+            .next()
+            .map_or(bevy::math::Vec2::new(1920.0, 1080.0), |window| {
+                bevy::math::Vec2::new(window.width(), window.height())
+            })
+    };
+    for (panel, info) in panels {
+        if info.root != root || !visible.contains(&panel) {
+            hide_submenu_panel(world, panel);
+            continue;
+        }
+        let Some(position_changed) = position_submenu_panel(world, panel, viewport) else {
+            continue;
+        };
+        let already_visible = world.get::<Visibility>(panel) == Some(&Visibility::Visible);
+        if !already_visible && position_changed {
+            world.entity_mut(panel).insert(SubmenuPlacementPending);
+            continue;
+        }
+        if !already_visible {
+            world.entity_mut(panel).remove::<SubmenuPlacementPending>();
+            world.entity_mut(panel).insert(Visibility::Visible);
+        }
     }
 }
 
@@ -697,6 +1100,13 @@ mod tests {
         assert_eq!(node.left, Val::Px(40.0));
         assert_eq!(node.top, Val::Px(50.0));
         assert_eq!(
+            app.world()
+                .get::<crate::WidgetLayoutOverride>(menu)
+                .unwrap()
+                .left,
+            Some(Val::Px(40.0))
+        );
+        assert_eq!(
             app.world().get::<Visibility>(menu),
             Some(&Visibility::Visible)
         );
@@ -787,7 +1197,352 @@ mod tests {
         app.update();
 
         let node = app.world().get::<Node>(menu).unwrap();
-        assert_eq!(node.left, Val::Px(214.0));
-        assert_eq!(node.top, Val::Px(248.0));
+        assert_eq!(node.left, Val::Px(210.0));
+        assert_eq!(node.top, Val::Px(244.0));
+    }
+
+    #[test]
+    fn authored_menu_uses_logical_size_on_scaled_windows() {
+        use bevy::ui::{ComputedNode, UiScale};
+
+        let mut app = app();
+        app.world_mut().insert_resource(UiScale(0.5));
+        app.world_mut().spawn((
+            Window {
+                resolution: (400, 300).into(),
+                ..Default::default()
+            },
+            PrimaryWindow,
+        ));
+        let parent = app.world_mut().spawn(Node::default()).id();
+        let button = app.world_mut().spawn(Button).id();
+        let menu = app
+            .world_mut()
+            .spawn((
+                ContextMenu { target: button },
+                AuthoredContextMenu {
+                    target_id: None,
+                    target: Some(button),
+                    parent: Some(parent),
+                },
+                Node::default(),
+                ComputedNode {
+                    size: Vec2::new(360.0, 160.0),
+                    ..Default::default()
+                },
+                Visibility::Hidden,
+            ))
+            .id();
+        app.world_mut()
+            .entity_mut(parent)
+            .add_children(&[button, menu]);
+
+        press_at(
+            app.world_mut(),
+            button,
+            PointerButton::Secondary,
+            Vec2::new(390.0, 290.0),
+        );
+        app.update();
+
+        let node = app.world().get::<Node>(menu).unwrap();
+        assert_eq!(node.left, Val::Px(210.0));
+        assert_eq!(node.top, Val::Px(210.0));
+    }
+
+    #[test]
+    fn submenu_flips_left_and_up_near_window_edges() {
+        let viewport = Vec2::new(400.0, 300.0);
+        let placed = super::submenu_position(
+            Vec2::new(360.0, 265.0),
+            Vec2::new(30.0, 30.0),
+            Vec2::new(180.0, 120.0),
+            viewport,
+        );
+        assert_eq!(placed, Vec2::new(182.0, 174.0));
+        let roomy = super::submenu_position(
+            Vec2::new(40.0, 40.0),
+            Vec2::new(80.0, 30.0),
+            Vec2::new(180.0, 120.0),
+            viewport,
+        );
+        assert_eq!(roomy, Vec2::new(118.0, 40.0));
+    }
+
+    #[test]
+    fn nested_submenus_paint_above_their_parent_menus() {
+        use super::resolve_submenus;
+        use crate::{ComponentElementIds, StaticAttribute, StaticAttributes};
+        use bevy::ui::GlobalZIndex;
+
+        let mut app = app();
+        let scope = app.world_mut().spawn(ComponentElementIds::default()).id();
+        let root = app
+            .world_mut()
+            .spawn((Node::default(), GlobalZIndex(super::CONTEXT_MENU_Z_INDEX)))
+            .id();
+        let trigger = app
+            .world_mut()
+            .spawn((
+                Button,
+                Node::default(),
+                StaticAttributes {
+                    attributes: vec![StaticAttribute {
+                        name: "submenu".into(),
+                        value: "first".into(),
+                    }],
+                },
+            ))
+            .id();
+        let panel = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                StaticAttributes {
+                    attributes: vec![StaticAttribute {
+                        name: "submenu-panel".into(),
+                        value: "true".into(),
+                    }],
+                },
+            ))
+            .id();
+        let nested_trigger = app
+            .world_mut()
+            .spawn((
+                Button,
+                Node::default(),
+                StaticAttributes {
+                    attributes: vec![StaticAttribute {
+                        name: "submenu".into(),
+                        value: "second".into(),
+                    }],
+                },
+            ))
+            .id();
+        let nested_panel = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                StaticAttributes {
+                    attributes: vec![StaticAttribute {
+                        name: "submenu-panel".into(),
+                        value: "true".into(),
+                    }],
+                },
+            ))
+            .id();
+        app.world_mut().entity_mut(scope).add_child(root);
+        app.world_mut()
+            .entity_mut(root)
+            .add_children(&[trigger, panel]);
+        app.world_mut()
+            .entity_mut(panel)
+            .add_children(&[nested_trigger, nested_panel]);
+        let mut ids = app
+            .world_mut()
+            .get_mut::<ComponentElementIds>(scope)
+            .unwrap();
+        ids.insert("first".into(), panel);
+        ids.insert("second".into(), nested_panel);
+
+        resolve_submenus(app.world_mut(), scope, root);
+
+        let z = |entity| app.world().get::<GlobalZIndex>(entity).unwrap().0;
+        assert!(z(root) < z(panel));
+        assert!(z(panel) < z(nested_panel));
+    }
+
+    #[test]
+    fn authored_submenu_opens_on_hover_and_stays_open_over_its_items() {
+        use super::{
+            SubmenuPanel, SubmenuPlacement, SubmenuPlacementPending, SubmenuTrigger,
+            resolve_submenus, update_context_submenus,
+        };
+        use crate::{ComponentElementIds, StaticAttribute, StaticAttributes};
+        use bevy::ui::{ComputedNode, Interaction, UiGlobalTransform, UiTransform};
+
+        let mut app = app();
+        let scope = app.world_mut().spawn(ComponentElementIds::default()).id();
+        let target = app.world_mut().spawn(Button).id();
+        let root = app
+            .world_mut()
+            .spawn((
+                ContextMenu { target },
+                AuthoredContextMenu {
+                    target_id: None,
+                    target: Some(target),
+                    parent: Some(scope),
+                },
+                Node::default(),
+                ComputedNode {
+                    size: Vec2::new(180.0, 200.0),
+                    ..Default::default()
+                },
+                UiGlobalTransform::from_xy(190.0, 150.0),
+            ))
+            .id();
+        let trigger = app
+            .world_mut()
+            .spawn((
+                Button,
+                Node::default(),
+                ComputedNode {
+                    size: Vec2::new(180.0, 34.0),
+                    ..Default::default()
+                },
+                UiGlobalTransform::from_xy(190.0, 90.0),
+                Interaction::None,
+                StaticAttributes {
+                    attributes: vec![StaticAttribute {
+                        name: "submenu".into(),
+                        value: "more".into(),
+                    }],
+                },
+            ))
+            .id();
+        let regular = app
+            .world_mut()
+            .spawn((Button, Node::default(), Interaction::None))
+            .id();
+        let panel = app
+            .world_mut()
+            .spawn((
+                Node::default(),
+                ComputedNode {
+                    size: Vec2::new(180.0, 120.0),
+                    ..Default::default()
+                },
+                StaticAttributes {
+                    attributes: vec![StaticAttribute {
+                        name: "submenu-panel".into(),
+                        value: String::new(),
+                    }],
+                },
+            ))
+            .id();
+        let child = app
+            .world_mut()
+            .spawn((Button, Node::default(), Interaction::None))
+            .id();
+        app.world_mut().entity_mut(scope).add_child(root);
+        app.world_mut()
+            .entity_mut(root)
+            .add_children(&[trigger, panel, regular]);
+        app.world_mut().entity_mut(panel).add_child(child);
+        app.world_mut()
+            .get_mut::<ComponentElementIds>(scope)
+            .unwrap()
+            .insert("more".into(), panel);
+        resolve_submenus(app.world_mut(), scope, root);
+        assert_eq!(app.world().get::<SubmenuTrigger>(trigger).unwrap().0, panel);
+        assert_eq!(app.world().get::<SubmenuPanel>(panel).unwrap().root, root);
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Hidden)
+        );
+        app.world_mut().resource_mut::<OpenContextMenu>().0 = Some(root);
+        app.world_mut()
+            .entity_mut(trigger)
+            .insert(Interaction::Hovered);
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Hidden)
+        );
+        assert!(app.world().get::<SubmenuPlacementPending>(panel).is_some());
+        let saved = *app.world().get::<SubmenuPlacement>(panel).unwrap();
+        assert!(saved.0.length() > 0.0);
+        // Simulate Bevy applying the new UI translation in its layout pass.
+        let previous = app
+            .world()
+            .get::<UiGlobalTransform>(panel)
+            .unwrap()
+            .affine()
+            .translation;
+        app.world_mut()
+            .entity_mut(panel)
+            .insert(UiGlobalTransform::from_xy(
+                previous.x + saved.0.x,
+                previous.y + saved.0.y,
+            ));
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Visible)
+        );
+        app.world_mut()
+            .entity_mut(panel)
+            .insert(UiTransform::IDENTITY);
+        update_context_submenus(app.world_mut());
+        let transform = app.world().get::<UiTransform>(panel).unwrap();
+        assert_eq!(transform.translation.x, Val::Px(saved.0.x));
+        assert_eq!(transform.translation.y, Val::Px(saved.0.y));
+
+        app.world_mut()
+            .entity_mut(trigger)
+            .insert(Interaction::None);
+        app.world_mut()
+            .entity_mut(child)
+            .insert(Interaction::Hovered);
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Visible)
+        );
+
+        app.world_mut().entity_mut(child).insert(Interaction::None);
+        app.world_mut()
+            .entity_mut(regular)
+            .insert(Interaction::Hovered);
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Hidden)
+        );
+        assert!(app.world().get::<SubmenuPlacement>(panel).is_none());
+        app.world_mut()
+            .entity_mut(panel)
+            .insert(UiGlobalTransform::from_xy(previous.x, previous.y));
+        app.world_mut()
+            .entity_mut(regular)
+            .insert(Interaction::None);
+        app.world_mut()
+            .entity_mut(trigger)
+            .insert(Interaction::Hovered);
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Hidden)
+        );
+        let saved = *app.world().get::<SubmenuPlacement>(panel).unwrap();
+        app.world_mut()
+            .entity_mut(panel)
+            .insert(UiGlobalTransform::from_xy(
+                previous.x + saved.0.x,
+                previous.y + saved.0.y,
+            ));
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Visible)
+        );
+        press(app.world_mut(), trigger, PointerButton::Primary);
+        app.update();
+        assert_eq!(app.world().resource::<OpenContextMenu>().0, Some(root));
+        app.world_mut()
+            .entity_mut(regular)
+            .insert(Interaction::None);
+        app.world_mut()
+            .entity_mut(trigger)
+            .insert(Interaction::Pressed);
+        update_context_submenus(app.world_mut());
+        assert_eq!(
+            app.world().get::<Visibility>(panel),
+            Some(&Visibility::Visible)
+        );
+
+        press(app.world_mut(), child, PointerButton::Primary);
+        app.update();
+        assert!(app.world().resource::<OpenContextMenu>().0.is_none());
     }
 }

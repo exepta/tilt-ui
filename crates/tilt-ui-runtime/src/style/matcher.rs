@@ -18,6 +18,7 @@ use tilt_ui_css::{
     TiltUiPseudoElement, TiltUiSelectorImpl,
 };
 
+use crate::widgets::advanced::date_picker::CalendarRangePosition;
 use crate::{
     ComponentStyleOwner, ControlPart, ControlPartKind, ElementClasses, ElementId, ElementState,
     StaticAttributes, TiltElement,
@@ -31,6 +32,7 @@ struct ViewNode {
     classes: Vec<String>,
     attributes: Vec<(String, String)>,
     state: ElementState,
+    range_position: Option<CalendarRangePosition>,
     part: Option<ControlPartKind>,
     control_owner: Option<Entity>,
     parent: Option<usize>,
@@ -81,6 +83,7 @@ impl SelectorView {
                         .collect()
                 }),
                 state: state.copied().unwrap_or_default(),
+                range_position: None,
                 part: None,
                 control_owner: None,
                 parent: None,
@@ -94,8 +97,9 @@ impl SelectorView {
             &ControlPart,
             &ComponentStyleOwner,
             Option<&ElementState>,
+            Option<&CalendarRangePosition>,
         )>();
-        for (entity, part, style_owner, state) in parts.iter(world) {
+        for (entity, part, style_owner, state, range_position) in parts.iter(world) {
             if style_owner.0 != owner {
                 continue;
             }
@@ -121,6 +125,7 @@ impl SelectorView {
                 classes: Vec::new(),
                 attributes: Vec::new(),
                 state: control_state,
+                range_position: range_position.copied(),
                 part: Some(part.kind),
                 control_owner: Some(control_owner),
                 parent: Some(owner_index),
@@ -175,6 +180,7 @@ impl SelectorView {
             };
             let node = &mut self.nodes[index];
             if node.part.is_some() {
+                node.range_position = world.get::<CalendarRangePosition>(*entity).copied();
                 node.state = world
                     .get::<ElementState>(*entity)
                     .copied()
@@ -218,7 +224,11 @@ impl SelectorView {
         }
         true
     }
-    pub(crate) fn affected_by(&self, changed: &HashSet<Entity>) -> Vec<Entity> {
+    pub(crate) fn affected_by(
+        &self,
+        changed: &HashSet<Entity>,
+        allow_sibling_dependents: bool,
+    ) -> Vec<Entity> {
         let indices = changed
             .iter()
             .filter_map(|entity| self.by_entity.get(entity).copied())
@@ -232,14 +242,21 @@ impl SelectorView {
             .filter_map(|(index, node)| {
                 indices
                     .iter()
-                    .any(|changed| self.can_depend_on(index, *changed))
+                    .any(|changed| self.can_depend_on(index, *changed, allow_sibling_dependents))
                     .then_some(node.entity)
             })
             .collect()
     }
-    fn can_depend_on(&self, index: usize, changed: usize) -> bool {
+    fn can_depend_on(&self, index: usize, changed: usize, allow_sibling_dependents: bool) -> bool {
         let mut ancestor = Some(index);
         while let Some(index) = ancestor {
+            if !allow_sibling_dependents {
+                if index == changed {
+                    return true;
+                }
+                ancestor = self.nodes[index].parent;
+                continue;
+            }
             let mut sibling = Some(index);
             while let Some(index) = sibling {
                 if index == changed {
@@ -375,10 +392,13 @@ impl Element for SelectorElement<'_> {
             TiltUiPseudoClass::Active => self.node().state.active,
             TiltUiPseudoClass::Focus => self.node().state.focused,
             TiltUiPseudoClass::Disabled => self.node().state.disabled,
+            TiltUiPseudoClass::Loading => self.node().state.loading,
             TiltUiPseudoClass::Checked => self.node().state.checked,
             TiltUiPseudoClass::Readonly => self.node().state.readonly,
             TiltUiPseudoClass::Invalid => self.node().state.invalid,
             TiltUiPseudoClass::Open => self.node().state.open,
+            TiltUiPseudoClass::Animated => self.node().state.animated,
+            TiltUiPseudoClass::Closing => self.node().state.closing,
         }
     }
     fn match_pseudo_element(
@@ -390,6 +410,18 @@ impl Element for SelectorElement<'_> {
             match pseudo {
                 TiltUiPseudoElement::HoveredCalendarDay => return self.node().state.hovered,
                 TiltUiPseudoElement::SelectedCalendarDay => return self.node().state.checked,
+                TiltUiPseudoElement::RangeStartDay => {
+                    return self.node().range_position == Some(CalendarRangePosition::Start);
+                }
+                TiltUiPseudoElement::RangeMiddleDay => {
+                    return self.node().range_position == Some(CalendarRangePosition::Middle);
+                }
+                TiltUiPseudoElement::RangeEndDay => {
+                    return self.node().range_position == Some(CalendarRangePosition::End);
+                }
+                TiltUiPseudoElement::RangeSingleDay => {
+                    return self.node().range_position == Some(CalendarRangePosition::Single);
+                }
                 TiltUiPseudoElement::DisabledCalendarDay => return self.node().state.disabled,
                 _ => {}
             }
@@ -405,6 +437,7 @@ impl Element for SelectorElement<'_> {
                 Some(ControlPartKind::Indicator),
                 TiltUiPseudoElement::Indicator
             ) | (Some(ControlPartKind::Mark), TiltUiPseudoElement::Mark)
+                | (Some(ControlPartKind::Spinner), TiltUiPseudoElement::Spinner)
                 | (Some(ControlPartKind::Track), TiltUiPseudoElement::Track)
                 | (Some(ControlPartKind::Thumb), TiltUiPseudoElement::Thumb)
                 | (Some(ControlPartKind::Fill), TiltUiPseudoElement::Fill)
@@ -417,6 +450,14 @@ impl Element for SelectorElement<'_> {
                 | (Some(ControlPartKind::Dot), TiltUiPseudoElement::Dot)
                 | (Some(ControlPartKind::Label), TiltUiPseudoElement::Label)
                 | (Some(ControlPartKind::Tooltip), TiltUiPseudoElement::Tooltip)
+                | (
+                    Some(ControlPartKind::Increment),
+                    TiltUiPseudoElement::Increment
+                )
+                | (
+                    Some(ControlPartKind::Decrement),
+                    TiltUiPseudoElement::Decrement
+                )
                 | (Some(ControlPartKind::Popup), TiltUiPseudoElement::Popup)
                 | (
                     Some(ControlPartKind::Calendar),
@@ -425,6 +466,10 @@ impl Element for SelectorElement<'_> {
                 | (
                     Some(ControlPartKind::CalendarHeader),
                     TiltUiPseudoElement::CalendarHeader
+                )
+                | (
+                    Some(ControlPartKind::CalendarWeekday),
+                    TiltUiPseudoElement::CalendarWeekday
                 )
                 | (
                     Some(ControlPartKind::CalendarPrevious),
@@ -588,8 +633,96 @@ mod tests {
     use tilt_ui_core::ElementKind;
     use tilt_ui_css::parse_stylesheet;
 
-    use super::{SelectorView, matching_specificity};
+    use super::{CalendarRangePosition, SelectorView, matching_specificity};
     use crate::{ComponentStyleOwner, ControlPart, ControlPartKind, ElementState, TiltElement};
+
+    #[test]
+    fn loading_spinner_selector_tracks_button_state() {
+        let mut world = World::new();
+        let scope = world.spawn_empty().id();
+        let button = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(scope),
+                ElementState {
+                    loading: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let spinner = world
+            .spawn((
+                ControlPart {
+                    owner: button,
+                    kind: ControlPartKind::Spinner,
+                },
+                ComponentStyleOwner(scope),
+            ))
+            .id();
+        world.entity_mut(scope).add_child(button);
+        world.entity_mut(button).add_child(spinner);
+        let sheet = parse_stylesheet(
+            "button:loading { cursor: progress; } button::spinner { width: 16px; } button:loading::spinner { height: 16px; }",
+        )
+        .unwrap();
+
+        let view = SelectorView::build(&mut world, scope);
+        assert!(matching_specificity(&view, button, &sheet.rules()[0].selectors).is_some());
+        assert!(matching_specificity(&view, spinner, &sheet.rules()[1].selectors).is_some());
+        assert!(matching_specificity(&view, spinner, &sheet.rules()[2].selectors).is_some());
+
+        world.get_mut::<ElementState>(button).unwrap().loading = false;
+        let view = SelectorView::build(&mut world, scope);
+        assert!(matching_specificity(&view, button, &sheet.rules()[0].selectors).is_none());
+        assert!(matching_specificity(&view, spinner, &sheet.rules()[1].selectors).is_some());
+        assert!(matching_specificity(&view, spinner, &sheet.rules()[2].selectors).is_none());
+    }
+
+    #[test]
+    fn animated_dialog_selectors_distinguish_open_and_closing() {
+        let mut world = World::new();
+        let scope = world.spawn_empty().id();
+        let dialog = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Dialog,
+                },
+                ComponentStyleOwner(scope),
+                ElementState {
+                    animated: true,
+                    open: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let panel = world
+            .spawn((
+                ControlPart {
+                    owner: dialog,
+                    kind: ControlPartKind::Popup,
+                },
+                ComponentStyleOwner(scope),
+            ))
+            .id();
+        world.entity_mut(scope).add_child(dialog);
+        world.entity_mut(dialog).add_child(panel);
+        let sheet = parse_stylesheet(
+            "dialog:animated:open::popup { opacity: 1; } dialog:animated:closing::popup { opacity: 0; }",
+        )
+        .unwrap();
+
+        let view = SelectorView::build(&mut world, scope);
+        assert!(matching_specificity(&view, panel, &sheet.rules()[0].selectors).is_some());
+        assert!(matching_specificity(&view, panel, &sheet.rules()[1].selectors).is_none());
+        let mut state = world.get_mut::<ElementState>(dialog).unwrap();
+        state.open = false;
+        state.closing = true;
+        let view = SelectorView::build(&mut world, scope);
+        assert!(matching_specificity(&view, panel, &sheet.rules()[0].selectors).is_none());
+        assert!(matching_specificity(&view, panel, &sheet.rules()[1].selectors).is_some());
+    }
 
     #[test]
     fn generated_parts_match_only_explicit_pseudo_element_selectors() {
@@ -692,6 +825,7 @@ mod tests {
                     checked: true,
                     ..Default::default()
                 },
+                CalendarRangePosition::Middle,
             ))
             .id();
         let other = world
@@ -710,9 +844,13 @@ mod tests {
             .add_child(selected)
             .add_child(other);
         let view = SelectorView::build(&mut world, scope);
-        let sheet =
-            parse_stylesheet("date-picker::selected-day { background-color: #A833EA; }").unwrap();
+        let sheet = parse_stylesheet(
+            "date-picker::selected-day { background-color: #A833EA; } date-picker::range-middle-day { border-radius: 0px; }",
+        )
+        .unwrap();
         assert!(matching_specificity(&view, selected, &sheet.rules()[0].selectors).is_some());
         assert!(matching_specificity(&view, other, &sheet.rules()[0].selectors).is_none());
+        assert!(matching_specificity(&view, selected, &sheet.rules()[1].selectors).is_some());
+        assert!(matching_specificity(&view, other, &sheet.rules()[1].selectors).is_none());
     }
 }

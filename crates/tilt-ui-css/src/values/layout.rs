@@ -81,6 +81,7 @@ pub enum CssCursor {
     NotAllowed,
     ColResize,
     RowResize,
+    NwseResize,
 }
 
 /// The sizing function for one CSS grid track.

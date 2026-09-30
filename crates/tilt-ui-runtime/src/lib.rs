@@ -72,6 +72,8 @@ pub use localization::{
     UiFluentArgs, UiFluentAsset, UiFluentAssetLoader, UiFluentConfig, UiFluentError,
     UiFluentPlugin, UiFluentValue, UiLocalization,
 };
+#[cfg(feature = "tilt-icons")]
+pub use render::set_icon_size;
 #[cfg(feature = "component")]
 pub use style::{
     ActiveAnimations, CascadedStyle, RuntimeComputedStyle, TiltUiMediaEnvironment,
@@ -85,7 +87,8 @@ pub use widgets::advanced::color_picker::{
 };
 #[cfg(feature = "component")]
 pub use widgets::advanced::date_picker::{
-    DatePickerChanged, DatePickerState, IsoDate, set_date_picker_open, set_date_value,
+    DatePickerChanged, DatePickerRangeChanged, DatePickerState, IsoDate, set_date_picker_open,
+    set_date_range, set_date_value,
 };
 #[cfg(feature = "component")]
 pub use widgets::advanced::dialog::{
@@ -97,6 +100,13 @@ pub use widgets::advanced::hyperlink::{LinkActivated, LinkTarget, set_link_href}
 #[cfg(feature = "component")]
 pub use widgets::advanced::progress_bar::set_progress_value;
 #[cfg(feature = "component")]
+pub use widgets::advanced::spinner::TiltSpinner;
+#[cfg(feature = "component")]
+pub use widgets::advanced::toast::{
+    ShowToast, ToastCloseReason, ToastClosed, ToastConfig, ToastKind, ToastPlacement, ToastSpawned,
+    ToastStackSettings, ToastState, close_toast, show_toast, spawn_toast,
+};
+#[cfg(feature = "component")]
 pub use widgets::advanced::tooltip::{TooltipSettings, TooltipVariant};
 #[cfg(feature = "component")]
 pub use widgets::content::avatar::{AvatarFallback, set_avatar_source};
@@ -106,10 +116,16 @@ pub use widgets::content::badge::{BadgeValue, set_badge_value};
 pub use widgets::content::divider::DividerAxis;
 #[cfg(feature = "component")]
 pub use widgets::content::headline::HeadlineLevel;
+#[cfg(feature = "tilt-icons")]
+pub use widgets::content::image::icon_image;
 #[cfg(feature = "component")]
 pub use widgets::content::image::set_image_source;
 #[cfg(feature = "component")]
 pub use widgets::content::image::{ImageMetadata, ImagePreviewInput};
+#[cfg(feature = "component")]
+pub use widgets::controls::button::FileUploadButton;
+#[cfg(feature = "component")]
+pub use widgets::controls::button::{LoadingButton, set_button_loading};
 #[cfg(feature = "component")]
 pub use widgets::controls::choice_box::{ChoiceBoxParts, set_choice_open};
 #[cfg(feature = "component")]
@@ -128,7 +144,9 @@ pub use widgets::state::{
     set_numeric_value, set_slider_values, set_text_area_size,
 };
 #[cfg(feature = "component")]
-pub use widgets::structure::form::{FormButton, FormSettings, FormSubmitted, FormValidationFailed};
+pub use widgets::structure::form::{
+    FormButton, FormData, FormFile, FormSettings, FormSubmitted, FormValidationFailed, FormValue,
+};
 #[cfg(feature = "component")]
 pub use widgets::structure::{
     table::TableInfo,

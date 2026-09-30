@@ -375,6 +375,8 @@ pub(crate) fn sync_native_edit(
     trigger: On<TextEditChange>,
     mut commands: Commands,
     mut editors: NativeEditSyncQuery,
+    #[cfg(feature = "component")] parents: Query<&ChildOf>,
+    #[cfg(feature = "component")] forms: Query<(), bevy::ecs::query::With<crate::FormSettings>>,
     mut placeholders: Query<&mut Visibility>,
     mut text_parts: Query<&mut Text>,
     mut changed: MessageWriter<EditableTextChanged>,
@@ -389,6 +391,13 @@ pub(crate) fn sync_native_edit(
         .entity(entity)
         .remove::<crate::scroll::UserTextScroll>();
     let value = native.value().to_string();
+    if state.input_type == tilt_ui_core::InputType::Number
+        && !crate::widgets::controls::input::number_characters_allowed(&value)
+    {
+        native.editor_mut().set_text(&state.value);
+        native.queue_edit(TextEdit::TextEnd(false));
+        return;
+    }
     if options
         .max_lines
         .is_some_and(|limit| value.split('\n').count() > limit)
@@ -424,9 +433,26 @@ pub(crate) fn sync_native_edit(
     {
         display.0 = masked_password(&value);
     }
-    let invalid = editable_invalid(&value, state.input_type, options);
-    if css_state.invalid != invalid {
-        css_state.invalid = invalid;
+    #[cfg(feature = "component")]
+    let managed_by_form = {
+        let mut current = entity;
+        loop {
+            let Ok(parent) = parents.get(current) else {
+                break false;
+            };
+            current = parent.parent();
+            if forms.contains(current) {
+                break true;
+            }
+        }
+    };
+    #[cfg(not(feature = "component"))]
+    let managed_by_form = false;
+    if !managed_by_form {
+        let invalid = editable_invalid(&value, state.input_type, options);
+        if css_state.invalid != invalid {
+            css_state.invalid = invalid;
+        }
     }
     if let Ok(mut placeholder) = placeholders.get_mut(parts.placeholder) {
         *placeholder = if value.is_empty() {
@@ -728,6 +754,7 @@ pub(crate) fn update_ime_candidate_position(
 /// Clears composition and commits the value when editing focus leaves a control.
 pub(crate) fn editable_focus_lost(
     trigger: On<FocusLost>,
+    mut commands: Commands,
     mut editors: Query<(&EditableText, &EditableTextOptions, &mut NativeEditableText)>,
     mut committed: MessageWriter<EditableTextCommitted>,
 ) {
@@ -738,6 +765,27 @@ pub(crate) fn editable_focus_lost(
             entity: trigger.entity,
             name: options.name.clone(),
             value: state.value.clone(),
+        });
+        let entity = trigger.entity;
+        commands.queue(move |world: &mut bevy::ecs::world::World| {
+            if !world
+                .get::<crate::widgets::controls::input::InputFieldOptions>(entity)
+                .is_some_and(|options| options.clear_on_blur)
+            {
+                return;
+            }
+            if crate::set_editable_text(world, entity, "") {
+                let name = world
+                    .get::<EditableTextOptions>(entity)
+                    .and_then(|options| options.name.clone());
+                world
+                    .resource_mut::<bevy::ecs::message::Messages<EditableTextChanged>>()
+                    .write(EditableTextChanged {
+                        entity,
+                        name,
+                        value: String::new(),
+                    });
+            }
         });
     }
 }

@@ -17,7 +17,10 @@
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/tilt-ui/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/examples/wasm-showcase/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/tilt-ui-icons/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/tilt-ui-icons/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/examples/css-showcase/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/icons-catalog/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/routing/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>

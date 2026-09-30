@@ -1,0 +1,582 @@
+<body class="catalog-page">
+    <div class="catalog-shell">
+        <div class="app-header">
+            <div class="brand-mark"><p>T</p></div>
+            <div class="brand-copy">
+                <p class="brand-eyebrow">TILTUI / ICON LIBRARY</p>
+                <h1>Icon Atlas</h1>
+            </div>
+            <div class="header-aside">
+                <p>437 icons · 48 families</p>
+                <p>Every icon, ready to use.</p>
+            </div>
+        </div>
+        <div class="toolbar">
+            <div class="search-field">
+                <p>Find an icon</p>
+                <div class="search-control">
+                    <icon name="search" size="16" />
+                    <input id="icon-search" type="text" placeholder="Search names or families..." />
+                    <button id="clear-search">Clear</button>
+                </div>
+            </div>
+            <div class="toolbar-controls">
+            <div class="toolbar-field">
+                <p>Theme</p>
+                <choice-box id="theme-choice" max-visible-items="2">
+                    <option value="light" selected="true">Light</option>
+                    <option value="dark">Dark</option>
+                </choice-box>
+            </div>
+            <div class="toolbar-field">
+                <p>Size</p>
+                <choice-box id="size-choice" max-visible-items="3">
+                    <option value="16">16 × 16</option>
+                    <option value="32" selected="true">32 × 32</option>
+                    <option value="64">64 × 64</option>
+                </choice-box>
+            </div>
+            <div class="toolbar-field category-field">
+                <p>Category</p>
+                <choice-box id="category-choice" max-visible-items="7">
+                    <option value="all" selected="true">All categories</option>
+                    <option value="animated">Animated</option>
+                    <option value="home">Home</option>
+                    <option value="settings">Settings</option>
+                    <option value="user">User</option>
+                    <option value="menu">Menu</option>
+                    <option value="close">Close</option>
+                    <option value="briefcase">Briefcase</option>
+                    <option value="essentials">Essentials</option>
+                    <option value="directions">Directions</option>
+                    <option value="daily">Daily</option>
+                    <option value="workflow">Workflow</option>
+                    <option value="feedback">Feedback & media</option>
+                    <option value="navigation">Navigation</option>
+                    <option value="devices">Devices & more</option>
+                    <option value="actions">Actions</option>
+                    <option value="files">Files & cloud</option>
+                    <option value="commerce">Commerce</option>
+                    <option value="communication">Communication</option>
+                    <option value="media">Media</option>
+                    <option value="editor">Editor</option>
+                    <option value="weather">Weather & nature</option>
+                    <option value="data">Data & code</option>
+                    <option value="security">Security</option>
+                    <option value="travel">Travel & places</option>
+                    <option value="productivity">Productivity</option>
+                    <option value="development">Development</option>
+                    <option value="health">Health</option>
+                    <option value="food">Food & drink</option>
+                    <option value="sports">Sports & outdoors</option>
+                    <option value="social">Social</option>
+                    <option value="interface">App layout</option>
+                    <option value="finance">Finance</option>
+                    <option value="science">Science & tech</option>
+                    <option value="misc">Everyday objects</option>
+                    <option value="bevy">Bevy</option>
+                    <option value="animals">Animals</option>
+                    <option value="wildlife">Wildlife</option>
+                    <option value="gaming">Gaming</option>
+                    <option value="boardgames">Board games</option>
+                    <option value="learning">Learning</option>
+                    <option value="household">Home life</option>
+                    <option value="creative">Creative</option>
+                    <option value="mobility">Mobility</option>
+                    <option value="apps-gaming">Apps · Gaming</option>
+                    <option value="apps-social">Apps · Social</option>
+                    <option value="apps-tools">Apps · Tools</option>
+                    <option value="animated-creatures">Animated characters</option>
+                    <option value="animated-motion">Animated motion</option>
+                    <option value="nature">Nature</option>
+                    <option value="animals-more">More animals</option>
+                    <option value="apps-more">More apps</option>
+                    <option value="utilities">More utilities</option>
+                </choice-box>
+            </div>
+            <div class="toolbar-field color-field">
+                <p>Color</p>
+                <color-picker id="icon-color" value="#765BD7" />
+            </div>
+            </div>
+        </div>
+        <div class="bevy-palette">
+            <div class="palette-brand">
+                <icon name="bevy-circle" size="32" />
+                <div class="palette-copy"><p>ICON PALETTE</p><p>Choose an accent</p></div>
+            </div>
+            <div class="palette-swatches">
+                <button id="palette-violet" class="palette-swatch swatch-violet is-selected" type="button" title="Violet"><div></div></button>
+                <button id="palette-blue" class="palette-swatch swatch-blue" type="button" title="Blue"><div></div></button>
+                <button id="palette-teal" class="palette-swatch swatch-teal" type="button" title="Teal"><div></div></button>
+                <button id="palette-coral" class="palette-swatch swatch-coral" type="button" title="Coral"><div></div></button>
+                <button id="palette-gold" class="palette-swatch swatch-gold" type="button" title="Gold"><div></div></button>
+            </div>
+        </div>
+        <div class="results-bar">
+            <div class="results-title"><h2>Browse icons</h2><p id="results-count">437 icons</p></div>
+            <div class="legend">
+                <div class="legend-mark light-mark"></div><p>Light</p>
+                <div class="legend-mark dark-mark"></div><p>Dark</p>
+            </div>
+        </div>
+        <div id="catalog-scroll" class="catalog-scroll">
+            <div id="empty-state" class="empty-state">
+                <h2>No icons found</h2>
+                <p>Try another name or family, or clear the search.</p>
+            </div>
+            <div id="catalog-window" class="catalog-window">
+                <div id="virtual-family-0" class="family-section slot-hidden">
+                    <div class="family-heading">
+                        <div id="virtual-index-0" class="family-index">00</div>
+                        <div><p id="virtual-overline-0" class="family-overline">ICON FAMILY</p><h2 id="virtual-title-0">Icons</h2><p id="virtual-desc-0">Preview</p></div>
+                    </div>
+                    <div class="icon-grid">
+                        <button id="virtual-card-0-0" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-0" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-0" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-1" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-1" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-1" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-2" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-2" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-2" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-3" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-3" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-3" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-4" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-4" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-4" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-5" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-5" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-5" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-6" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-6" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-6" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-7" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-7" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-7" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-8" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-8" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-8" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-9" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-9" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-9" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-10" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-10" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-10" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-0-11" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-0-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-0-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-0-11" class="icon-label">Icon</p>
+                            <p id="virtual-name-0-11" class="icon-name">icon</p>
+                        </button>
+                    </div>
+                </div>
+                <div id="virtual-family-1" class="family-section slot-hidden">
+                    <div class="family-heading">
+                        <div id="virtual-index-1" class="family-index">00</div>
+                        <div><p id="virtual-overline-1" class="family-overline">ICON FAMILY</p><h2 id="virtual-title-1">Icons</h2><p id="virtual-desc-1">Preview</p></div>
+                    </div>
+                    <div class="icon-grid">
+                        <button id="virtual-card-1-0" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-0" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-0" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-1" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-1" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-1" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-2" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-2" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-2" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-3" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-3" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-3" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-4" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-4" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-4" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-5" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-5" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-5" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-6" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-6" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-6" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-7" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-7" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-7" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-8" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-8" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-8" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-9" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-9" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-9" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-10" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-10" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-10" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-1-11" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-1-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-1-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-1-11" class="icon-label">Icon</p>
+                            <p id="virtual-name-1-11" class="icon-name">icon</p>
+                        </button>
+                    </div>
+                </div>
+                <div id="virtual-family-2" class="family-section slot-hidden">
+                    <div class="family-heading">
+                        <div id="virtual-index-2" class="family-index">00</div>
+                        <div><p id="virtual-overline-2" class="family-overline">ICON FAMILY</p><h2 id="virtual-title-2">Icons</h2><p id="virtual-desc-2">Preview</p></div>
+                    </div>
+                    <div class="icon-grid">
+                        <button id="virtual-card-2-0" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-0" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-0" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-1" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-1" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-1" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-2" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-2" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-2" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-3" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-3" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-3" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-4" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-4" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-4" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-5" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-5" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-5" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-6" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-6" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-6" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-7" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-7" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-7" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-8" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-8" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-8" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-9" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-9" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-9" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-10" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-10" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-10" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-2-11" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-2-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-2-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-2-11" class="icon-label">Icon</p>
+                            <p id="virtual-name-2-11" class="icon-name">icon</p>
+                        </button>
+                    </div>
+                </div>
+                <div id="virtual-family-3" class="family-section slot-hidden">
+                    <div class="family-heading">
+                        <div id="virtual-index-3" class="family-index">00</div>
+                        <div><p id="virtual-overline-3" class="family-overline">ICON FAMILY</p><h2 id="virtual-title-3">Icons</h2><p id="virtual-desc-3">Preview</p></div>
+                    </div>
+                    <div class="icon-grid">
+                        <button id="virtual-card-3-0" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-0" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-0" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-0" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-1" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-1" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-1" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-1" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-2" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-2" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-2" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-2" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-3" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-3" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-3" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-3" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-4" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-4" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-4" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-4" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-5" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-5" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-5" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-5" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-6" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-6" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-6" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-6" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-7" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-7" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-7" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-7" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-8" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-8" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-8" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-8" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-9" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-9" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-9" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-9" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-10" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-10" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-10" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-10" class="icon-name">icon</p>
+                        </button>
+                        <button id="virtual-card-3-11" class="icon-card slot-hidden" type="button">
+                            <div class="preview-pair">
+                                <div class="preview-light"><icon id="virtual-light-3-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                                <div class="preview-dark"><icon id="virtual-dark-3-11" class="catalog-icon" name="" size="32" loading="lazy" lazy-buffer="400" /></div>
+                            </div>
+                            <p id="virtual-label-3-11" class="icon-label">Icon</p>
+                            <p id="virtual-name-3-11" class="icon-name">icon</p>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="catalog-footer">
+            <p>tilt-ui-icons · SVG icons in 16, 32 and 64 px</p>
+            <div class="page-controls">
+                <button id="page-prev" class="page-button is-disabled" type="button">Previous</button>
+                <p id="page-status">Page 1 of 12</p>
+                <button id="page-next" class="page-button" type="button">Next</button>
+            </div>
+            <p>Choose a category or browse all pages</p>
+        </div>
+    </div>
+    <dialog id="icon-details-dialog" class="icon-details-dialog" title="Use this icon" animated="true">
+        <div class="details-hero">
+            <div class="details-preview"><icon id="details-icon" name="home" size="64" /></div>
+            <div class="details-intro">
+                <p class="details-eyebrow">READY TO USE</p>
+                <h2 id="details-name">Home</h2>
+                <p id="details-slug">home</p>
+            </div>
+        </div>
+        <p class="details-description">Use this icon in a TiltUI component. The snippets below follow the selected catalog size.</p>
+        <div class="usage-section">
+            <div class="usage-heading"><p>HTML icon element</p><button id="copy-icon-code">Copy</button></div>
+            <p id="details-html" class="code-snippet">&lt;icon name="home" size="32" /&gt;</p>
+        </div>
+        <div class="usage-section">
+            <div class="usage-heading"><p>Image source</p><button id="copy-image-code">Copy</button></div>
+            <p id="details-image-code" class="code-snippet">&lt;img src="tilt-icon:home@32" alt="Home" /&gt;</p>
+        </div>
+        <div class="usage-section">
+            <div class="usage-heading"><p>CSS background</p><button id="copy-css-code">Copy</button></div>
+            <p id="details-css" class="code-snippet">background-image: url("tilt-icon:home@32");</p>
+        </div>
+        <p class="details-note">Enable the tilt-icons feature in Cargo.toml. Set CSS color to tint the icon.</p>
+        <div class="dialog-actions"><button dialog-close="confirm">Done</button></div>
+    </dialog>
+</body>

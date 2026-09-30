@@ -1,0 +1,1 @@
+These five SVG variants adapt the [official Bevy bird vector](https://github.com/bevyengine/bevy/blob/e0d0afd69a3a49d6606dae4be3046561bb4de3f0/assets/branding/icon.svg). They use `currentColor` and are also exported through `Icon::svg` and `<icon name="bevy...">`.

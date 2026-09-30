@@ -41,6 +41,14 @@ pub(crate) fn materialize_element(
                 ElementKind::Dialog => {
                     crate::widgets::advanced::dialog::materialize(world, entity, attributes)
                 }
+                ElementKind::Spinner => {
+                    world
+                        .entity_mut(entity)
+                        .insert(crate::widgets::advanced::spinner::TiltSpinner);
+                }
+                ElementKind::Toast => {
+                    crate::widgets::advanced::toast::materialize(world, entity, attributes)
+                }
                 ElementKind::Headline => {
                     crate::widgets::content::headline::materialize(world, entity, attributes)
                 }
@@ -132,7 +140,10 @@ pub(crate) fn materialize_element(
                     materialized.insert(InteractionDisabled);
                 }
             }
-            materialize_control_parts(world, entity, kind);
+            materialize_control_parts(world, entity, kind, attributes);
+            if kind == ElementKind::Button {
+                crate::widgets::controls::button::materialize(world, entity, attributes);
+            }
             if kind == ElementKind::Input {
                 crate::widgets::controls::input::materialize_parts(
                     world, entity, attributes, false,
@@ -172,6 +183,10 @@ pub(crate) fn materialize_element(
             }
         }
         ElementRenderKind::Image => {
+            if kind == ElementKind::Icon {
+                crate::render::image::materialize_icon(world, entity, attributes);
+                return;
+            }
             let image = image_node(world, attributes);
             world.entity_mut(entity).insert(image);
             crate::widgets::content::image::materialize_metadata(world, entity, attributes);
@@ -199,10 +214,15 @@ fn static_tab_index(attributes: &[TemplateAttribute]) -> Option<i32> {
     })
 }
 
-fn materialize_control_parts(world: &mut World, owner: Entity, kind: ElementKind) {
+fn materialize_control_parts(
+    world: &mut World,
+    owner: Entity,
+    kind: ElementKind,
+    attributes: &[TemplateAttribute],
+) {
     match kind {
         ElementKind::Checkbox => {
-            crate::widgets::controls::checkbox::materialize_parts(world, owner)
+            crate::widgets::controls::checkbox::materialize_parts(world, owner, attributes)
         }
         ElementKind::RadioButton => {
             crate::widgets::controls::radio_button::materialize_parts(world, owner)
@@ -262,6 +282,7 @@ mod tests {
             (ElementKind::Headline, false, false),
             (ElementKind::HyperLink, true, false),
             (ElementKind::Image, false, true),
+            (ElementKind::Icon, false, true),
             (ElementKind::Input, true, false),
             (ElementKind::Label, false, false),
             (ElementKind::ListBox, true, false),
@@ -289,6 +310,66 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "tilt-icons")]
+    #[test]
+    fn catalog_icon_materializes_at_requested_size_with_cached_image() {
+        use bevy::ui::Val;
+
+        let mut world = World::new();
+        let entity = world.spawn_empty().id();
+        materialize_element(
+            &mut world,
+            entity,
+            ElementKind::Icon,
+            &[
+                TemplateAttribute::Static {
+                    name: "name".into(),
+                    value: "home-circle".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "size".into(),
+                    value: "64".into(),
+                },
+            ],
+        );
+        assert_eq!(world.get::<Node>(entity).unwrap().width, Val::Px(64.0));
+        assert_eq!(
+            world
+                .get::<crate::ImageMetadata>(entity)
+                .unwrap()
+                .source
+                .as_deref(),
+            Some("tilt-icon:home-circle@64")
+        );
+        let handle = crate::icon_image(
+            &mut world,
+            tilt_ui_icons::Icon::HomeCircle,
+            tilt_ui_icons::IconSize::Px64,
+        )
+        .unwrap();
+        assert_eq!(world.get::<ImageNode>(entity).unwrap().image, handle);
+
+        assert!(crate::set_icon_size(
+            &mut world,
+            entity,
+            tilt_ui_icons::IconSize::Px16
+        ));
+        assert_eq!(world.get::<Node>(entity).unwrap().width, Val::Px(16.0));
+        assert_eq!(
+            world
+                .get::<crate::ImageMetadata>(entity)
+                .unwrap()
+                .source
+                .as_deref(),
+            Some("tilt-icon:home-circle@16")
+        );
+        assert!(!crate::set_icon_size(
+            &mut world,
+            entity,
+            tilt_ui_icons::IconSize::Px16
+        ));
+    }
+
     #[test]
     fn image_materialization_accepts_a_static_source_without_asset_server_state() {
         let mut world = World::new();
@@ -314,6 +395,60 @@ mod tests {
         assert!(world.get::<TiltControl>(button).is_some());
         assert!(world.get::<TiltButton>(button).is_some());
         assert!(world.get::<Text>(button).is_none());
+    }
+
+    #[test]
+    fn standalone_spinner_is_a_stable_noninteractive_node() {
+        let mut world = World::new();
+        let spinner = world.spawn_empty().id();
+        materialize_element(&mut world, spinner, ElementKind::Spinner, &[]);
+
+        assert!(world.get::<Node>(spinner).is_some());
+        assert!(world.get::<crate::TiltSpinner>(spinner).is_some());
+        assert!(world.get::<TiltControl>(spinner).is_none());
+    }
+
+    #[test]
+    fn loading_button_has_one_stable_spinner_and_can_toggle_state() {
+        use crate::{ControlPart, ControlPartKind, LoadingButton, set_button_loading};
+
+        let mut world = World::new();
+        let button = world.spawn_empty().id();
+        materialize_element(
+            &mut world,
+            button,
+            ElementKind::Button,
+            &[TemplateAttribute::Static {
+                name: "type".into(),
+                value: "loading".into(),
+            }],
+        );
+
+        let spinner = world.get::<LoadingButton>(button).unwrap().spinner;
+        assert!(world.get::<LoadingButton>(button).unwrap().active);
+        assert!(world.get::<crate::ElementState>(button).unwrap().loading);
+        assert_eq!(
+            world.get::<ControlPart>(spinner).unwrap().kind,
+            ControlPartKind::Spinner
+        );
+        assert!(
+            world
+                .get::<bevy::ecs::hierarchy::ChildOf>(spinner)
+                .is_some()
+        );
+        assert_eq!(
+            world.get::<crate::widgets::structure::form::FormButton>(button),
+            Some(&crate::widgets::structure::form::FormButton(
+                tilt_ui_core::ButtonType::Button
+            ))
+        );
+
+        assert!(set_button_loading(&mut world, button, false));
+        assert!(!world.get::<LoadingButton>(button).unwrap().active);
+        assert!(!world.get::<crate::ElementState>(button).unwrap().loading);
+        assert_eq!(world.get::<LoadingButton>(button).unwrap().spinner, spinner);
+        assert!(!set_button_loading(&mut world, button, false));
+        assert!(set_button_loading(&mut world, button, true));
     }
 
     #[test]
@@ -457,6 +592,55 @@ mod tests {
         assert_eq!(options.extensions, ["json", "png"]);
         assert!(options.show_size);
         assert_eq!(options.max_size_bytes, Some(1024));
+        let expected_extensions = options.extensions.clone();
+        let expected_max_size = options.max_size_bytes;
+
+        let upload = world.spawn_empty().id();
+        materialize_element(
+            &mut world,
+            upload,
+            ElementKind::Button,
+            &[
+                TemplateAttribute::Static {
+                    name: "type".into(),
+                    value: "file".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "folder".into(),
+                    value: "true".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "extensions".into(),
+                    value: "[json, png]".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "max-size".into(),
+                    value: "1024".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "name".into(),
+                    value: "attachment".into(),
+                },
+            ],
+        );
+        let upload_options = world.get::<FileInputOptions>(upload).unwrap();
+        assert!(upload_options.folder);
+        assert_eq!(upload_options.extensions, expected_extensions);
+        assert_eq!(upload_options.max_size_bytes, expected_max_size);
+        assert_eq!(
+            world
+                .get::<crate::widgets::controls::button::FileUploadButton>(upload)
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("attachment")
+        );
+        assert_eq!(
+            world.get::<crate::widgets::structure::form::FormButton>(upload),
+            Some(&crate::widgets::structure::form::FormButton(
+                tilt_ui_core::ButtonType::Button
+            ))
+        );
     }
 
     #[test]

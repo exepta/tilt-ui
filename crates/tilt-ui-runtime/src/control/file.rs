@@ -171,10 +171,13 @@ pub(crate) fn finish_file_dialogs(
                 FileDialogOutcome::Selected(selection) => selection,
             };
             let name = selection.name.clone();
-            if set_editable_text(world, entity, &name) {
+            let text_changed = set_editable_text(world, entity, &name);
+            let upload_button = world.get::<crate::FileUploadButton>(entity);
+            if text_changed || upload_button.is_some() {
                 let form_name = world
                     .get::<crate::EditableTextOptions>(entity)
-                    .and_then(|options| options.name.clone());
+                    .and_then(|options| options.name.clone())
+                    .or_else(|| upload_button.and_then(|button| button.name.clone()));
                 world
                     .resource_mut::<Messages<EditableTextChanged>>()
                     .write(EditableTextChanged {
@@ -190,7 +193,11 @@ pub(crate) fn finish_file_dialogs(
             {
                 label.0 = format!("{name} ({size} B)");
             }
+            if let Some(mut state) = world.get_mut::<crate::ElementState>(entity) {
+                state.invalid = false;
+            }
             world.entity_mut(entity).insert(selection.clone());
+            crate::widgets::structure::form::mark_form_dirty(world, entity);
             world
                 .resource_mut::<Messages<FileInputSelected>>()
                 .write(FileInputSelected { entity, selection });
@@ -274,5 +281,75 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn upload_button_emits_the_same_selection_event_without_changing_its_label() {
+        let mut app = App::new();
+        app.add_message::<crate::EditableTextChanged>()
+            .add_message::<FileInputSelected>()
+            .add_systems(Update, finish_file_dialogs);
+        let button = app.world_mut().spawn_empty().id();
+        crate::render::materialize_element(
+            app.world_mut(),
+            button,
+            ElementKind::Button,
+            &[
+                TemplateAttribute::Static {
+                    name: "type".into(),
+                    value: "file".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "max-size".into(),
+                    value: "10".into(),
+                },
+                TemplateAttribute::Static {
+                    name: "name".into(),
+                    value: "attachment".into(),
+                },
+            ],
+        );
+        let complete = |app: &mut App, outcome| {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            sender.send(outcome).unwrap();
+            app.world_mut()
+                .entity_mut(button)
+                .insert(PendingFileDialog(std::sync::Mutex::new(receiver)));
+            app.update();
+        };
+        complete(&mut app, FileDialogOutcome::RejectedTooLarge);
+        assert!(app.world().get::<ElementState>(button).unwrap().invalid);
+        complete(
+            &mut app,
+            FileDialogOutcome::Selected(FileInputSelection {
+                name: "small.txt".into(),
+                size_bytes: Some(8),
+                native_path: None,
+            }),
+        );
+        assert!(!app.world().get::<ElementState>(button).unwrap().invalid);
+        assert_eq!(
+            app.world().get::<FileInputSelection>(button).unwrap().name,
+            "small.txt"
+        );
+        assert!(app.world().get::<EditableText>(button).is_none());
+        let mut cursor = MessageCursor::<FileInputSelected>::default();
+        let events = cursor
+            .read(app.world().resource::<Messages<FileInputSelected>>())
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].entity, button);
+        assert_eq!(events[0].selection.size_bytes, Some(8));
+        let mut changed_cursor = MessageCursor::<crate::EditableTextChanged>::default();
+        let changed = changed_cursor
+            .read(
+                app.world()
+                    .resource::<Messages<crate::EditableTextChanged>>(),
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].entity, button);
+        assert_eq!(changed[0].name.as_deref(), Some("attachment"));
+        assert_eq!(changed[0].value, "small.txt");
     }
 }

@@ -140,6 +140,8 @@ impl<'i> SelectorParser<'i> for TiltUiSelectorParser {
             TiltUiPseudoClass::Focus
         } else if name.eq_ignore_ascii_case("disabled") {
             TiltUiPseudoClass::Disabled
+        } else if name.eq_ignore_ascii_case("loading") {
+            TiltUiPseudoClass::Loading
         } else if name.eq_ignore_ascii_case("checked") {
             TiltUiPseudoClass::Checked
         } else if name.eq_ignore_ascii_case("readonly") {
@@ -148,6 +150,10 @@ impl<'i> SelectorParser<'i> for TiltUiSelectorParser {
             TiltUiPseudoClass::Invalid
         } else if name.eq_ignore_ascii_case("open") {
             TiltUiPseudoClass::Open
+        } else if name.eq_ignore_ascii_case("animated") {
+            TiltUiPseudoClass::Animated
+        } else if name.eq_ignore_ascii_case("closing") {
+            TiltUiPseudoClass::Closing
         } else {
             return Err(location.new_custom_error(SelectorParseFailure(format!(
                 "unsupported pseudo-class :{name}"
@@ -163,6 +169,8 @@ impl<'i> SelectorParser<'i> for TiltUiSelectorParser {
     ) -> Result<TiltUiPseudoElement, cssparser::ParseError<'i, Self::Error>> {
         let pseudo = if name.eq_ignore_ascii_case("indicator") {
             TiltUiPseudoElement::Indicator
+        } else if name.eq_ignore_ascii_case("spinner") {
+            TiltUiPseudoElement::Spinner
         } else if name.eq_ignore_ascii_case("mark") {
             TiltUiPseudoElement::Mark
         } else if name.eq_ignore_ascii_case("track") {
@@ -185,6 +193,10 @@ impl<'i> SelectorParser<'i> for TiltUiSelectorParser {
             TiltUiPseudoElement::Label
         } else if name.eq_ignore_ascii_case("tooltip") {
             TiltUiPseudoElement::Tooltip
+        } else if name.eq_ignore_ascii_case("increment") {
+            TiltUiPseudoElement::Increment
+        } else if name.eq_ignore_ascii_case("decrement") {
+            TiltUiPseudoElement::Decrement
         } else if name.eq_ignore_ascii_case("resize-handle") {
             TiltUiPseudoElement::ResizeHandle
         } else if name.eq_ignore_ascii_case("scrollbar-y-track") {
@@ -201,6 +213,8 @@ impl<'i> SelectorParser<'i> for TiltUiSelectorParser {
             TiltUiPseudoElement::Calendar
         } else if name.eq_ignore_ascii_case("calendar-header") {
             TiltUiPseudoElement::CalendarHeader
+        } else if name.eq_ignore_ascii_case("weekday") {
+            TiltUiPseudoElement::CalendarWeekday
         } else if name.eq_ignore_ascii_case("calendar-previous") {
             TiltUiPseudoElement::CalendarPrevious
         } else if name.eq_ignore_ascii_case("calendar-next") {
@@ -211,6 +225,14 @@ impl<'i> SelectorParser<'i> for TiltUiSelectorParser {
             TiltUiPseudoElement::HoveredCalendarDay
         } else if name.eq_ignore_ascii_case("selected-day") {
             TiltUiPseudoElement::SelectedCalendarDay
+        } else if name.eq_ignore_ascii_case("range-start-day") {
+            TiltUiPseudoElement::RangeStartDay
+        } else if name.eq_ignore_ascii_case("range-middle-day") {
+            TiltUiPseudoElement::RangeMiddleDay
+        } else if name.eq_ignore_ascii_case("range-end-day") {
+            TiltUiPseudoElement::RangeEndDay
+        } else if name.eq_ignore_ascii_case("range-single-day") {
+            TiltUiPseudoElement::RangeSingleDay
         } else if name.eq_ignore_ascii_case("disabled-day") {
             TiltUiPseudoElement::DisabledCalendarDay
         } else if name.eq_ignore_ascii_case("preview") {

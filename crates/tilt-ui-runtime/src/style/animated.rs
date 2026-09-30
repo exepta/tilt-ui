@@ -53,11 +53,15 @@ pub(crate) fn sync_animated_pass(
     mut state: bevy::ecs::system::ResMut<AnimatedPassState>,
 ) {
     let Some(time) = time else {
-        *state = AnimatedPassState::default();
+        if state.control.x != 0.0 {
+            *state = AnimatedPassState::default();
+        }
         return;
     };
     let Some((_, camera)) = cameras.iter().next() else {
-        *state = AnimatedPassState::default();
+        if state.control.x != 0.0 {
+            *state = AnimatedPassState::default();
+        }
         return;
     };
     let size = camera
@@ -73,7 +77,9 @@ pub(crate) fn sync_animated_pass(
         })
         .unwrap_or(Vec2::ZERO);
     if size.min_element() <= 0.0 {
-        *state = AnimatedPassState::default();
+        if state.control.x != 0.0 {
+            *state = AnimatedPassState::default();
+        }
         return;
     }
     let mut pass = AnimatedPassState::default();
@@ -138,7 +144,9 @@ pub(crate) fn sync_animated_pass(
     if pass.control.x > 0.0 {
         pass.control.y = time.elapsed_secs();
     }
-    *state = pass;
+    if pass.control.x != 0.0 || state.control.x != 0.0 {
+        *state = pass;
+    }
 }
 
 pub(crate) fn effect_rect(

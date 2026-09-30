@@ -298,7 +298,7 @@ fn append_node(
 
 fn parse_attributes(event: &BytesStart<'_>) -> Result<Vec<TemplateAttribute>, TemplateParseError> {
     event
-        .attributes()
+        .html_attributes()
         .map(|attribute| {
             let attribute = attribute.map_err(quick_xml::Error::from)?;
             let name = attribute.key.as_ref().to_owned();
@@ -327,6 +327,26 @@ mod tests {
     use tilt_ui_core::{ElementKind, NodeId, TemplateAttribute, TemplateNodeKind};
 
     use super::parse_template;
+
+    #[test]
+    fn boolean_attributes_keep_explicit_body_and_siblings_in_strict_template() {
+        let template = parse_template(
+            "<body><div id=\"first\"><div submenu-panel><button>Open</button></div></div><div id=\"last\">Last</div></body>",
+        )
+        .unwrap();
+        assert_eq!(template.roots.len(), 1);
+        let body = &template.nodes[template.roots[0].0 as usize];
+        assert_eq!(body.children.len(), 2);
+        let first = &template.nodes[body.children[0].0 as usize];
+        let panel = &template.nodes[first.children[0].0 as usize];
+        assert!(panel.attributes.iter().any(|attribute| {
+            matches!(attribute, TemplateAttribute::Static { name, value } if name == "submenu-panel" && value.is_empty())
+        }));
+        let last = &template.nodes[body.children[1].0 as usize];
+        assert!(last.attributes.iter().any(|attribute| {
+            matches!(attribute, TemplateAttribute::Static { name, value } if name == "id" && value == "last")
+        }));
+    }
 
     #[test]
     fn parses_use_aliases_and_rejects_malformed_directives() {

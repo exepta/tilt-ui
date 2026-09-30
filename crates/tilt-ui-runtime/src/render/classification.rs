@@ -26,6 +26,8 @@ pub(crate) fn element_render_kind(kind: ElementKind) -> ElementRenderKind {
         | ElementKind::Label
         | ElementKind::Paragraph
         | ElementKind::ProgressBar
+        | ElementKind::Spinner
+        | ElementKind::Toast
         | ElementKind::RouterOutlet
         | ElementKind::Table
         | ElementKind::TableCell
@@ -45,6 +47,6 @@ pub(crate) fn element_render_kind(kind: ElementKind) -> ElementRenderKind {
         | ElementKind::SwitchButton
         | ElementKind::TextArea
         | ElementKind::ToggleButton => ElementRenderKind::Control,
-        ElementKind::Avatar | ElementKind::Image => ElementRenderKind::Image,
+        ElementKind::Avatar | ElementKind::Image | ElementKind::Icon => ElementRenderKind::Image,
     }
 }

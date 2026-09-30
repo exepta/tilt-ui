@@ -31,6 +31,23 @@ date-picker::value, date-picker::indicator { color: #E6EDF3; }
 input::placeholder, textarea::placeholder { color: #8B949E; }
 input::cursor, textarea::cursor { background-color: #E6EDF3; }
 input::selection, textarea::selection { background-color: #264F78; }
+input[type="number"]::increment, input[type="number"]::decrement {
+    background-color: #282D39;
+    border-color: #4A405C;
+    color: #E9D1F7;
+}
+input[type="number"]:hover::increment, input[type="number"]:hover::decrement,
+input[type="number"]:focus::increment, input[type="number"]:focus::decrement {
+    background-color: #443056;
+    border-color: #8B5AAA;
+    color: #FFFFFF;
+}
+input[type="number"]:disabled::increment, input[type="number"]:disabled::decrement,
+input[type="number"]:readonly::increment, input[type="number"]:readonly::decrement {
+    background-color: #242833;
+    border-color: #373C49;
+    color: #727986;
+}
 input:readonly, textarea:readonly, input:disabled, textarea:disabled,
 choice-box:disabled, list-box:disabled { background-color: #161B22; }
 checkbox, radio-button, switch-button { color: #E6EDF3; }
@@ -58,12 +75,17 @@ choice-box::popup, date-picker::popup, color-picker::popup, context-menu {
 option { background-color: #161B22; color: #E6EDF3; }
 option:hover, date-picker::hovered-day { background-color: #21262D; }
 option:checked { background-color: #30363D; color: #E6EDF3; }
-date-picker::day, date-picker::calendar-previous, date-picker::calendar-next { color: #E6EDF3; }
+date-picker::day, date-picker::label, date-picker::calendar-previous, date-picker::calendar-next { color: #E6EDF3; }
+date-picker::weekday { color: #8B949E; }
+date-picker::range-middle-day { background-color: #39294B; color: #E9D8F7; }
 date-picker::disabled-day { color: #6E7681; }
 color-picker::format { background-color: #21262D; color: #C9D1D9; }
 color-picker::selected-format { background-color: #30363D; color: #E6EDF3; }
 context-menu button { background-color: #161B22; color: #E6EDF3; }
 context-menu button:hover { background-color: #21262D; }
+context-menu [submenu-panel] { background-color: #161B22; border-color: #30363D; }
+context-menu .menu-heading, context-menu button::indicator { color: #8B949E; }
+context-menu divider { background-color: #30363D; }
 
 dialog { background-color: #010409CC; }
 dialog::popup { background-color: #161B22; border-width: 1px; border-color: #30363D; }
@@ -73,5 +95,6 @@ dialog::indicator { background-color: #161B22; color: #8B949E; }
 
 *::scrollbar-y-track, *::scrollbar-x-track, scrollbar::track { background-color: #21262D; }
 *::scrollbar-y-thumb, *::scrollbar-x-thumb, scrollbar::thumb { background-color: #6E7681; }
-tooltip, tooltip::indicator { background-color: #30363D; color: #E6EDF3; }
+tooltip { background-color: #30363D; color: #E6EDF3; }
+tooltip::indicator { background-color: transparent; }
 hyperlink, hyperlink::indicator { color: #58A6FF; }

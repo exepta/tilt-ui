@@ -71,6 +71,10 @@ pub trait UiProvider: Send + Sync + 'static {
     fn rules(&self) -> ProviderRules {
         ProviderRules::default()
     }
+    /// Whether this provider can add its own stylesheet beyond a named theme.
+    fn may_provide_stylesheets(&self) -> bool {
+        true
+    }
     /// Called when styles are recomputed, so a provider can react to theme changes.
     fn resolve(&self, context: ProviderContext<'_>) -> Result<ProviderEffect, String>;
 }
@@ -80,6 +84,12 @@ pub trait UiProvider: Send + Sync + 'static {
 pub struct UiProviderRegistry(HashMap<String, Arc<dyn UiProvider>>);
 
 impl UiProviderRegistry {
+    pub(crate) fn may_provide_stylesheets(&self) -> bool {
+        self.0
+            .values()
+            .any(|provider| provider.may_provide_stylesheets())
+    }
+
     /// Registers or replaces a provider with the same tag.
     pub fn register<P: UiProvider>(&mut self, provider: P) {
         self.0
@@ -244,6 +254,10 @@ pub struct ThemeProvider;
 impl UiProvider for ThemeProvider {
     fn tag(&self) -> &'static str {
         "theme-provider"
+    }
+
+    fn may_provide_stylesheets(&self) -> bool {
+        false
     }
 
     fn resolve(&self, context: ProviderContext<'_>) -> Result<ProviderEffect, String> {

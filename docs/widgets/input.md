@@ -36,6 +36,8 @@ size, and a native path only on desktop. The dialog feature is enabled by
 default and can be disabled for an application that does not need file input.
 An oversized selection is rejected and marks the Input `:invalid`; cancelling
 the dialog leaves its value and validity unchanged.
+`<button type="file">` uses the same picker, options, `FileInputSelection` component,
+and `FileInputSelected` event. See [Button](button.md) for form behavior.
 Custom validation callbacks and authored `(input)` expressions are not yet
 implemented.
 

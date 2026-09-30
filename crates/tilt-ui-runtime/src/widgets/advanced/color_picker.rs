@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use bevy::window::{PrimaryWindow, Window};
 use bevy::{
     asset::{Assets, Handle, RenderAssetUsages},
     ecs::{
@@ -15,7 +16,7 @@ use bevy::{
     image::{Image, ImageSampler},
     math::Vec2,
     ui::{
-        ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex, InteractionDisabled,
+        ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex, InteractionDisabled, Node,
         UiGlobalTransform, UiScale, Val,
         widget::{Button, ImageNode, NodeImageMode},
     },
@@ -27,7 +28,7 @@ use bevy_picking::{
     pointer::{PointerButton, PointerId},
 };
 use tilt_ui_core::TemplateAttribute;
-use tilt_ui_css::{CssColor, parse_color_value};
+use tilt_ui_css::{CssColor, Length, parse_color_value};
 use wgpu_types::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::{
@@ -318,7 +319,153 @@ pub fn set_color_picker_open(world: &mut World, entity: Entity, open: bool) -> b
         css.open = open;
     }
     set_widget_display(world, popup, open);
+    if open {
+        place_open_color_pickers(world);
+    }
     true
+}
+
+/// Places a palette next to its trigger, flipping at the right and bottom edges.
+fn palette_position(
+    anchor: Vec2,
+    anchor_size: Vec2,
+    popup_size: Vec2,
+    viewport: Vec2,
+    margin: f32,
+    gap: f32,
+) -> Vec2 {
+    let below = anchor.y + anchor_size.y + gap;
+    let above = anchor.y - popup_size.y - gap;
+    let x = if anchor.x + popup_size.x > viewport.x - margin {
+        anchor.x + anchor_size.x - popup_size.x
+    } else {
+        anchor.x
+    };
+    let y = if below + popup_size.y > viewport.y - margin && above >= margin {
+        above
+    } else {
+        below
+    };
+    Vec2::new(
+        x.clamp(margin, (viewport.x - popup_size.x - margin).max(margin)),
+        y.clamp(margin, (viewport.y - popup_size.y - margin).max(margin)),
+    )
+}
+
+/// Keeps open palettes inside their render target after layout and window resizing.
+pub(crate) fn place_open_color_pickers(world: &mut World) {
+    let palettes = world
+        .query::<(Entity, &ColorPickerState)>()
+        .iter(world)
+        .filter_map(|(owner, state)| state.open.then_some((owner, state.popup, state.canvas)))
+        .collect::<Vec<_>>();
+    if palettes.is_empty() {
+        return;
+    }
+    let viewport = world
+        .query_filtered::<&Window, bevy::ecs::query::With<PrimaryWindow>>()
+        .iter(world)
+        .next()
+        .map(|window| Vec2::new(window.width(), window.height()));
+    let Some(viewport) = viewport else {
+        return;
+    };
+    for (owner, popup, canvas) in palettes {
+        let (Some(anchor_transform), Some(anchor_node), Some(popup_node)) = (
+            world.get::<UiGlobalTransform>(owner),
+            world.get::<ComputedNode>(owner),
+            world.get::<ComputedNode>(popup),
+        ) else {
+            continue;
+        };
+        let Some(inverse) = anchor_transform.try_inverse() else {
+            continue;
+        };
+        let anchor_size = anchor_node.size();
+        if anchor_size.x <= 0.0 || anchor_size.y <= 0.0 {
+            continue;
+        }
+        let scale = world
+            .get::<ComputedUiRenderTargetInfo>(popup)
+            .map_or(1.0, |target| target.scale_factor())
+            / world.get_resource::<UiScale>().map_or(1.0, |scale| scale.0);
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
+        let viewport = viewport * scale;
+        let margin = 8.0 * scale;
+        let available = (viewport - Vec2::splat(margin * 2.0)).max(Vec2::ONE);
+        let natural_width = world
+            .get::<crate::style::RuntimeComputedStyle>(popup)
+            .and_then(|style| match style.0.width {
+                Some(Length::Px(width)) => Some(width),
+                _ => None,
+            })
+            .unwrap_or(224.0);
+        let width = natural_width.min(available.x / scale).max(1.0);
+        let measured_height = popup_node.size().y;
+        let natural_canvas_height = world
+            .get::<crate::style::RuntimeComputedStyle>(canvas)
+            .and_then(|style| match style.0.height {
+                Some(Length::Px(height)) => Some(height),
+                _ => None,
+            })
+            .unwrap_or(160.0);
+        let current_canvas_height = world
+            .get::<ComputedNode>(canvas)
+            .map_or(0.0, |node| node.size().y);
+        let natural_height = if measured_height > 0.0 {
+            measured_height
+                + if current_canvas_height > 0.0 {
+                    natural_canvas_height * scale - current_canvas_height
+                } else {
+                    0.0
+                }
+        } else {
+            360.0 * scale
+        };
+        // Preserve every palette control: only the saturation canvas contracts
+        // when a short window cannot accommodate its usual height.
+        let canvas_height = (natural_canvas_height
+            - (natural_height - available.y).max(0.0) / scale)
+            .clamp(40.0, natural_canvas_height);
+        let height = natural_height - (natural_canvas_height - canvas_height) * scale;
+        let size = Vec2::new(width * scale, height);
+        let anchor = anchor_transform.affine().translation - anchor_size * 0.5;
+        let position = palette_position(anchor, anchor_size, size, viewport, margin, 6.0 * scale);
+        let local = inverse.transform_point2(position) + anchor_size * 0.5;
+        let layout = WidgetLayoutOverride {
+            width: Some(Val::Px(width)),
+            left: Some(Val::Px(local.x / scale)),
+            top: Some(Val::Px(local.y / scale)),
+            ..Default::default()
+        };
+        let canvas_layout = WidgetLayoutOverride {
+            height: Some(Val::Px(canvas_height)),
+            ..Default::default()
+        };
+        if !world
+            .get::<WidgetLayoutOverride>(canvas)
+            .is_some_and(|old| *old == canvas_layout)
+        {
+            if let Some(mut node) = world.get_mut::<Node>(canvas) {
+                canvas_layout.apply(&mut node);
+            }
+            world.entity_mut(canvas).insert(canvas_layout);
+        }
+        if world
+            .get::<WidgetLayoutOverride>(popup)
+            .is_some_and(|old| *old == layout)
+        {
+            continue;
+        }
+        if let Some(mut node) = world.get_mut::<Node>(popup) {
+            layout.apply(&mut node);
+        }
+        world.entity_mut(popup).insert(layout);
+    }
 }
 
 /// Sets an RGBA value and refreshes the existing preview without emitting a user event.
@@ -913,6 +1060,119 @@ mod tests {
     use bevy_picking::pointer::PointerId;
     use tilt_ui_core::{ElementKind, TemplateAttribute};
     use tilt_ui_css::{CssColor, parse_color_value};
+
+    #[test]
+    fn popup_flips_at_right_and_bottom_edges() {
+        use bevy::math::Vec2;
+        let viewport = Vec2::new(400.0, 300.0);
+        let popup = Vec2::new(224.0, 180.0);
+        assert_eq!(
+            super::palette_position(
+                Vec2::new(350.0, 250.0),
+                Vec2::new(40.0, 32.0),
+                popup,
+                viewport,
+                8.0,
+                6.0
+            ),
+            Vec2::new(166.0, 64.0),
+        );
+        assert_eq!(
+            super::palette_position(
+                Vec2::new(10.0, 10.0),
+                Vec2::new(40.0, 32.0),
+                popup,
+                viewport,
+                8.0,
+                6.0
+            ),
+            Vec2::new(10.0, 48.0),
+        );
+    }
+
+    #[test]
+    fn popup_clamps_when_neither_side_has_full_room() {
+        use bevy::math::Vec2;
+        let position = super::palette_position(
+            Vec2::new(210.0, 120.0),
+            Vec2::new(30.0, 28.0),
+            Vec2::new(224.0, 160.0),
+            Vec2::new(250.0, 180.0),
+            8.0,
+            6.0,
+        );
+        assert_eq!(position, Vec2::new(16.0, 12.0));
+    }
+
+    #[test]
+    fn open_palette_repositions_after_window_resize() {
+        use bevy::{
+            math::Vec2,
+            ui::{ComputedNode, UiGlobalTransform, Val},
+            window::{PrimaryWindow, Window},
+        };
+        let mut world = bevy::ecs::world::World::new();
+        let window = world
+            .spawn((
+                Window {
+                    resolution: (400, 300).into(),
+                    ..Default::default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
+        let picker = world
+            .spawn((
+                Node::default(),
+                ElementState::default(),
+                ComputedNode {
+                    size: Vec2::new(160.0, 40.0),
+                    ..Default::default()
+                },
+                UiGlobalTransform::from_xy(350.0, 250.0),
+            ))
+            .id();
+        super::materialize(&mut world, picker, &[]);
+        let popup = world.get::<ColorPickerState>(picker).unwrap().popup;
+        world.entity_mut(popup).insert(ComputedNode {
+            size: Vec2::new(224.0, 360.0),
+            ..Default::default()
+        });
+        assert!(super::set_color_picker_open(&mut world, picker, true));
+        let layout = *world.get::<crate::WidgetLayoutOverride>(popup).unwrap();
+        assert_eq!(layout.left, Some(Val::Px(-102.0)));
+        assert_eq!(layout.top, Some(Val::Px(-222.0)));
+        assert_eq!(layout.max_height, None);
+        let canvas = world.get::<ColorPickerState>(picker).unwrap().canvas;
+        assert_eq!(
+            world
+                .get::<crate::WidgetLayoutOverride>(canvas)
+                .unwrap()
+                .height,
+            Some(Val::Px(84.0))
+        );
+        // Simulate the compact size produced by the next layout pass.
+        world.entity_mut(popup).insert(ComputedNode {
+            size: Vec2::new(224.0, 284.0),
+            ..Default::default()
+        });
+        world.entity_mut(canvas).insert(ComputedNode {
+            size: Vec2::new(202.0, 84.0),
+            ..Default::default()
+        });
+        world.get_mut::<Window>(window).unwrap().resolution = (800, 800).into();
+        super::place_open_color_pickers(&mut world);
+        let layout = *world.get::<crate::WidgetLayoutOverride>(popup).unwrap();
+        assert_eq!(layout.left, Some(Val::Px(0.0)));
+        assert_eq!(layout.top, Some(Val::Px(46.0)));
+        assert_eq!(
+            world
+                .get::<crate::WidgetLayoutOverride>(canvas)
+                .unwrap()
+                .height,
+            Some(Val::Px(160.0))
+        );
+    }
 
     #[test]
     fn color_text_round_trips_through_css_parser() {

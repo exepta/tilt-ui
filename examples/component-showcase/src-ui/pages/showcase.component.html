@@ -45,7 +45,8 @@
             value="120"
             [disabled]="showcaseState.custom_fps_disabled"
         />
-        <p class="fps-current">{{ i18n.fps-current }}: {{ showcaseState.current_fps }} FPS</p>
+        <p class="fps-current">{{ i18n.fps-current }}:</p>
+        <p id="fps-current-value">-- FPS</p>
     </div>
 
     <div class="showcase-section">
@@ -80,14 +81,16 @@
 
             <div class="showcase-card">
                 <div class="card-preview">
-                    <form class="mini-form">
+                    <form class="mini-form" validate="interact">
                         <p>{{ i18n.contact-title }}</p>
                         <input
                             name="contact-name"
+                            required="true"
+                            pattern="[A-Za-z ]+"
                             placeholder="Your name"
                             [placeholder]="i18n.placeholder-name"
                         />
-                        <input type="email" name="contact-email" placeholder="you@example.com" />
+                        <input type="email" name="contact-email" required="true" placeholder="you@example.com" />
                         <button>{{ i18n.submit }}</button>
                     </form>
                 </div>
@@ -231,7 +234,7 @@
             <div class="showcase-card">
                 <div class="card-preview">
                     <div class="image-preview-demo">
-                        <input id="image-preview-file" type="file" extensions="[png, jpg, jpeg, svg]" />
+                        <button id="image-preview-file" type="file" extensions="[png, jpg, jpeg, svg]">{{ i18n.choose-image }}</button>
                         <img
                             class="sample-image preview-image"
                             src="tilt-ui://media/mountain-lake.png"
@@ -252,6 +255,21 @@
                     </div>
                 </div>
                 <p class="card-name">{{ i18n.widget-avatar }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="icon-demo">
+                        <icon name="home" size="16" />
+                        <icon name="home-filled" size="32" />
+                        <icon name="home-circle" size="64" />
+                        <icon name="settings-sliders" size="32" />
+                        <icon name="user-circle" size="32" />
+                        <icon name="briefcase-medical" size="32" />
+                        <div class="icon-demo-background"></div>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-icon }}</p>
             </div>
 
             <div class="showcase-card">
@@ -280,9 +298,17 @@
             <p>{{ i18n.controls-subtitle }}</p>
         </div>
         <div class="card-row five-column">
-            <div class="showcase-card">
+            <div class="showcase-card button-showcase-card">
                 <div class="card-preview">
-                    <button class="sample-button" onclick="reset_progress">{{ i18n.click-me }}</button>
+                    <div class="button-demo">
+                        <button onclick="reset_progress">{{ i18n.click-me }}</button>
+                        <button type="file" name="attachment" extensions="[png, jpg, pdf]" max-size="8MB">{{ i18n.upload-file }}</button>
+                        <button type="file" folder="true" name="directory">{{ i18n.upload-folder }}</button>
+                        <div class="loading-demo">
+                            <button type="loading" [loading]="showcaseState.button_loading" onclick="toggle_loading">{{ i18n.loading-action }}</button>
+                            <button onclick="toggle_loading">{{ i18n.loading-toggle }}</button>
+                        </div>
+                    </div>
                 </div>
                 <p class="card-name">{{ i18n.widget-button }}</p>
             </div>
@@ -291,8 +317,8 @@
                 <div class="card-preview">
                     <div class="checkbox-demo">
                         <checkbox checked="true">{{ i18n.accept-terms }}</checkbox>
-                        <checkbox>{{ i18n.receive-updates }}</checkbox>
-                        <checkbox>{{ i18n.newsletters }}</checkbox>
+                        <checkbox class="heart-checkbox" checked-icon="media/heart-filled.svg" unchecked-icon="media/heart-outline.svg">{{ i18n.receive-updates }}</checkbox>
+                        <checkbox class="heart-checkbox" checked="true" checked-icon="media/heart-filled.svg" unchecked-icon="media/heart-outline.svg">{{ i18n.newsletters }}</checkbox>
                         <checkbox>{{ i18n.product-tips }}</checkbox>
                     </div>
                 </div>
@@ -329,12 +355,19 @@
         <div class="card-row five-column">
             <div class="showcase-card">
                 <div class="card-preview">
-                    <input
-                        class="sample-input"
-                        name="search"
-                        placeholder="Enter text..."
-                        [placeholder]="i18n.placeholder-input"
-                    />
+                    <div class="input-demo">
+                        <input
+                            class="sample-input"
+                            name="search"
+                            label="Quick note"
+                            icon="tilt-ui://media/ganyu.jpg"
+                            clear-on-blur="true"
+                            cap-text-at="width"
+                            placeholder="Enter text..."
+                            [placeholder]="i18n.placeholder-input"
+                        />
+                        <input type="number" name="quantity" value="0" max="20" step="1" show-fields="true" />
+                    </div>
                 </div>
                 <p class="card-name">{{ i18n.widget-input }}</p>
             </div>
@@ -403,7 +436,10 @@
 
             <div class="showcase-card">
                 <div class="card-preview">
-                    <date-picker value="2025-04-09" />
+                    <div class="date-demo">
+                        <date-picker value="2025-04-09" />
+                        <date-picker type="range" value="2025-04-09..2025-04-18" />
+                    </div>
                 </div>
                 <p class="card-name">{{ i18n.widget-date-picker }}</p>
             </div>
@@ -416,6 +452,16 @@
                     </div>
                 </div>
                 <p class="card-name">{{ i18n.widget-progress-bar }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="spinner-demo">
+                        <spinner class="showcase-spinner" />
+                        <p>{{ i18n.spinner-status }}</p>
+                    </div>
+                </div>
+                <p class="card-name">{{ i18n.widget-spinner }}</p>
             </div>
 
             <div class="showcase-card">
@@ -448,7 +494,19 @@
                 <div class="card-preview">
                     <button id="custom-context-anchor" class="context-anchor">{{ i18n.context-open }}</button>
                     <context-menu for="custom-context-anchor">
+                        <p class="menu-heading">{{ i18n.context-progress }}</p>
                         <button onclick="reset_progress">{{ i18n.reset-progress }}</button>
+                        <button submenu="context-more">{{ i18n.context-more }}</button>
+                        <div id="context-more" submenu-panel="true">
+                            <button onclick="open_rust_dialog">{{ i18n.open-dialog }}</button>
+                            <button submenu="context-advanced">{{ i18n.context-advanced }}</button>
+                            <div id="context-advanced" submenu-panel="true">
+                                <button onclick="reset_progress">{{ i18n.reset-progress }}</button>
+                            </div>
+                        </div>
+                        <divider />
+                        <p class="menu-heading">{{ i18n.context-dialogs }}</p>
+                        <button onclick="open_rust_dialog">{{ i18n.open-dialog }}</button>
                     </context-menu>
                 </div>
                 <p class="card-name">{{ i18n.widget-context-menu }}</p>
@@ -480,6 +538,23 @@
                     <button class="sample-button" onclick="open_rust_dialog">{{ i18n.open-rust-dialog }}</button>
                 </div>
                 <p class="card-name">{{ i18n.widget-rust-dialog }}</p>
+            </div>
+
+            <div class="showcase-card">
+                <div class="card-preview">
+                    <div class="toast-demo-buttons">
+                        <button id="show-custom-toast">{{ i18n.toast-custom }}</button>
+                        <button id="show-success-toast" onclick="show_demo_toast">{{ i18n.toast-success }}</button>
+                        <button id="show-error-toast" onclick="show_demo_toast">{{ i18n.toast-error }}</button>
+                        <button id="show-warning-toast" onclick="show_demo_toast">{{ i18n.toast-warning }}</button>
+                    </div>
+                    <toast class="showcase-custom-toast" type="info" trigger="show-custom-toast" duration="6s">
+                        <p class="toast-custom-kicker">{{ i18n.toast-custom-kicker }}</p>
+                        <p class="toast-custom-title">{{ i18n.toast-custom-title }}</p>
+                        <p>{{ i18n.toast-custom-body }}</p>
+                    </toast>
+                </div>
+                <p class="card-name">{{ i18n.widget-toast }}</p>
             </div>
 
             <div class="showcase-card">
@@ -586,14 +661,14 @@
 
             <div class="showcase-card">
                 <div class="card-preview">
-                    <button oninit="system_cursor">{{ i18n.cursor-hover }}</button>
+                    <div class="cursor-demo" oninit="system_cursor"><p>{{ i18n.cursor-hover }}</p></div>
                 </div>
                 <p class="card-name">{{ i18n.cursor-system }}</p>
             </div>
 
             <div class="showcase-card">
                 <div class="card-preview">
-                    <button oninit="custom_cursor">{{ i18n.cursor-hover }}</button>
+                    <div class="cursor-demo" oninit="custom_cursor"><p>{{ i18n.cursor-hover }}</p></div>
                 </div>
                 <p class="card-name">{{ i18n.cursor-custom }}</p>
             </div>
@@ -602,6 +677,7 @@
     <dialog
         id="demo-info-dialog"
         trigger="open-info-dialog"
+        animated="true"
         title="Your changes are ready"
         [title]="i18n.dialog-info-title"
         type="info"
@@ -618,6 +694,7 @@
         title="Quick actions"
         [title]="i18n.dialog-sheet-title"
         layout="bottom-sheet"
+        animated="true"
     >
         <p>{{ i18n.dialog-sheet-body }}</p>
         <div class="dialog-actions">

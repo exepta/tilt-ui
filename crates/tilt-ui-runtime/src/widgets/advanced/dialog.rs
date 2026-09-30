@@ -7,7 +7,7 @@ use std::sync::{
 };
 
 use bevy::{
-    app::{App, Update},
+    app::{App, PostUpdate, Update},
     ecs::{
         component::Component,
         entity::Entity,
@@ -19,7 +19,7 @@ use bevy::{
     input::{ButtonInput, keyboard::KeyCode},
     prelude::IntoScheduleConfigs,
     ui::{
-        FocusPolicy, GlobalZIndex, Node,
+        FocusPolicy, GlobalZIndex, Node, UiSystems,
         widget::{Button, Text},
     },
 };
@@ -52,6 +52,8 @@ pub struct DialogConfig {
     pub renderer: DialogRenderer,
     pub layout: DialogLayout,
     pub kind: DialogKind,
+    /// Whether the in-window dialog plays CSS entry and exit animations.
+    pub animated: bool,
 }
 
 impl DialogConfig {
@@ -62,6 +64,7 @@ impl DialogConfig {
             renderer: DialogRenderer::Bevy,
             layout: DialogLayout::FloatingPanel,
             kind: DialogKind::Info,
+            animated: false,
         }
     }
 
@@ -101,6 +104,11 @@ impl DialogConfig {
 
     pub fn with_layout(mut self, layout: DialogLayout) -> Self {
         self.layout = layout;
+        self
+    }
+
+    pub fn with_animated(mut self, animated: bool) -> Self {
+        self.animated = animated;
         self
     }
 }
@@ -165,11 +173,23 @@ pub struct DialogState {
     pub kind: DialogKind,
     pub title: String,
     pub open: bool,
+    /// Whether CSS entry and exit animations are enabled.
+    pub animated: bool,
+    /// Whether the exit animation is still visible.
+    pub closing: bool,
     pub panel: Entity,
     trigger_id: Option<String>,
     ephemeral: bool,
     close_button: Entity,
     previous_focus: Option<Entity>,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+struct DialogCloseMotion {
+    result: DialogResult,
+    elapsed: f32,
+    duration: Option<f32>,
+    pending_frames: u8,
 }
 
 #[derive(Component, Default)]
@@ -229,6 +249,7 @@ pub(crate) fn materialize(world: &mut World, entity: Entity, attributes: &[Templ
         _ => DialogKind::Info,
     };
     let open = attribute(attributes, "open").is_some_and(|value| value != "false");
+    let animated = crate::component::has_boolean_static_attribute(attributes, "animated");
     let title = attribute(attributes, "title")
         .unwrap_or_default()
         .to_owned();
@@ -256,6 +277,8 @@ pub(crate) fn materialize(world: &mut World, entity: Entity, attributes: &[Templ
             kind,
             title,
             open,
+            animated,
+            closing: false,
             panel,
             trigger_id: attribute(attributes, "trigger")
                 .or_else(|| attribute(attributes, "triggger"))
@@ -266,6 +289,7 @@ pub(crate) fn materialize(world: &mut World, entity: Entity, attributes: &[Templ
         },
         ElementState {
             open,
+            animated,
             ..Default::default()
         },
         FocusPolicy::Block,
@@ -311,6 +335,88 @@ pub(crate) fn set_dialog_title(world: &mut World, dialog: Entity, title: String)
             .map(|owner| owner.0)
         {
             world.entity_mut(scope).insert(StyleDirty);
+        }
+    }
+}
+
+pub(crate) fn reconfigure(world: &mut World, dialog: Entity, name: &str, value: &str) {
+    let Some(mut state) = world.get::<DialogState>(dialog).cloned() else {
+        return;
+    };
+    match name {
+        "renderer" => {
+            let next = if value == "system" && cfg!(feature = "file-dialog") {
+                DialogRenderer::System
+            } else {
+                DialogRenderer::Bevy
+            };
+            if state.renderer == next {
+                return;
+            }
+            state.renderer = next;
+            if state.closing && next != DialogRenderer::Bevy {
+                let result = world
+                    .get::<DialogCloseMotion>(dialog)
+                    .map_or(DialogResult::Closed, |motion| motion.result);
+                world.entity_mut(dialog).insert(state);
+                finish_close(world, dialog, result);
+                return;
+            }
+            set_widget_display(
+                world,
+                dialog,
+                (state.open || state.closing) && next == DialogRenderer::Bevy,
+            );
+        }
+        "layout" => {
+            state.layout = if matches!(value, "bottom-sheet" | "bottom") {
+                DialogLayout::BottomSheet
+            } else {
+                DialogLayout::FloatingPanel
+            }
+        }
+        "type" => {
+            state.kind = match value {
+                "warn" | "warning" => DialogKind::Warning,
+                "error" | "failure" => DialogKind::Error,
+                "question" => DialogKind::Question,
+                "blank" => DialogKind::Blank,
+                _ => DialogKind::Info,
+            }
+        }
+        "animated" => {
+            state.animated = matches!(value, "" | "true" | "animated");
+            if let Some(mut css) = world.get_mut::<ElementState>(dialog) {
+                css.animated = state.animated;
+            }
+            if !state.animated && state.closing {
+                let result = world
+                    .get::<DialogCloseMotion>(dialog)
+                    .map_or(DialogResult::Closed, |motion| motion.result);
+                world.entity_mut(dialog).insert(state);
+                finish_close(world, dialog, result);
+                return;
+            }
+        }
+        "trigger" | "triggger" => {
+            let next = (!value.is_empty()).then(|| value.trim_start_matches('#').to_owned());
+            if state.trigger_id == next {
+                return;
+            }
+            state.trigger_id = next;
+            for mut triggers in world.query::<&mut DialogTriggers>().iter_mut(world) {
+                triggers.0.retain(|target| *target != dialog);
+            }
+        }
+        _ => return,
+    }
+    world.entity_mut(dialog).insert(state);
+    if matches!(name, "trigger" | "triggger") {
+        if let Some(scope) = world
+            .get::<ComponentStyleOwner>(dialog)
+            .map(|owner| owner.0)
+        {
+            resolve_targets(world, scope);
         }
     }
 }
@@ -381,7 +487,7 @@ pub fn spawn_dialog(world: &mut World, parent: Entity, config: DialogConfig) -> 
         DialogKind::Question => "question",
         DialogKind::Blank => "blank",
     };
-    let attributes = [
+    let mut attributes = vec![
         TemplateAttribute::Static {
             name: "title".into(),
             value: config.title.clone(),
@@ -404,6 +510,12 @@ pub fn spawn_dialog(world: &mut World, parent: Entity, config: DialogConfig) -> 
             .into(),
         },
     ];
+    if config.animated {
+        attributes.push(TemplateAttribute::Static {
+            name: "animated".into(),
+            value: "true".into(),
+        });
+    }
     let dialog = world
         .spawn((
             Node::default(),
@@ -573,13 +685,19 @@ pub fn open_dialog(world: &mut World, entity: Entity) -> bool {
     if state.open {
         return false;
     }
+    let was_closing = state.closing;
     state.open = true;
+    state.closing = false;
     let renderer = state.renderer;
+    if was_closing {
+        world.entity_mut(entity).remove::<DialogCloseMotion>();
+    }
     if let Some(mut css) = world.get_mut::<ElementState>(entity) {
         css.open = true;
+        css.closing = false;
     }
     set_widget_display(world, entity, renderer == DialogRenderer::Bevy);
-    if renderer == DialogRenderer::Bevy {
+    if renderer == DialogRenderer::Bevy && !was_closing {
         focus_dialog(world, entity);
     }
     true
@@ -594,11 +712,39 @@ pub fn close_dialog(world: &mut World, entity: Entity, result: DialogResult) -> 
         return false;
     }
     state.open = false;
+    let animate = state.animated && state.renderer == DialogRenderer::Bevy;
+    state.closing = animate;
+    if let Some(mut css) = world.get_mut::<ElementState>(entity) {
+        css.open = false;
+        css.closing = animate;
+    }
+    if animate {
+        world.entity_mut(entity).insert(DialogCloseMotion {
+            result,
+            elapsed: 0.0,
+            duration: None,
+            pending_frames: 1,
+        });
+    } else {
+        finish_close(world, entity, result);
+    }
+    true
+}
+
+fn finish_close(world: &mut World, entity: Entity, result: DialogResult) {
+    let Some(mut state) = world.get_mut::<DialogState>(entity) else {
+        return;
+    };
+    if state.open {
+        return;
+    }
+    state.closing = false;
     let ephemeral = state.ephemeral;
     let previous_focus = state.previous_focus.take();
     let renderer = state.renderer;
+    world.entity_mut(entity).remove::<DialogCloseMotion>();
     if let Some(mut css) = world.get_mut::<ElementState>(entity) {
-        css.open = false;
+        css.closing = false;
     }
     set_widget_display(world, entity, false);
     if renderer == DialogRenderer::Bevy {
@@ -631,7 +777,49 @@ pub fn close_dialog(world: &mut World, entity: Entity, result: DialogResult) -> 
             }
         }
     }
-    true
+}
+
+fn closing_duration(world: &World, entity: Entity, panel: Entity) -> f32 {
+    let mut found = false;
+    let duration = [entity, panel]
+        .into_iter()
+        .filter_map(|target| world.get::<crate::RuntimeComputedStyle>(target))
+        .flat_map(|style| {
+            found = true;
+            crate::style::closing_animation_durations(&style.0)
+        })
+        .fold(0.0_f32, f32::max);
+    if found { duration } else { 0.18 }
+}
+
+fn finish_closing_dialogs(world: &mut World) {
+    let delta = world
+        .get_resource::<bevy::time::Time>()
+        .map_or(1.0 / 60.0, bevy::time::Time::delta_secs);
+    let pending = {
+        let mut query = world.query::<(Entity, &DialogState, &DialogCloseMotion)>();
+        query
+            .iter(world)
+            .filter(|(_, state, _)| state.closing && !state.open)
+            .map(|(entity, state, motion)| (entity, state.panel, *motion))
+            .collect::<Vec<_>>()
+    };
+    for (entity, panel, mut motion) in pending {
+        if motion.pending_frames > 0 {
+            motion.pending_frames -= 1;
+            world.entity_mut(entity).insert(motion);
+            continue;
+        }
+        let duration = *motion
+            .duration
+            .get_or_insert_with(|| closing_duration(world, entity, panel));
+        motion.elapsed += delta.max(0.0);
+        if motion.elapsed >= duration {
+            finish_close(world, entity, motion.result);
+        } else {
+            world.entity_mut(entity).insert(motion);
+        }
+    }
 }
 
 fn ancestor_dialog(world: &World, mut entity: Entity) -> Option<Entity> {
@@ -889,7 +1077,8 @@ pub(crate) fn install(app: &mut App) {
             )
                 .chain()
                 .after(TiltControlSystems::Selection),
-        );
+        )
+        .add_systems(PostUpdate, finish_closing_dialogs.before(UiSystems::Layout));
     #[cfg(feature = "file-dialog")]
     app.add_systems(
         Update,
@@ -1080,6 +1269,109 @@ mod tests {
         assert!(!app.world().get::<DialogState>(dialog).unwrap().open);
         assert!(open_dialog(app.world_mut(), dialog));
         assert_eq!(app.world().get::<DialogState>(dialog).unwrap().panel, panel);
+    }
+
+    #[test]
+    fn animated_close_waits_for_css_and_restores_focus_once() {
+        use bevy_input_focus::FocusCause;
+        use tilt_ui_css::{AnimationName, AnimationSpec, ComputedStyle, CssTime};
+
+        let (mut app, dialog, trigger) = setup();
+        app.world_mut().insert_resource(InputFocus::default());
+        app.world_mut()
+            .insert_resource(bevy::time::Time::<()>::default());
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(trigger, FocusCause::Navigated);
+        super::reconfigure(app.world_mut(), dialog, "animated", "true");
+        assert!(open_dialog(app.world_mut(), dialog));
+        let panel = app.world().get::<DialogState>(dialog).unwrap().panel;
+        let close = app.world().get::<DialogState>(dialog).unwrap().close_button;
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(close));
+
+        let animation = |duration| {
+            crate::RuntimeComputedStyle(ComputedStyle {
+                animation: Some(vec![AnimationSpec {
+                    name: Some(AnimationName("exit".into())),
+                    duration: CssTime(duration),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            })
+        };
+        app.world_mut().entity_mut(dialog).insert(animation(0.1));
+        app.world_mut().entity_mut(panel).insert(animation(0.25));
+        assert!(close_dialog(
+            app.world_mut(),
+            dialog,
+            DialogResult::Confirmed
+        ));
+        assert!(app.world().get::<DialogState>(dialog).unwrap().closing);
+        assert_ne!(
+            app.world().get::<Node>(dialog).unwrap().display,
+            Display::None
+        );
+        assert_eq!(app.world().resource::<Messages<DialogClosed>>().len(), 0);
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(close));
+
+        super::finish_closing_dialogs(app.world_mut());
+        app.world_mut()
+            .resource_mut::<bevy::time::Time>()
+            .advance_by(Duration::from_millis(100));
+        super::finish_closing_dialogs(app.world_mut());
+        assert!(app.world().get::<DialogState>(dialog).unwrap().closing);
+        assert_eq!(app.world().resource::<Messages<DialogClosed>>().len(), 0);
+        app.world_mut()
+            .resource_mut::<bevy::time::Time>()
+            .advance_by(Duration::from_millis(160));
+        super::finish_closing_dialogs(app.world_mut());
+        assert!(!app.world().get::<DialogState>(dialog).unwrap().closing);
+        assert_eq!(
+            app.world().get::<Node>(dialog).unwrap().display,
+            Display::None
+        );
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(trigger));
+        assert_eq!(app.world().resource::<Messages<DialogClosed>>().len(), 1);
+        super::finish_closing_dialogs(app.world_mut());
+        assert_eq!(app.world().resource::<Messages<DialogClosed>>().len(), 1);
+    }
+
+    #[test]
+    fn instant_close_restores_focus_in_the_same_call() {
+        let (mut app, dialog, trigger) = setup();
+        app.world_mut().insert_resource(InputFocus::default());
+        app.world_mut()
+            .resource_mut::<InputFocus>()
+            .set(trigger, bevy_input_focus::FocusCause::Navigated);
+        assert!(open_dialog(app.world_mut(), dialog));
+        assert!(close_dialog(app.world_mut(), dialog, DialogResult::Closed));
+        assert_eq!(
+            app.world().get::<Node>(dialog).unwrap().display,
+            Display::None
+        );
+        assert_eq!(app.world().resource::<InputFocus>().get(), Some(trigger));
+        assert_eq!(app.world().resource::<Messages<DialogClosed>>().len(), 1);
+    }
+
+    #[test]
+    fn reopening_cancels_animated_close() {
+        let (mut app, dialog, _) = setup();
+        super::reconfigure(app.world_mut(), dialog, "animated", "true");
+        assert!(open_dialog(app.world_mut(), dialog));
+        assert!(close_dialog(
+            app.world_mut(),
+            dialog,
+            DialogResult::Cancelled
+        ));
+        assert!(open_dialog(app.world_mut(), dialog));
+        assert!(!app.world().get::<DialogState>(dialog).unwrap().closing);
+        assert!(
+            app.world()
+                .get::<super::DialogCloseMotion>(dialog)
+                .is_none()
+        );
+        super::finish_closing_dialogs(app.world_mut());
+        assert_eq!(app.world().resource::<Messages<DialogClosed>>().len(), 0);
     }
 
     #[test]

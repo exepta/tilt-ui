@@ -72,10 +72,17 @@ pub(crate) fn apply_bindings(world: &mut World) {
             .map(|(entity, bindings)| (entity, bindings.bindings.clone()))
             .collect::<Vec<_>>()
     };
-    for (entity, bindings) in properties {
+    for (entity, mut bindings) in properties {
         if world.get_entity(entity).is_err() {
             continue;
         }
+        // Anatomy and the first range endpoint must exist before dependent values.
+        bindings.sort_by_key(|binding| match binding.name.as_str() {
+            "type" => 0,
+            "range-start" => 1,
+            "range-end" => 2,
+            _ => 3,
+        });
         for binding in bindings {
             let value = resolve(world, entity, &binding.expression);
             if let Some(value) = value {
@@ -359,6 +366,13 @@ fn value_text(value: &Value) -> String {
 
 fn apply_property(world: &mut World, entity: Entity, name: &str, value: Value) {
     match name {
+        "loading" => {
+            crate::widgets::controls::button::set_button_loading(
+                world,
+                entity,
+                value.as_bool().unwrap_or(false),
+            );
+        }
         "disabled" => {
             let disabled = value.as_bool().unwrap_or(false);
             if disabled && world.get::<InteractionDisabled>(entity).is_none() {
@@ -382,17 +396,40 @@ fn apply_property(world: &mut World, entity: Entity, name: &str, value: Value) {
             }
         }
         "value" => {
-            if world
-                .get::<crate::widgets::advanced::date_picker::DatePickerState>(entity)
-                .is_some()
-            {
-                let date = if value.is_null() || value_text(&value).is_empty() {
-                    Some(None)
+            if let Some(state) = world.get::<crate::DatePickerState>(entity) {
+                if state.range {
+                    let pair = if value.is_null() || value_text(&value).is_empty() {
+                        Some((None, None))
+                    } else if let Some(object) = value.as_object() {
+                        object
+                            .get("start")
+                            .and_then(Value::as_str)
+                            .and_then(crate::IsoDate::parse)
+                            .map(|start| {
+                                (
+                                    Some(start),
+                                    object
+                                        .get("end")
+                                        .and_then(Value::as_str)
+                                        .and_then(crate::IsoDate::parse),
+                                )
+                            })
+                    } else {
+                        crate::widgets::advanced::date_picker::parse_range(&value_text(&value))
+                            .map(|(start, end)| (Some(start), end))
+                    };
+                    if let Some((start, end)) = pair {
+                        crate::set_date_range(world, entity, start, end);
+                    }
                 } else {
-                    crate::IsoDate::parse(&value_text(&value)).map(Some)
-                };
-                if let Some(date) = date {
-                    crate::set_date_value(world, entity, date);
+                    let date = if value.is_null() || value_text(&value).is_empty() {
+                        Some(None)
+                    } else {
+                        crate::IsoDate::parse(&value_text(&value)).map(Some)
+                    };
+                    if let Some(date) = date {
+                        crate::set_date_value(world, entity, date);
+                    }
                 }
             } else if world
                 .get::<crate::widgets::advanced::color_picker::ColorPickerState>(entity)
@@ -506,13 +543,111 @@ fn apply_property(world: &mut World, entity: Entity, name: &str, value: Value) {
         "required" | "minlength" | "maxlength" | "max-lines" | "name" => {
             apply_editable_option(world, entity, name, &value);
         }
+        "type"
+        | "orientation"
+        | "alignment"
+        | "dots"
+        | "show-tip"
+        | "show-labels"
+        | "dot-anchor"
+        | "show-fields"
+        | "folder"
+        | "extensions"
+        | "show-size"
+        | "max-size"
+        | "for"
+        | "trigger"
+        | "triggger"
+        | "variant"
+        | "prio"
+        | "priority"
+        | "action"
+        | "validate"
+        | "renderer"
+        | "animated"
+        | "layout"
+        | "label"
+        | "icon"
+        | "clear-on-blur"
+        | "clear-on-focus-loss"
+        | "clear_on_focus_loss"
+        | "cap-text-at"
+        | "cap_text_at" => {
+            let next = value_text(&value);
+            if world
+                .get::<crate::StaticAttributes>(entity)
+                .is_some_and(|attrs| {
+                    attrs
+                        .attributes
+                        .iter()
+                        .any(|attr| attr.name == name && attr.value == next)
+                })
+            {
+                return;
+            }
+            if world.get::<crate::SliderSettings>(entity).is_some() {
+                crate::widgets::controls::slider::reconfigure(world, entity, name, &next);
+            } else if world.get::<crate::EditableText>(entity).is_some() {
+                crate::widgets::controls::input::reconfigure_input(world, entity, name, &next);
+                crate::widgets::controls::input::update_input_option(world, entity, name, &next);
+            } else if world.get::<crate::TooltipSettings>(entity).is_some() {
+                crate::widgets::advanced::tooltip::reconfigure(world, entity, name, &next);
+            } else if world.get::<crate::DialogState>(entity).is_some() {
+                crate::widgets::advanced::dialog::reconfigure(world, entity, name, &next);
+            } else if let Some(mut settings) = world.get_mut::<crate::FormSettings>(entity) {
+                match name {
+                    "action" => settings.action = (!next.is_empty()).then_some(next.clone()),
+                    "validate" => {
+                        settings.validation = match next.as_str() {
+                            "always" | "allways" | "all" => {
+                                tilt_ui_core::FormValidationMode::Always
+                            }
+                            "interact" => tilt_ui_core::FormValidationMode::Interact,
+                            _ => tilt_ui_core::FormValidationMode::Send,
+                        }
+                    }
+                    _ => return,
+                }
+            } else if name == "type" {
+                if let Some(mut button) = world.get_mut::<crate::FormButton>(entity) {
+                    button.0 = match next.as_str() {
+                        "button" => tilt_ui_core::ButtonType::Button,
+                        "submit" => tilt_ui_core::ButtonType::Submit,
+                        "reset" => tilt_ui_core::ButtonType::Reset,
+                        _ => tilt_ui_core::ButtonType::Auto,
+                    };
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+            set_bound_attribute(world, entity, name, &next);
+        }
         "min" | "max" | "step" => {
             if let Some(number) = finite_f32(&value) {
                 crate::widgets::state::set_numeric_bound(world, entity, name, number);
             }
         }
         "range-start" | "range-end" => {
-            if let (Some(number), Some(settings)) = (
+            if let Some(state) = world
+                .get::<crate::DatePickerState>(entity)
+                .filter(|state| state.range)
+            {
+                let date = if value.is_null() || value_text(&value).is_empty() {
+                    Some(None)
+                } else {
+                    crate::IsoDate::parse(&value_text(&value)).map(Some)
+                };
+                if let Some(date) = date {
+                    let (start, end) = if name == "range-start" {
+                        (date, state.range_end)
+                    } else {
+                        (state.range_start, date)
+                    };
+                    crate::set_date_range(world, entity, start, end);
+                }
+            } else if let (Some(number), Some(settings)) = (
                 finite_f32(&value),
                 world.get::<crate::SliderSettings>(entity).copied(),
             ) {
@@ -531,6 +666,14 @@ fn apply_property(world: &mut World, entity: Entity, name: &str, value: Value) {
                 crate::set_date_picker_open(world, entity, open);
             } else if world.get::<crate::ColorPickerState>(entity).is_some() {
                 crate::set_color_picker_open(world, entity, open);
+            } else if world.get::<crate::DialogState>(entity).is_some() {
+                if open {
+                    crate::open_dialog(world, entity);
+                } else {
+                    crate::close_dialog(world, entity, crate::DialogResult::Closed);
+                }
+            } else if world.get::<crate::TooltipSettings>(entity).is_some() {
+                crate::widgets::advanced::tooltip::set_bound_open(world, entity, open);
             }
         }
         "style" => {
@@ -594,6 +737,19 @@ fn apply_editable_option(world: &mut World, entity: Entity, name: &str, value: &
         return;
     }
     world.entity_mut(entity).insert(options);
+    if name == "maxlength" {
+        let cap = world
+            .get::<crate::widgets::controls::input::InputFieldOptions>(entity)
+            .and_then(|options| options.cap_text_at);
+        let max_characters = cap.or_else(|| {
+            world
+                .get::<crate::EditableTextOptions>(entity)
+                .and_then(|options| options.max_characters)
+        });
+        if let Some(mut native) = world.get_mut::<bevy::text::EditableText>(entity) {
+            native.max_characters = max_characters;
+        }
+    }
     let Some(editable) = world.get::<crate::EditableText>(entity) else {
         return;
     };
@@ -605,6 +761,25 @@ fn apply_editable_option(world: &mut World, entity: Entity, name: &str, value: &
     if let Some(mut state) = world.get_mut::<ElementState>(entity) {
         state.invalid = invalid;
     }
+}
+
+fn set_bound_attribute(world: &mut World, entity: Entity, name: &str, value: &str) {
+    let mut attrs = world
+        .get::<crate::StaticAttributes>(entity)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(attr) = attrs.attributes.iter_mut().find(|attr| attr.name == name) {
+        if attr.value == value {
+            return;
+        }
+        attr.value = value.to_owned();
+    } else {
+        attrs.attributes.push(crate::StaticAttribute {
+            name: name.to_owned(),
+            value: value.to_owned(),
+        });
+    }
+    world.entity_mut(entity).insert(attrs);
 }
 
 fn set_bound_classes(world: &mut World, entity: Entity, classes: BoundClasses) {
@@ -795,6 +970,45 @@ mod tests {
         });
         apply_bindings(&mut world);
         assert!(world.get::<InteractionDisabled>(control).is_none());
+    }
+
+    #[test]
+    fn loading_property_tracks_a_boolean_store_field() {
+        let mut world = World::new();
+        let mut store = UiBindingStore::default();
+        store.set_store(State {
+            title: String::new(),
+            enabled: true,
+        });
+        world.insert_resource(store);
+        world.init_resource::<UiSharedValues>();
+        let spinner = world.spawn_empty().id();
+        let button = world
+            .spawn((
+                crate::LoadingButton {
+                    active: false,
+                    spinner,
+                },
+                ElementState::default(),
+                PropertyBindings {
+                    bindings: vec![PropertyBinding {
+                        name: "loading".into(),
+                        expression: "state.enabled".into(),
+                    }],
+                },
+            ))
+            .id();
+
+        apply_bindings(&mut world);
+        assert!(world.get::<crate::LoadingButton>(button).unwrap().active);
+        assert!(world.get::<ElementState>(button).unwrap().loading);
+        world.resource_mut::<UiBindingStore>().set_store(State {
+            title: String::new(),
+            enabled: false,
+        });
+        apply_bindings(&mut world);
+        assert!(!world.get::<crate::LoadingButton>(button).unwrap().active);
+        assert!(!world.get::<ElementState>(button).unwrap().loading);
     }
 
     #[test]
@@ -991,6 +1205,143 @@ mod tests {
 
         assert!(world.get::<InteractionDisabled>(entity).is_some());
         assert_eq!(world.get::<Text>(entity).unwrap().0, "Visible");
+    }
+
+    #[test]
+    fn input_anatomy_and_legacy_options_update_without_replacing_owner() {
+        use bevy::{ecs::hierarchy::Children, ui::Node};
+        use tilt_ui_core::InputType;
+
+        let mut world = World::new();
+        let input = world.spawn((Node::default(), ElementState::default())).id();
+        crate::widgets::controls::input::materialize_parts(&mut world, input, &[], false);
+        apply_property(&mut world, input, "type", Value::from("number"));
+        apply_property(&mut world, input, "show-fields", Value::Bool(true));
+        apply_property(&mut world, input, "label", Value::from("Quantity"));
+        apply_property(&mut world, input, "cap-text-at", Value::from(4));
+        let children = world.get::<Children>(input).unwrap();
+        assert_eq!(
+            world.get::<crate::EditableText>(input).unwrap().input_type,
+            InputType::Number
+        );
+        assert_eq!(
+            children
+                .iter()
+                .filter(
+                    |child| world
+                        .get::<crate::ControlPart>(**child)
+                        .is_some_and(|part| matches!(
+                            part.kind,
+                            crate::ControlPartKind::Increment | crate::ControlPartKind::Decrement
+                        ))
+                )
+                .count(),
+            2
+        );
+        assert!(
+            world
+                .get::<crate::widgets::controls::input::InputFieldOptions>(input)
+                .unwrap()
+                .label
+                .is_some()
+        );
+        assert_eq!(
+            world
+                .get::<bevy::text::EditableText>(input)
+                .unwrap()
+                .max_characters,
+            Some(4)
+        );
+        apply_property(&mut world, input, "type", Value::from("text"));
+        assert!(world.get::<Children>(input).unwrap().iter().all(|child| {
+            world.get::<crate::ControlPart>(*child).is_none_or(|part| {
+                !matches!(
+                    part.kind,
+                    crate::ControlPartKind::Increment | crate::ControlPartKind::Decrement
+                )
+            })
+        }));
+    }
+
+    #[test]
+    fn slider_parts_reconfigure_in_place() {
+        use bevy::{ecs::hierarchy::Children, ui::Node};
+        let mut world = World::new();
+        let slider = world.spawn(Node::default()).id();
+        crate::widgets::controls::slider::materialize_parts(&mut world, slider, &[]);
+        apply_property(&mut world, slider, "dots", Value::from(4));
+        apply_property(&mut world, slider, "orientation", Value::from("vertical"));
+        apply_property(&mut world, slider, "show-tip", Value::Bool(true));
+        apply_property(&mut world, slider, "type", Value::from("range"));
+        let parts = world.get::<crate::NumericParts>(slider).unwrap();
+        assert_eq!(parts.orientation, crate::RangeOrientation::Vertical);
+        assert!(parts.second_thumb.is_some() && parts.second_tip.is_some());
+        assert_eq!(
+            world
+                .get::<Children>(parts.track)
+                .unwrap()
+                .iter()
+                .filter(|child| world
+                    .get::<crate::ControlPart>(**child)
+                    .is_some_and(|part| part.kind == crate::ControlPartKind::Dot))
+                .count(),
+            5
+        );
+        apply_property(&mut world, slider, "show-tip", Value::Bool(false));
+        assert!(
+            world
+                .get::<crate::NumericParts>(slider)
+                .unwrap()
+                .tip
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn date_range_bindings_apply_both_endpoints_even_when_declared_in_reverse_order() {
+        use bevy::ui::Node;
+        let mut world = World::new();
+        world.init_resource::<UiBindingStore>();
+        world.init_resource::<UiSharedValues>();
+        let picker = world
+            .spawn((
+                Node::default(),
+                ElementState::default(),
+                PropertyBindings {
+                    bindings: vec![
+                        PropertyBinding {
+                            name: "range-end".into(),
+                            expression: "'2026-09-22'".into(),
+                        },
+                        PropertyBinding {
+                            name: "range-start".into(),
+                            expression: "'2026-09-10'".into(),
+                        },
+                    ],
+                },
+            ))
+            .id();
+        crate::widgets::advanced::date_picker::materialize(
+            &mut world,
+            picker,
+            &[tilt_ui_core::TemplateAttribute::Static {
+                name: "type".into(),
+                value: "range".into(),
+            }],
+        );
+        apply_bindings(&mut world);
+        let state = world.get::<crate::DatePickerState>(picker).unwrap();
+        assert_eq!(state.range_start, crate::IsoDate::parse("2026-09-10"));
+        assert_eq!(state.range_end, crate::IsoDate::parse("2026-09-22"));
+        apply_property(
+            &mut world,
+            picker,
+            "value",
+            serde_json::json!({"start": "2026-10-01", "end": "2026-10-07"}),
+        );
+        let state = world.get::<crate::DatePickerState>(picker).unwrap();
+        assert_eq!(state.range_start, crate::IsoDate::parse("2026-10-01"));
+        assert_eq!(state.range_end, crate::IsoDate::parse("2026-10-07"));
     }
 
     #[test]

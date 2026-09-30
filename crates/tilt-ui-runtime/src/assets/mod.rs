@@ -12,6 +12,8 @@ pub mod stylesheet;
 pub mod template;
 
 pub use plugin::TiltUiAssetsPlugin;
+#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
+pub(crate) use source::UiAssetSourceRoot;
 pub use source::{DEFAULT_TILT_UI_ASSET_PATH, TILT_UI_ASSET_SOURCE, TiltUiAssetSourcePlugin};
 
 #[cfg(feature = "css")]

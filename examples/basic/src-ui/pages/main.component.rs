@@ -336,6 +336,7 @@ mod tests {
             value: None,
             submitter: None,
             data: Default::default(),
+            form_data: None,
             handler: handler.into(),
         }
     }

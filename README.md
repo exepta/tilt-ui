@@ -348,9 +348,23 @@ text offers Copy. You can also attach your own menu to an element ID:
 ```html
 <button id="item-actions">More actions</button>
 <context-menu for="item-actions">
-    <button onclick="reset_progress">Reset progress</button>
+    <p class="menu-heading">File</p>
+    <button onclick="save_file">Save</button>
+    <button submenu="file-more">More file actions</button>
+    <div id="file-more" submenu-panel="true">
+        <button onclick="load_file">Load</button>
+        <button onclick="delete_file">Delete</button>
+    </div>
+    <divider />
+    <p class="menu-heading">Settings</p>
+    <button onclick="open_settings">Open settings</button>
 </context-menu>
 ```
+
+`submenu` names a `submenu-panel` ID within the same menu. Hovering or clicking
+the item opens the panel; nested panels work the same way. Menus and submenus
+flip left or upward when they approach a window edge. A normal item click
+closes the menu, and Escape closes it from any level.
 
 ## Dialogs
 
@@ -394,3 +408,14 @@ fn confirm_action(
 
 `DialogSpawned` reports the new entity. Rust-created dialogs are removed when
 closed; template-authored dialogs remain available for the next opening.
+
+## Optional icon catalog
+
+Enable `tilt-icons` on `tilt-ui` to add the separate `tilt-ui-icons` crate. Its
+537 embedded SVG icons cover Home, Settings, User, Menu, Close, Briefcase,
+navigation, devices, files, commerce, media, weather and more at 16, 32 and 64 pixels. Use
+`<icon name="home" size="32" />`, `tilt-icon:home@32` in an image or CSS
+background, or `Icon::Home` and `icon_image` from Rust. CSS `color` tints icons;
+each name and size shares one cached Bevy image asset. See the
+[icon catalog](docs/widgets/icons.md) and the
+[interactive showcase](examples/icons-catalog/README.md).

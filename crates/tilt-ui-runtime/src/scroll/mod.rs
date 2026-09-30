@@ -17,7 +17,8 @@ use bevy::{
     text::TextLayoutInfo,
     ui::{
         ComputedNode, ComputedUiRenderTargetInfo, ComputedUiTargetCamera, IgnoreScroll, Node,
-        OverflowAxis, ScrollPosition, UiGlobalTransform, UiScale, UiStack, UiSystems, Val,
+        OverflowAxis, ScrollPosition, UiGlobalTransform, UiScale, UiStack, UiSystems, UiTransform,
+        Val,
         widget::{TextScroll, scroll_editable_text},
     },
 };
@@ -877,16 +878,28 @@ fn update_axis(
         .unwrap_or(0.0)
         .clamp(0.0, 1.0)
         * (100.0 - size);
+    // Moving a scrollbar thumb through Node.top/left forces a full UI layout
+    // on every scroll frame. Once the track has been laid out, move the thumb
+    // with a transform instead; its size still follows the content ratio.
+    let track_extent = world.get::<ComputedNode>(track).and_then(|node| {
+        let extent = if vertical {
+            node.size().y
+        } else {
+            node.size().x
+        };
+        (extent > 0.0 && extent.is_finite()).then_some(extent * node.inverse_scale_factor)
+    });
+    let layout_offset = if track_extent.is_some() { 0.0 } else { offset };
     let next = if vertical {
         WidgetLayoutOverride {
             height: Some(Val::Percent(size)),
-            top: Some(Val::Percent(offset)),
+            top: Some(Val::Percent(layout_offset)),
             ..Default::default()
         }
     } else {
         WidgetLayoutOverride {
             width: Some(Val::Percent(size)),
-            left: Some(Val::Percent(offset)),
+            left: Some(Val::Percent(layout_offset)),
             ..Default::default()
         }
     };
@@ -904,6 +917,19 @@ fn update_axis(
         }
         world.entity_mut(thumb).insert(next);
     }
+    if let Some(extent) = track_extent {
+        let mut transform = world.get::<UiTransform>(thumb).copied().unwrap_or_default();
+        let translation = Val::Px(extent * offset / 100.0);
+        let current = if vertical {
+            &mut transform.translation.y
+        } else {
+            &mut transform.translation.x
+        };
+        if *current != translation {
+            *current = translation;
+            world.entity_mut(thumb).insert(transform);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -919,7 +945,7 @@ mod tests {
         text::{EditableText as NativeEditableText, TextLayoutInfo},
         ui::{
             ComputedNode, ComputedUiRenderTargetInfo, Node, ScrollPosition, UiGlobalTransform,
-            UiStack, widget::TextScroll,
+            UiStack, UiTransform, Val, widget::TextScroll,
         },
     };
     use bevy_picking::{
@@ -1310,6 +1336,47 @@ mod tests {
             .content_size = Vec2::splat(200.0);
         update_scrollbar_visuals(&mut world);
         assert_eq!(world.get::<Visibility>(track), Some(&Visibility::Visible));
+    }
+
+    #[test]
+    fn scrolling_moves_thumb_without_changing_its_layout_position() {
+        let mut world = World::new();
+        let scope = world.spawn_empty().id();
+        let owner = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ComponentStyleOwner(scope),
+                CascadedStyle(ComputedStyle {
+                    overflow_y: Some(CssOverflow::Auto),
+                    ..Default::default()
+                }),
+                Node::default(),
+                ComputedNode {
+                    size: Vec2::splat(100.0),
+                    content_size: Vec2::new(100.0, 300.0),
+                    inverse_scale_factor: 1.0,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        ensure_scrollbar_parts(&mut world, scope);
+        let (track, thumb) = world.get::<ScrollbarParts>(owner).unwrap().y.unwrap();
+        world.entity_mut(track).insert(ComputedNode {
+            size: Vec2::new(10.0, 100.0),
+            inverse_scale_factor: 1.0,
+            ..Default::default()
+        });
+        update_scrollbar_visuals(&mut world);
+        let initial_layout = world.get::<Node>(thumb).unwrap().clone();
+        world.get_mut::<ScrollPosition>(owner).unwrap().0.y = 100.0;
+        update_scrollbar_visuals(&mut world);
+        assert_eq!(world.get::<Node>(thumb), Some(&initial_layout));
+        assert!(matches!(
+            world.get::<UiTransform>(thumb).unwrap().translation.y,
+            Val::Px(value) if (value - 100.0 / 3.0).abs() < 0.01
+        ));
     }
 
     #[test]

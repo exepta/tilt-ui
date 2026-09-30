@@ -5068,6 +5068,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tilt-ui-core",
+ "tilt-ui-icons",
  "tilt-ui-macros",
  "tilt-ui-runtime",
 ]
@@ -5140,6 +5141,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tilt-ui-example-icons-catalog"
+version = "0.0.0"
+dependencies = [
+ "bevy",
+ "tilt-ui",
+ "tilt-ui-build",
+ "tilt-ui-html",
+]
+
+[[package]]
 name = "tilt-ui-example-routing"
 version = "0.0.0"
 dependencies = [
@@ -5171,6 +5182,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tilt-ui-icons"
+version = "0.1.0"
+
+[[package]]
 name = "tilt-ui-macros"
 version = "0.1.0"
 dependencies = [
@@ -5190,6 +5205,7 @@ dependencies = [
  "image",
  "inventory",
  "parley",
+ "regex",
  "resvg",
  "rfd",
  "selectors 0.40.0",
@@ -5200,6 +5216,7 @@ dependencies = [
  "tilt-ui-core",
  "tilt-ui-css",
  "tilt-ui-html",
+ "tilt-ui-icons",
  "unic-langid",
  "wasm-bindgen-futures",
  "web-sys",

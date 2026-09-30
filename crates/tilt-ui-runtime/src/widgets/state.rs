@@ -228,12 +228,20 @@ pub(crate) fn set_widget_display(world: &mut World, entity: Entity, visible: boo
     } else {
         Display::None
     };
-    if let Some(mut node) = world.get_mut::<Node>(entity) {
-        node.display = display;
+    if world
+        .get::<Node>(entity)
+        .is_some_and(|node| node.display != display)
+    {
+        world.get_mut::<Node>(entity).unwrap().display = display;
     }
-    world
-        .entity_mut(entity)
-        .insert(WidgetDisplayOverride { hidden: !visible });
+    if world
+        .get::<WidgetDisplayOverride>(entity)
+        .is_none_or(|old| old.hidden != !visible)
+    {
+        world
+            .entity_mut(entity)
+            .insert(WidgetDisplayOverride { hidden: !visible });
+    }
 }
 
 /// Stores an editable string and cursor data for text controls.
@@ -266,6 +274,14 @@ pub struct EditableTextOptions {
     pub max_characters: Option<usize>,
     /// Maximum logical line count for a text area.
     pub max_lines: Option<usize>,
+    /// Regular expression that must match the complete nonempty value.
+    pub pattern: Option<String>,
+    /// Optional numeric lower bound.
+    pub min: Option<String>,
+    /// Optional numeric upper bound.
+    pub max: Option<String>,
+    /// Optional numeric increment.
+    pub step: Option<String>,
 }
 
 /// References the persistent visual entities used by an editable text control.
@@ -313,6 +329,11 @@ pub(crate) fn editable_invalid(
     {
         return true;
     }
+    if options.pattern.as_ref().is_some_and(|pattern| {
+        regex::Regex::new(&format!("^(?:{pattern})$")).map_or(true, |rule| !rule.is_match(value))
+    }) {
+        return true;
+    }
     match input_type {
         InputType::Email => {
             let mut pieces = value.split('@');
@@ -328,7 +349,40 @@ pub(crate) fn editable_invalid(
                 || pieces.next().is_some()
                 || value.chars().any(char::is_whitespace)
         }
-        InputType::Number | InputType::Range => value.parse::<f64>().is_err(),
+        InputType::Number | InputType::Range => {
+            let number = if input_type == InputType::Number {
+                crate::widgets::controls::input::number_expression(value)
+            } else {
+                value.parse::<f64>().ok()
+            };
+            let Some(number) = number.filter(|number| number.is_finite()) else {
+                return true;
+            };
+            options
+                .min
+                .as_deref()
+                .and_then(|min| min.parse::<f64>().ok())
+                .is_some_and(|min| number < min)
+                || options
+                    .max
+                    .as_deref()
+                    .and_then(|max| max.parse::<f64>().ok())
+                    .is_some_and(|max| number > max)
+                || options
+                    .step
+                    .as_deref()
+                    .and_then(|step| step.parse::<f64>().ok())
+                    .filter(|step| *step > 0.0)
+                    .is_some_and(|step| {
+                        let base = options
+                            .min
+                            .as_deref()
+                            .and_then(|min| min.parse::<f64>().ok())
+                            .unwrap_or(0.0);
+                        let steps = (number - base) / step;
+                        (steps - steps.round()).abs() > 1e-7
+                    })
+        }
         InputType::Date => !valid_iso_date(value),
         _ => false,
     }
@@ -517,6 +571,13 @@ pub(crate) fn update_range_layout(world: &mut World, entity: Entity) {
 /// Returns `true` when the entity owns editable text and its value changed.
 pub fn set_editable_text(world: &mut World, entity: Entity, value: impl Into<String>) -> bool {
     let value = value.into();
+    if world
+        .get::<EditableText>(entity)
+        .is_some_and(|state| state.input_type == InputType::Number)
+        && !crate::widgets::controls::input::number_characters_allowed(&value)
+    {
+        return false;
+    }
     {
         let Some(mut state) = world.get_mut::<EditableText>(entity) else {
             return false;
@@ -571,11 +632,19 @@ pub fn set_editable_text(world: &mut World, entity: Entity, value: impl Into<Str
         (Some(state), Some(options)) => editable_invalid(&state.value, state.input_type, options),
         _ => false,
     };
-    if let Some(mut state) = world.get_mut::<ElementState>(entity) {
-        if state.invalid != invalid {
-            state.invalid = invalid;
+    #[cfg(feature = "component")]
+    let managed_by_form = crate::widgets::structure::form::parent_form(world, entity).is_some();
+    #[cfg(not(feature = "component"))]
+    let managed_by_form = false;
+    if !managed_by_form {
+        if let Some(mut state) = world.get_mut::<ElementState>(entity) {
+            if state.invalid != invalid {
+                state.invalid = invalid;
+            }
         }
     }
+    #[cfg(feature = "component")]
+    crate::widgets::structure::form::mark_form_dirty(world, entity);
     true
 }
 

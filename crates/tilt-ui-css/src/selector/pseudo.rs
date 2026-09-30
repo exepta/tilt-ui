@@ -16,6 +16,8 @@ pub enum TiltUiPseudoClass {
     Focus,
     /// Matches a disabled node.
     Disabled,
+    /// Matches an active loading button.
+    Loading,
     /// Matches a checked node.
     Checked,
     /// Matches a readonly editable control.
@@ -24,6 +26,10 @@ pub enum TiltUiPseudoClass {
     Invalid,
     /// Matches an open popup control.
     Open,
+    /// Matches a dialog with animated presentation enabled.
+    Animated,
+    /// Matches a dialog during its exit animation.
+    Closing,
 }
 
 impl NonTSPseudoClass for TiltUiPseudoClass {
@@ -48,10 +54,13 @@ impl ToCss for TiltUiPseudoClass {
             Self::Active => ":active",
             Self::Focus => ":focus",
             Self::Disabled => ":disabled",
+            Self::Loading => ":loading",
             Self::Checked => ":checked",
             Self::Readonly => ":readonly",
             Self::Invalid => ":invalid",
             Self::Open => ":open",
+            Self::Animated => ":animated",
+            Self::Closing => ":closing",
         })
     }
 }
@@ -59,6 +68,8 @@ impl ToCss for TiltUiPseudoClass {
 /// Identifies a generated visual part of a TiltUI control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TiltUiPseudoElement {
+    /// Matches a loading button spinner.
+    Spinner,
     /// Matches a control indicator.
     Indicator,
     /// Matches a control checked mark.
@@ -83,6 +94,10 @@ pub enum TiltUiPseudoElement {
     Label,
     /// Matches a slider value tip.
     Tooltip,
+    /// Number input increment action.
+    Increment,
+    /// Number input decrement action.
+    Decrement,
     /// Matches a text-area resize handle.
     ResizeHandle,
     /// Matches the vertical scrollbar track.
@@ -99,6 +114,8 @@ pub enum TiltUiPseudoElement {
     Calendar,
     /// Matches a date-picker month header.
     CalendarHeader,
+    /// Matches a date-picker weekday heading.
+    CalendarWeekday,
     /// Matches the previous-month action.
     CalendarPrevious,
     /// Matches the next-month action.
@@ -109,6 +126,14 @@ pub enum TiltUiPseudoElement {
     HoveredCalendarDay,
     /// Matches a selected calendar day cell.
     SelectedCalendarDay,
+    /// Matches the first day of a selected date range.
+    RangeStartDay,
+    /// Matches a day between the start and end of a selected date range.
+    RangeMiddleDay,
+    /// Matches the last day of a selected date range.
+    RangeEndDay,
+    /// Matches a selected range containing only one day.
+    RangeSingleDay,
     /// Matches a disabled calendar day cell.
     DisabledCalendarDay,
     /// Matches the current color preview.
@@ -151,6 +176,7 @@ impl ToCss for TiltUiPseudoElement {
         W: fmt::Write,
     {
         destination.write_str(match self {
+            Self::Spinner => "::spinner",
             Self::Indicator => "::indicator",
             Self::Mark => "::mark",
             Self::Track => "::track",
@@ -163,6 +189,8 @@ impl ToCss for TiltUiPseudoElement {
             Self::Dot => "::dot",
             Self::Label => "::label",
             Self::Tooltip => "::tooltip",
+            Self::Increment => "::increment",
+            Self::Decrement => "::decrement",
             Self::ResizeHandle => "::resize-handle",
             Self::ScrollbarYTrack => "::scrollbar-y-track",
             Self::ScrollbarYThumb => "::scrollbar-y-thumb",
@@ -171,11 +199,16 @@ impl ToCss for TiltUiPseudoElement {
             Self::Popup => "::popup",
             Self::Calendar => "::calendar",
             Self::CalendarHeader => "::calendar-header",
+            Self::CalendarWeekday => "::weekday",
             Self::CalendarPrevious => "::calendar-previous",
             Self::CalendarNext => "::calendar-next",
             Self::CalendarDay => "::day",
             Self::HoveredCalendarDay => "::hovered-day",
             Self::SelectedCalendarDay => "::selected-day",
+            Self::RangeStartDay => "::range-start-day",
+            Self::RangeMiddleDay => "::range-middle-day",
+            Self::RangeEndDay => "::range-end-day",
+            Self::RangeSingleDay => "::range-single-day",
             Self::DisabledCalendarDay => "::disabled-day",
             Self::Preview => "::preview",
             Self::Swatch => "::swatch",

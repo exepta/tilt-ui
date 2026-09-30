@@ -56,6 +56,21 @@ fn typed_clicked(In(_event): In<HtmlClick>, mut hits: ResMut<Hits>) {
 #[html_fn("save_form")]
 fn saved(In(event): In<HtmlSubmit>, mut hits: ResMut<Hits>) {
     assert_eq!(event.data.get("title").map(String::as_str), Some("Draft"));
+    assert_eq!(
+        event.form_data.get("title"),
+        Some(&vec![
+            tilt_ui::FormValue::Text("Draft".into()),
+            tilt_ui::FormValue::Text("Revision".into()),
+        ])
+    );
+    assert_eq!(
+        event.form_data.get("upload"),
+        Some(&vec![tilt_ui::FormValue::File(tilt_ui::FormFile {
+            name: "notes.txt".into(),
+            size_bytes: Some(5),
+            native_path: None,
+        })])
+    );
     hits.submitted += 1;
 }
 
@@ -329,7 +344,24 @@ fn form_action_reaches_typed_submit_handler() {
             form,
             submitter,
             action: Some("save_form".into()),
-            data: [("title".into(), "Draft".into())].into(),
+            data: [
+                (
+                    "title".into(),
+                    vec![
+                        tilt_ui::FormValue::Text("Draft".into()),
+                        tilt_ui::FormValue::Text("Revision".into()),
+                    ],
+                ),
+                (
+                    "upload".into(),
+                    vec![tilt_ui::FormValue::File(tilt_ui::FormFile {
+                        name: "notes.txt".into(),
+                        size_bytes: Some(5),
+                        native_path: None,
+                    })],
+                ),
+            ]
+            .into(),
         });
     app.update();
     assert_eq!(app.world().resource::<Hits>().submitted, 1);

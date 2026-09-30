@@ -197,14 +197,23 @@ fn sync_dialog_backdrops(world: &mut World) {
         return;
     };
     let open = {
-        let mut dialogs = world.query::<(Entity, &DialogState, Option<&BackdropFilter>)>();
+        let mut dialogs = world.query::<(
+            Entity,
+            &DialogState,
+            Option<&BackdropFilter>,
+            Option<&crate::style::apply::ResolvedOpacity>,
+        )>();
         let mut open = Vec::new();
-        for (entity, state, filter) in dialogs.iter(world) {
-            if state.open && state.renderer == DialogRenderer::Bevy {
+        for (entity, state, filter, opacity) in dialogs.iter(world) {
+            if (state.open || state.closing) && state.renderer == DialogRenderer::Bevy {
                 if let Some(filter) = filter
                     && filter_parameters(&filter.0).is_some()
                 {
-                    open.push((entity, filter.0.clone()));
+                    open.push((
+                        entity,
+                        filter.0.clone(),
+                        opacity.map_or(if state.animated { 0.0 } else { 1.0 }, |opacity| opacity.0),
+                    ));
                 }
             }
         }
@@ -233,14 +242,20 @@ fn sync_dialog_backdrops(world: &mut World) {
         desired.animated_radii = animation.radii;
         desired.animated_specs = animation.specs;
     }
-    for (_, filters) in &open {
+    for (_, filters, opacity) in &open {
         if desired.control.x >= 8.0 {
             break;
         }
         let index = desired.control.x as usize;
         desired.rects[index] = Vec4::new(0.0, 0.0, 1.0, 1.0);
         desired.boxes[index] = desired.rects[index];
-        desired.filters[index] = filter_parameters(filters).unwrap_or(Vec4::ZERO);
+        let mut params = filter_parameters(filters).unwrap_or(Vec4::ZERO);
+        let opacity = opacity.clamp(0.0, 1.0);
+        params.x *= opacity;
+        params.y *= opacity;
+        params.z = 1.0 + (params.z - 1.0) * opacity;
+        params.w *= opacity;
+        desired.filters[index] = params;
         desired.control.x += 1.0;
     }
     let generic = {
@@ -363,7 +378,7 @@ fn sync_dialog_backdrops(world: &mut World) {
     } else if !hdr {
         world.entity_mut(overlay).remove::<Hdr>();
     }
-    for (entity, _) in open {
+    for (entity, _, _) in open {
         if world.get::<DetachedDialog>(entity).is_some() {
             continue;
         }
@@ -582,7 +597,7 @@ fn restore_closed_dialogs(world: &mut World) {
         let mut query = world.query::<(Entity, &DetachedDialog, &DialogState)>();
         query
             .iter(world)
-            .filter(|(_, _, state)| !state.open)
+            .filter(|(_, _, state)| !state.open && !state.closing)
             .map(|(entity, parent, _)| (entity, parent.0))
             .collect::<Vec<_>>()
     };

@@ -62,6 +62,7 @@ pub(crate) fn parse_declaration(
             "not-allowed" => CssCursor::NotAllowed,
             "col-resize" => CssCursor::ColResize,
             "row-resize" => CssCursor::RowResize,
+            "nwse-resize" => CssCursor::NwseResize,
             value => return invalid_keyword(property, value),
         }),
         "z-index" => StyleDeclaration::ZIndex(parse_z_index(input)?),

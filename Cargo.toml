@@ -24,6 +24,7 @@ tilt-ui-core = { path = "crates/tilt-ui-core" }
 tilt-ui-html = { path = "crates/tilt-ui-html" }
 tilt-ui-css = { path = "crates/tilt-ui-css" }
 tilt-ui-runtime = { path = "crates/tilt-ui-runtime" }
+tilt-ui-icons = { path = "crates/tilt-ui-icons" }
 tilt-ui-macros = { path = "crates/tilt-ui-macros" }
 tilt-ui-build = { path = "crates/tilt-ui-build" }
 

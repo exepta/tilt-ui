@@ -8,6 +8,22 @@ use tilt_ui_core::TemplateAttribute;
 
 use crate::{ControlChecked, ElementState, TiltText};
 
+/// Finds selectable options through authored grouping containers in document order.
+pub(crate) fn descendants(world: &World, root: Entity) -> Vec<Entity> {
+    let mut result = Vec::new();
+    let mut pending = vec![root];
+    while let Some(entity) = pending.pop() {
+        if entity != root && world.get::<OptionData>(entity).is_some() {
+            result.push(entity);
+            continue;
+        }
+        if let Some(children) = world.get::<bevy::ecs::hierarchy::Children>(entity) {
+            pending.extend(children.iter().rev());
+        }
+    }
+    result
+}
+
 /// Stores an option's value and authored display label.
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
 pub struct OptionData {

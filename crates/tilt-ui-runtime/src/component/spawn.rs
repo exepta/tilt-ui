@@ -273,6 +273,7 @@ pub(super) fn resolve_template_targets(world: &mut World, owner: Entity) {
     crate::widgets::advanced::tooltip::resolve_targets(world, owner);
     crate::widgets::advanced::date_picker::resolve_targets(world, owner);
     crate::widgets::advanced::dialog::resolve_targets(world, owner);
+    crate::widgets::advanced::toast::resolve_targets(world, owner);
     crate::widgets::content::badge::resolve_targets(world, owner);
     crate::widgets::content::image::resolve_preview_targets(world, owner);
     crate::control::context_menu::resolve_targets(world, owner);

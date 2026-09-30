@@ -12,7 +12,8 @@ use bevy::{
     image::{Image, ImageSampler},
     text::{FontSource, Justify, LineBreak, LineHeight, TextColor, TextFont, TextLayout},
     ui::{
-        BackgroundColor, BorderColor, BoxShadow, Node, Outline, ShadowStyle, UiTransform, ZIndex,
+        BackgroundColor, BorderColor, BoxShadow, Node, Outline, ShadowStyle, UiTransform, Val,
+        ZIndex,
         widget::{ImageNode, NodeImageMode, Text, TextShadow},
     },
     ui_render::ui_material::MaterialNode,
@@ -152,7 +153,7 @@ pub(crate) struct PreviousComputedStyle(pub ComputedStyle);
 
 /// Product of this element's opacity and every styled ancestor's opacity.
 #[derive(bevy::ecs::component::Component, Clone, Copy, PartialEq)]
-struct ResolvedOpacity(f32);
+pub(crate) struct ResolvedOpacity(pub(crate) f32);
 
 #[derive(bevy::ecs::component::Component, Clone, Copy)]
 struct OriginalPickable(Option<Pickable>);
@@ -374,6 +375,30 @@ fn apply_element(world: &mut World, entity: Entity, style: &ComputedStyle) {
 
 /// Applies a temporary motion result without replacing the resolved base style.
 pub(crate) fn apply_motion_style(world: &mut World, entity: Entity, style: &ComputedStyle) {
+    // Transform-only motion (notably continuously rotating spinners) must not
+    // rewrite Node on every frame. A Node change invalidates the layout of the
+    // whole UI tree, which is especially costly while a large page is scrolling.
+    let previous = world
+        .get::<MotionDisplayedStyle>(entity)
+        .map(|displayed| &displayed.0)
+        .or_else(|| {
+            world
+                .get::<RuntimeComputedStyle>(entity)
+                .map(|base| &base.0)
+        });
+    if let Some(previous) = previous {
+        let mut without_transform = style.clone();
+        without_transform.transform = previous.transform;
+        if &without_transform == previous {
+            let transform = style
+                .transform
+                .map_or(UiTransform::IDENTITY, convert::transform);
+            if world.get::<UiTransform>(entity) != Some(&transform) {
+                world.entity_mut(entity).insert(transform);
+            }
+            return;
+        }
+    }
     let parent_opacity = nearest_parent_opacity(world, entity);
     let opacity = parent_opacity * style.opacity.unwrap_or(1.0);
     let opacity_changed = world
@@ -476,8 +501,19 @@ fn apply_element_visual(world: &mut World, entity: Entity, style: &ComputedStyle
     let opacity = world
         .get::<ResolvedOpacity>(entity)
         .map_or(1.0, |value| value.0);
+    let icon_size = world
+        .get::<crate::render::image::IconElementSize>(entity)
+        .copied();
     if let Some(mut node) = world.get_mut::<Node>(entity) {
         apply_node(&mut node, style);
+        if let Some(size) = icon_size {
+            if style.width.is_none() {
+                node.width = Val::Px(size.0 as f32);
+            }
+            if style.height.is_none() {
+                node.height = Val::Px(size.0 as f32);
+            }
+        }
     }
     if let Some(table) = world
         .get::<crate::widgets::structure::table::TableInfo>(entity)
@@ -659,12 +695,17 @@ fn apply_element_visual(world: &mut World, entity: Entity, style: &ComputedStyle
                         .remove::<(PositionedContain, MaterialNode<PositionedContainMaterial>)>();
                 }
                 if let Some(mut node) = world.get_mut::<ImageNode>(entity) {
-                    node.color = bevy::color::Color::srgba(
-                        1.0,
-                        1.0,
-                        1.0,
-                        if positioned { 0.0 } else { opacity },
-                    );
+                    let icon_source = matches!(source, CssBackgroundImage::Url(url) if url.starts_with("tilt-icon:"));
+                    let alpha = if positioned { 0.0 } else { opacity };
+                    node.color = if icon_source {
+                        style
+                            .color
+                            .map_or(bevy::color::Color::WHITE.with_alpha(alpha), |color| {
+                                color_with_opacity(color, alpha)
+                            })
+                    } else {
+                        bevy::color::Color::WHITE.with_alpha(alpha)
+                    };
                 }
                 if let Some(effects) = effects {
                     if !filter_matches {
@@ -700,7 +741,7 @@ fn apply_element_visual(world: &mut World, entity: Entity, style: &ComputedStyle
         applied.gradient = false;
     }
     if !applied.gradient {
-        apply_image_opacity(world, entity, opacity);
+        apply_image_opacity(world, entity, style, opacity);
     }
     let procedural_border = apply_border(world, entity, style, opacity);
     if procedural_border {
@@ -802,10 +843,35 @@ fn apply_element_visual(world: &mut World, entity: Entity, style: &ComputedStyle
     world.entity_mut(entity).insert(applied);
 }
 
-fn apply_image_opacity(world: &mut World, entity: Entity, opacity: f32) {
+fn apply_image_opacity(world: &mut World, entity: Entity, style: &ComputedStyle, opacity: f32) {
     let Some(current) = world.get::<ImageNode>(entity).map(|node| node.color) else {
         return;
     };
+    if matches!(style.background_image.as_ref(), Some(CssBackgroundImage::Url(source)) if source.starts_with("tilt-icon:"))
+        && world
+            .get::<crate::widgets::content::image::ImageMetadata>(entity)
+            .is_none()
+    {
+        // The CSS background branch already applied opacity to its tint.
+        world.entity_mut(entity).remove::<OriginalImageColor>();
+        return;
+    }
+    if world
+        .get::<crate::widgets::content::image::ImageMetadata>(entity)
+        .and_then(|metadata| metadata.source.as_deref())
+        .is_some_and(|source| source.starts_with("tilt-icon:"))
+    {
+        let tint = style
+            .color
+            .map_or(bevy::color::Color::WHITE.with_alpha(opacity), |color| {
+                color_with_opacity(color, opacity)
+            });
+        if current != tint {
+            world.get_mut::<ImageNode>(entity).unwrap().color = tint;
+        }
+        world.entity_mut(entity).remove::<OriginalImageColor>();
+        return;
+    }
     if opacity < 1.0 {
         let original = world
             .get::<OriginalImageColor>(entity)
@@ -922,6 +988,7 @@ fn apply_interaction_style(
             tilt_ui_css::CssCursor::NotAllowed => Some(SystemCursorIcon::NotAllowed),
             tilt_ui_css::CssCursor::ColResize => Some(SystemCursorIcon::ColResize),
             tilt_ui_css::CssCursor::RowResize => Some(SystemCursorIcon::RowResize),
+            tilt_ui_css::CssCursor::NwseResize => Some(SystemCursorIcon::NwseResize),
         };
         world
             .entity_mut(entity)
@@ -1385,6 +1452,46 @@ mod table_tests {
 
     use super::{apply_element_visual, apply_node};
     use crate::TableInfo;
+
+    #[cfg(feature = "tilt-icons")]
+    #[test]
+    fn catalog_images_and_css_backgrounds_use_css_color() {
+        use bevy::ui::widget::ImageNode;
+        use tilt_ui_css::{CssBackgroundImage, CssColor};
+
+        let mut world = World::new();
+        let tint = CssColor::rgba(0.4, 0.2, 0.8, 1.0);
+        let image = world
+            .spawn((
+                ImageNode::default(),
+                crate::ImageMetadata {
+                    source: Some("tilt-icon:home@32".into()),
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let style = ComputedStyle {
+            color: Some(tint),
+            ..Default::default()
+        };
+        apply_element_visual(&mut world, image, &style);
+        assert_eq!(
+            world.get::<ImageNode>(image).unwrap().color,
+            super::color_with_opacity(tint, 1.0)
+        );
+
+        let background = world.spawn(Node::default()).id();
+        let style = ComputedStyle {
+            color: Some(tint),
+            background_image: Some(CssBackgroundImage::Url("tilt-icon:star@32".into())),
+            ..Default::default()
+        };
+        apply_element_visual(&mut world, background, &style);
+        assert_eq!(
+            world.get::<ImageNode>(background).unwrap().color,
+            super::color_with_opacity(tint, 1.0)
+        );
+    }
 
     #[test]
     fn restyling_preserves_a_cached_filtered_background() {

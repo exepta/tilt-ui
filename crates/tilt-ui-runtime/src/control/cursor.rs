@@ -13,7 +13,9 @@ use bevy::{
 use bevy_picking::{hover::HoverMap, pointer::PointerId};
 use tilt_ui_core::ElementKind;
 
-use crate::TiltElement;
+use crate::{ControlPart, ControlPartKind, TiltElement};
+
+use super::drag::{ActiveControlDrag, DragKind};
 
 /// Overrides the cursor while this element or a descendant is hovered.
 /// The closest explicit override wins, before built-in control defaults.
@@ -46,6 +48,7 @@ fn cursor_for_target(
     mut entity: Entity,
     parents: &Query<&ChildOf>,
     elements: &Query<&TiltElement>,
+    parts: &Query<&ControlPart>,
     buttons: &Query<(), With<Button>>,
     cursors: &Query<&UiCursor>,
     css_cursors: &Query<&CssCursor>,
@@ -67,6 +70,12 @@ fn cursor_for_target(
         ancestor = parent.parent();
     }
     loop {
+        if parts
+            .get(entity)
+            .is_ok_and(|part| part.kind == ControlPartKind::ResizeHandle)
+        {
+            return SystemCursorIcon::NwseResize.into();
+        }
         if let Ok(element) = elements.get(entity) {
             match element.kind {
                 ElementKind::Input | ElementKind::TextArea => return SystemCursorIcon::Text.into(),
@@ -95,9 +104,11 @@ pub(super) fn update_ui_cursor(
     hover: Option<Res<HoverMap>>,
     parents: Query<&ChildOf>,
     elements: Query<&TiltElement>,
+    parts: Query<&ControlPart>,
     buttons: Query<(), With<Button>>,
     cursors: Query<&UiCursor>,
     css_cursors: Query<&CssCursor>,
+    active_drags: Query<&ActiveControlDrag>,
     mut windows: Query<(Entity, &Window, Option<&mut CursorIcon>)>,
 ) {
     let hovered = hover
@@ -113,14 +124,22 @@ pub(super) fn update_ui_cursor(
             entity,
             &parents,
             &elements,
+            &parts,
             &buttons,
             &cursors,
             &css_cursors,
         )
     });
+    let resizing = active_drags.iter().any(|drag| {
+        drag.pointer == PointerId::Mouse && matches!(drag.kind, DragKind::TextAreaResize { .. })
+    });
     for (entity, window, current) in &mut windows {
         let icon = if window.cursor_position().is_some() {
-            hovered_icon.clone().unwrap_or_default()
+            if resizing {
+                SystemCursorIcon::NwseResize.into()
+            } else {
+                hovered_icon.clone().unwrap_or_default()
+            }
         } else {
             CursorIcon::default()
         };
@@ -263,6 +282,63 @@ mod tests {
         assert_eq!(
             app.world().get::<CursorIcon>(window),
             Some(&SystemCursorIcon::Pointer.into())
+        );
+    }
+
+    #[test]
+    fn textarea_resize_cursor_stays_active_after_leaving_the_handle() {
+        use super::super::drag::{ActiveControlDrag, DragKind};
+        use crate::{ControlPart, ControlPartKind};
+
+        let mut app = App::new();
+        app.insert_resource(HoverMap::default())
+            .add_systems(Update, update_ui_cursor);
+        let mut window = Window::default();
+        window.set_cursor_position(Some(Vec2::ONE));
+        let window = app.world_mut().spawn(window).id();
+        let area = app
+            .world_mut()
+            .spawn(TiltElement {
+                kind: ElementKind::TextArea,
+            })
+            .id();
+        let handle = app
+            .world_mut()
+            .spawn(ControlPart {
+                owner: area,
+                kind: ControlPartKind::ResizeHandle,
+            })
+            .id();
+        app.world_mut().entity_mut(area).add_child(handle);
+
+        hover(&mut app, handle, window);
+        app.update();
+        assert_eq!(
+            app.world().get::<CursorIcon>(window),
+            Some(&SystemCursorIcon::NwseResize.into())
+        );
+
+        app.world_mut().entity_mut(area).insert(ActiveControlDrag {
+            pointer: PointerId::Mouse,
+            kind: DragKind::TextAreaResize {
+                initial_size: Vec2::ZERO,
+                initial_pointer: Vec2::ZERO,
+            },
+        });
+        hover(&mut app, area, window);
+        app.update();
+        assert_eq!(
+            app.world().get::<CursorIcon>(window),
+            Some(&SystemCursorIcon::NwseResize.into())
+        );
+
+        app.world_mut()
+            .entity_mut(area)
+            .remove::<ActiveControlDrag>();
+        app.update();
+        assert_eq!(
+            app.world().get::<CursorIcon>(window),
+            Some(&SystemCursorIcon::Text.into())
         );
     }
 

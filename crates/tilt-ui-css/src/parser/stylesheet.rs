@@ -1246,6 +1246,11 @@ mod tests {
         );
         assert!(parse_stylesheet(".bad { z-index: 1.5; }").is_err());
         assert!(parse_stylesheet(".bad { scroll-width: -2px; }").is_err());
+        let resize = parse_stylesheet("textarea::resize-handle { cursor: nwse-resize; }").unwrap();
+        assert_eq!(
+            resize.rules()[0].declarations,
+            [StyleDeclaration::Cursor(CssCursor::NwseResize)]
+        );
     }
 
     #[test]

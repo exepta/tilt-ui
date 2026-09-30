@@ -6,7 +6,7 @@ use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 use tilt_ui::{
     ChoiceBoxParts, ControlChecked, DialogClosed, DialogConfig, DialogState, EditableTextChanged,
     EditableTextCommitted, ElementId, HtmlClick, HtmlEvent, OptionData, OptionSelectionChanged,
-    ShowDialog, SliderChanged, SliderCommitted, UiFrameRate, UiLocalization, UiThemes,
+    ShowDialog, ShowToast, SliderChanged, SliderCommitted, ToastConfig, UiFrameRate, UiLocalization, UiThemes,
     component_init, component_update, html_fn, html_shared, open_dialog, set_option_selected,
     set_progress_value, spawn_component, switch_ui_theme,
 };
@@ -37,6 +37,7 @@ struct ShowcaseState {
     table_feedback: String,
     custom_fps: u32,
     custom_fps_disabled: bool,
+    button_loading: bool,
     current_fps: String,
     #[serde(skip)]
     started_at: f32,
@@ -63,6 +64,7 @@ fn show_page(mut commands: Commands, mut localization: ResMut<UiLocalization>) {
         table_feedback: "—".into(),
         custom_fps: 120,
         custom_fps_disabled: true,
+        button_loading: true,
         current_fps: "--".into(),
         started_at: -2.666,
     });
@@ -78,11 +80,14 @@ fn animate_progress(
     state: Res<ShowcaseState>,
     mut commands: Commands,
     elements: Query<(Entity, &ElementId)>,
+    ranges: Query<&tilt_ui::NumericRange>,
     children: Query<&Children>,
     mut labels: Query<&mut Text>,
     mut targets: Local<Option<(Entity, Entity)>>,
 ) {
-    let next = ((time.elapsed_secs() - state.started_at) * 15.0) % 100.0;
+    // The progress bar displays whole percentages. Avoid relayout on every
+    // frame for sub-percent changes the user cannot see.
+    let next = (((time.elapsed_secs() - state.started_at) * 15.0) % 100.0).round();
     if targets.is_none_or(|(progress, label)| {
         elements.get(progress).is_err() || labels.get(label).is_err()
     }) {
@@ -100,9 +105,11 @@ fn animate_progress(
         *targets = progress.zip(label);
     }
     let Some((progress, label)) = *targets else { return; };
-    commands.queue(move |world: &mut World| {
-        set_progress_value(world, progress, next);
-    });
+    if ranges.get(progress).is_ok_and(|range| (range.value - next).abs() > f32::EPSILON) {
+        commands.queue(move |world: &mut World| {
+            set_progress_value(world, progress, next);
+        });
+    }
     if let Ok(mut text) = labels.get_mut(label) {
         let value = format!("{}%", next.round() as u32);
         if text.0 != value {
@@ -280,18 +287,28 @@ fn reflect_current_fps(
     frame_count: Res<FrameCount>,
     frame_rate: Res<UiFrameRate>,
     mut state: ResMut<ShowcaseState>,
+    elements: Query<(Entity, &ElementId)>,
+    children: Query<&Children>,
+    mut texts: Query<&mut Text>,
     mut sample: Local<Option<(u32, f64)>>,
+    mut display: Local<Option<Entity>>,
 ) {
     if frame_rate.is_changed() {
         *sample = Some((frame_count.0, time.elapsed_secs_f64()));
-        state.current_fps = "--".into();
+        state.bypass_change_detection().current_fps = "--".into();
+    } else if let Some(fps) = sampled_fps(&mut sample, frame_count.0, time.elapsed_secs_f64()) {
+        state.bypass_change_detection().current_fps = fps.to_string();
+    } else {
         return;
     }
-    if let Some(fps) = sampled_fps(&mut sample, frame_count.0, time.elapsed_secs_f64()) {
-        let current = fps.to_string();
-        if state.current_fps != current {
-            state.current_fps = current;
-        }
+    if display.is_none_or(|entity| texts.get(entity).is_err()) {
+        *display = elements.iter().find(|(_, id)| id.0 == "fps-current-value")
+            .and_then(|(entity, _)| children.get(entity).ok())
+            .and_then(|children| children.iter().find(|child| texts.get(*child).is_ok()));
+    }
+    if let Some(entity) = *display && let Ok(mut text) = texts.get_mut(entity) {
+        let next = format!("{} FPS", state.current_fps);
+        if text.0 != next { text.0 = next; }
     }
 }
 
@@ -331,12 +348,17 @@ fn rust_dialog(localization: &UiLocalization) -> DialogConfig {
     let body = localization
         .translate("dialog-rust-body", None)
         .unwrap_or_else(|| "This dialog was created in Rust.".into());
-    DialogConfig::question(title, body)
+    DialogConfig::question(title, body).with_animated(true)
 }
 
 #[html_fn("reset_progress")]
 fn reset_progress(In(_event): In<HtmlEvent>, time: Res<Time>, mut state: ResMut<ShowcaseState>) {
     state.started_at = time.elapsed_secs();
+}
+
+#[html_fn("toggle_loading")]
+fn toggle_loading(In(_event): In<HtmlEvent>, mut state: ResMut<ShowcaseState>) {
+    state.button_loading = !state.button_loading;
 }
 
 #[html_fn("track_event")]
@@ -374,6 +396,30 @@ fn open_rust_dialog(
         parent: click.target,
         config: rust_dialog(&localization),
     });
+}
+
+#[html_fn("show_demo_toast")]
+fn show_demo_toast(
+    In(click): In<HtmlClick>,
+    ids: Query<&ElementId>,
+    localization: Res<UiLocalization>,
+    mut toasts: MessageWriter<ShowToast>,
+) {
+    let Ok(id) = ids.get(click.target) else { return; };
+    let (kind, title_key, body_key) = match id.0.as_str() {
+        "show-success-toast" => ("success", "toast-success-title", "toast-success-body"),
+        "show-error-toast" => ("error", "toast-error-title", "toast-error-body"),
+        "show-warning-toast" => ("warning", "toast-warning-title", "toast-warning-body"),
+        _ => return,
+    };
+    let title = localization.translate(title_key, None).unwrap_or_default();
+    let body = localization.translate(body_key, None).unwrap_or_default();
+    let config = match kind {
+        "success" => ToastConfig::success(title, body),
+        "error" => ToastConfig::error(title, body),
+        _ => ToastConfig::warning(title, body),
+    };
+    toasts.write(ShowToast { parent: click.target, config });
 }
 
 #[component_update]
@@ -461,6 +507,7 @@ mod tests {
             event_name: String::new(),
             event_detail: String::new(),
             table_feedback: "—".into(),
+            button_loading: true,
             custom_fps: 60,
             custom_fps_disabled: true,
             current_fps: "--".into(),
@@ -474,6 +521,7 @@ mod tests {
             value,
             submitter: None,
             data: Default::default(),
+            form_data: None,
             handler: "table_action".into(),
         };
         app.world_mut()
@@ -506,6 +554,7 @@ mod tests {
                 event_name: String::new(),
                 event_detail: String::new(),
                 table_feedback: "—".into(),
+                button_loading: true,
                 custom_fps: 120,
                 custom_fps_disabled: true,
                 current_fps: "--".into(),
@@ -533,6 +582,7 @@ mod tests {
                 event_name: String::new(),
                 event_detail: String::new(),
                 table_feedback: "—".into(),
+                button_loading: true,
                 custom_fps: 120,
                 custom_fps_disabled: true,
                 current_fps: "--".into(),
@@ -706,6 +756,7 @@ mod tests {
                 event_name: String::new(),
                 event_detail: String::new(),
                 table_feedback: "—".into(),
+                button_loading: true,
                 custom_fps: 120,
                 custom_fps_disabled: true,
                 current_fps: "--".into(),

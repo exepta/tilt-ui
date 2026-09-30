@@ -93,6 +93,8 @@ pub struct ControlPart {
 /// Classifies the persistent visual parts currently used by native controls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlPartKind {
+    /// CSS-stylable spinner on a loading button.
+    Spinner,
     /// A checked indicator used by checkbox and radio controls.
     Indicator,
     /// A switch track that contains the thumb.
@@ -117,12 +119,18 @@ pub enum ControlPartKind {
     Label,
     /// A persistent slider value tip.
     Tooltip,
+    /// Increase a number input by one configured step.
+    Increment,
+    /// Decrease a number input by one configured step.
+    Decrement,
     /// A persistent popup surface for a choice control.
     Popup,
     /// Container for the calendar's day cells.
     Calendar,
     /// Calendar month label and navigation row.
     CalendarHeader,
+    /// Abbreviated weekday in a date-picker calendar.
+    CalendarWeekday,
     /// Previous-month action.
     CalendarPrevious,
     /// Next-month action.
@@ -201,6 +209,8 @@ pub fn set_control_checked(world: &mut World, entity: Entity, checked: bool) -> 
         return false;
     }
     sync_checked_projection(world, entity, checked);
+    #[cfg(feature = "component")]
+    crate::widgets::structure::form::mark_form_dirty(world, entity);
     true
 }
 

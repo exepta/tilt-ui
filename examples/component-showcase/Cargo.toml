@@ -19,7 +19,7 @@ bevy = { workspace = true, features = [
     "wayland",
     "x11",
 ] }
-tilt-ui = { workspace = true, features = ["fluent"] }
+tilt-ui = { workspace = true, features = ["fluent", "tilt-icons"] }
 serde.workspace = true
 
 [build-dependencies]

@@ -22,6 +22,7 @@ use bevy::{
     ui::ComputedNode,
     window::{PrimaryWindow, Window},
 };
+use selectors::parser::{Combinator, Component as SelectorComponent};
 
 use crate::component::document::DocumentStylesheets;
 use crate::scroll::ensure_scrollbar_parts;
@@ -45,7 +46,7 @@ use super::{
 struct DeferredValueContext(bevy::math::Vec2);
 
 type SelectorMetadataChanged = bevy::ecs::query::Or<(
-    Changed<ElementState>,
+    Changed<crate::widgets::advanced::date_picker::CalendarRangePosition>,
     Changed<ElementClasses>,
     Changed<ElementId>,
     Changed<StaticAttributes>,
@@ -74,7 +75,13 @@ pub(crate) fn author_style_pending(world: &World, entity: Entity) -> bool {
 struct MediaMatchState(Vec<bool>);
 
 #[derive(Resource, Default)]
-struct StyleInvalidations(HashMap<Entity, HashSet<Entity>>);
+struct StyleInvalidations(HashMap<Entity, StyleInvalidation>);
+
+#[derive(Default)]
+struct StyleInvalidation {
+    entities: HashSet<Entity>,
+    metadata_changed: bool,
+}
 
 #[derive(Component)]
 struct StyleSelectorCache(SelectorView);
@@ -108,6 +115,7 @@ impl Plugin for TiltUiStyleRuntimePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(super::background::BackgroundRuntimePlugin);
         app.add_plugins(super::border::BorderRuntimePlugin);
+        app.add_plugins(crate::widgets::advanced::tooltip::TooltipNosePlugin);
         app.add_plugins(super::backdrop::BackdropRuntimePlugin);
         app.add_plugins(super::animated::AnimatedRuntimePlugin);
         app.add_message::<AssetEvent<UiStyleSheetAsset>>();
@@ -126,6 +134,7 @@ impl Plugin for TiltUiStyleRuntimePlugin {
                 mark_ready_author_styles,
                 mark_changed_style_owners,
                 apply_dirty_styles.in_set(TiltUiStyleRuntimeSet::Apply),
+                crate::widgets::controls::checkbox::sync_markers,
                 sync_text_transform,
                 tick_animations,
             )
@@ -323,15 +332,26 @@ fn mark_changed_style_owners(
     mut commands: Commands<'_, '_>,
     mut invalidations: ResMut<'_, StyleInvalidations>,
     changed: Query<'_, '_, (Entity, &ComponentStyleOwner), SelectorMetadataChanged>,
+    state_changed: Query<'_, '_, (Entity, &ComponentStyleOwner), Changed<ElementState>>,
     changed_inline: Query<'_, '_, &ComponentStyleOwner, Changed<InlineStyle>>,
     hierarchy_changed: Query<'_, '_, &ComponentStyleOwner, Changed<ChildOf>>,
 ) {
+    for (entity, owner) in &state_changed {
+        invalidations
+            .0
+            .entry(owner.0)
+            .or_default()
+            .entities
+            .insert(entity);
+    }
     for (entity, owner) in &changed {
         // The selector view includes descendants and following siblings in a
         // partial invalidation. That also propagates changed CSS variables;
         // marking the whole scope dirty here would restyle every widget on
         // each hover transition.
-        invalidations.0.entry(owner.0).or_default().insert(entity);
+        let entry = invalidations.0.entry(owner.0).or_default();
+        entry.entities.insert(entity);
+        entry.metadata_changed = true;
     }
     for owner in &changed_inline {
         commands.entity(owner.0).insert(StyleDirty);
@@ -477,7 +497,7 @@ fn restyle_scope(
     themes: &UiThemes,
     providers: &UiProviderRegistry,
     environment: tilt_ui_css::MediaEnvironment,
-    changed: Option<&HashSet<Entity>>,
+    changed: Option<&StyleInvalidation>,
 ) -> Option<tilt_ui_css::StyleSheet> {
     let stylesheet =
         merge_author_stylesheets(world.resource::<Assets<UiStyleSheetAsset>>(), handles);
@@ -501,12 +521,28 @@ fn restyle_scope(
     } else {
         SelectorView::build(world, owner)
     };
-    if changed.is_some_and(|changed| !view.refresh(world, changed)) {
+    if changed.is_some_and(|changed| !view.refresh(world, &changed.entities)) {
         view = SelectorView::build(world, owner);
     }
+    let allow_sibling_dependents = changed.is_none_or(|changed| {
+        changed.metadata_changed
+            || providers.may_provide_stylesheets()
+            || default_theme.is_some_and(has_stateful_sibling_selector)
+            || stylesheet
+                .as_ref()
+                .is_some_and(has_stateful_sibling_selector)
+            || document_styles
+                .as_deref()
+                .is_some_and(has_stateful_sibling_selector)
+            || themes
+                .names()
+                .into_iter()
+                .filter_map(|name| themes.get(name))
+                .any(has_stateful_sibling_selector)
+    });
     let affected = changed.map_or_else(
         || view.entities().collect::<Vec<_>>(),
-        |changed| view.affected_by(changed),
+        |changed| view.affected_by(&changed.entities, allow_sibling_dependents),
     );
     let mut overflow_changed = false;
     let mut provider_cache = HashMap::new();
@@ -635,6 +671,41 @@ fn restyle_scope(
     reconcile_scope(world, owner, stylesheet.as_ref(), default_theme);
     world.entity_mut(owner).insert(StyleSelectorCache(view));
     stylesheet
+}
+
+fn has_stateful_sibling_selector(sheet: &tilt_ui_css::StyleSheet) -> bool {
+    sheet
+        .rules()
+        .iter()
+        .chain(
+            sheet
+                .media_rules()
+                .iter()
+                .flat_map(|media| media.rules.iter()),
+        )
+        .any(|rule| {
+            rule.selectors.slice().iter().any(|selector| {
+                let mut sibling = false;
+                let mut state = false;
+                for component in selector.iter_raw_match_order() {
+                    match component {
+                        SelectorComponent::Combinator(
+                            Combinator::NextSibling | Combinator::LaterSibling,
+                        ) => {
+                            sibling = true;
+                        }
+                        SelectorComponent::NonTSPseudoClass(_)
+                        | SelectorComponent::Negation(_)
+                        | SelectorComponent::Is(_)
+                        | SelectorComponent::Where(_)
+                        | SelectorComponent::NthOf(_)
+                        | SelectorComponent::Has(_) => state = true,
+                        _ => {}
+                    }
+                }
+                sibling && state
+            })
+        })
 }
 
 fn hierarchy_depth(world: &World, entity: Entity) -> usize {
@@ -902,7 +973,19 @@ mod tests {
     use tilt_ui_core::ElementKind;
     use tilt_ui_css::parse_stylesheet;
 
-    use super::{TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin, merge_author_stylesheets};
+    use super::{
+        TiltUiMediaEnvironment, TiltUiStyleRuntimePlugin, has_stateful_sibling_selector,
+        merge_author_stylesheets,
+    };
+
+    #[test]
+    fn state_changes_skip_static_sibling_rules_but_keep_stateful_ones() {
+        let static_sibling =
+            parse_stylesheet("p + p { color: red; } .card:hover { color: blue; }").unwrap();
+        assert!(!has_stateful_sibling_selector(&static_sibling));
+        let stateful_sibling = parse_stylesheet(".card:hover + p { color: red; }").unwrap();
+        assert!(has_stateful_sibling_selector(&stateful_sibling));
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
@@ -2229,6 +2312,92 @@ mod tests {
         assert_eq!(track_node.height, Val::Px(6.0));
         assert_eq!(thumb_node.height, Val::Px(18.0));
         assert_eq!(thumb_node.top, Val::Px(-6.0));
+    }
+
+    #[test]
+    fn number_input_actions_sit_side_by_side() {
+        let mut app = themed_app();
+        let handle = stylesheet(app.world_mut(), "");
+        let boundary = owner(app.world_mut(), handle);
+        let input = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Input,
+                },
+                ComponentStyleOwner(boundary),
+                crate::StaticAttributes {
+                    attributes: vec![
+                        crate::StaticAttribute {
+                            name: "type".into(),
+                            value: "number".into(),
+                        },
+                        crate::StaticAttribute {
+                            name: "show-fields".into(),
+                            value: "true".into(),
+                        },
+                    ],
+                },
+                Node::default(),
+            ))
+            .id();
+        let part = |app: &mut App, kind, label| {
+            let button = app
+                .world_mut()
+                .spawn((
+                    crate::ControlPart { owner: input, kind },
+                    ComponentStyleOwner(boundary),
+                    Node::default(),
+                ))
+                .id();
+            let text = app
+                .world_mut()
+                .spawn((Node::default(), bevy::ui::widget::Text::new(label)))
+                .id();
+            app.world_mut().entity_mut(button).add_child(text);
+            (button, text)
+        };
+        let (decrement, minus_text) = part(&mut app, crate::ControlPartKind::Decrement, "−");
+        let (increment, plus_text) = part(&mut app, crate::ControlPartKind::Increment, "+");
+        app.world_mut().entity_mut(boundary).add_child(input);
+        app.world_mut()
+            .entity_mut(input)
+            .add_children(&[decrement, increment]);
+        app.update();
+
+        let field = app.world().get::<Node>(input).unwrap();
+        let minus = app.world().get::<Node>(decrement).unwrap();
+        let plus = app.world().get::<Node>(increment).unwrap();
+        assert_eq!(field.padding.right, Val::Px(72.0));
+        assert_eq!(minus.position_type, bevy::ui::PositionType::Absolute);
+        assert_eq!(plus.position_type, bevy::ui::PositionType::Absolute);
+        assert_eq!(minus.justify_content, bevy::ui::JustifyContent::Center);
+        assert_eq!(plus.justify_content, bevy::ui::JustifyContent::Center);
+        assert_eq!(minus.align_items, bevy::ui::AlignItems::Center);
+        assert_eq!(plus.align_items, bevy::ui::AlignItems::Center);
+        assert_eq!((minus.top, plus.top), (Val::Px(6.0), Val::Px(6.0)));
+        assert_eq!((minus.right, plus.right), (Val::Px(37.0), Val::Px(5.0)));
+        assert_eq!((minus.width, plus.width), (Val::Px(27.0), Val::Px(27.0)));
+        assert_eq!(
+            app.world()
+                .get::<bevy::text::TextLayout>(minus_text)
+                .unwrap()
+                .justify,
+            bevy::text::Justify::Center
+        );
+        assert_eq!(
+            app.world()
+                .get::<bevy::text::TextLayout>(plus_text)
+                .unwrap()
+                .justify,
+            bevy::text::Justify::Center
+        );
+        assert_eq!(
+            *app.world()
+                .get::<bevy::text::LineHeight>(plus_text)
+                .unwrap(),
+            bevy::text::LineHeight::Px(23.0)
+        );
     }
 
     #[test]

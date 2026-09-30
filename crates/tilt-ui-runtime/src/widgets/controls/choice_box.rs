@@ -7,7 +7,7 @@ use bevy::{
 };
 
 use crate::{ControlChecked, ControlPartKind, TiltElement, WidgetLayoutOverride};
-use tilt_ui_core::{ElementKind, TemplateAttribute};
+use tilt_ui_core::TemplateAttribute;
 
 use super::{spawn_part, spawn_text_part};
 
@@ -74,20 +74,17 @@ pub(crate) fn finish(world: &mut World, entity: Entity) {
     let Some(parts) = world.get::<ChoiceBoxParts>(entity).copied() else {
         return;
     };
-    let options = world
+    let authored = world
         .get::<bevy::ecs::hierarchy::Children>(entity)
         .map(|children| {
             children
                 .iter()
                 .copied()
-                .filter(|child| {
-                    world
-                        .get::<TiltElement>(*child)
-                        .is_some_and(|item| item.kind == ElementKind::Option)
-                })
+                .filter(|child| world.get::<TiltElement>(*child).is_some())
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let options = super::option::descendants(world, entity);
     if !options.iter().any(|option| {
         world
             .get::<ControlChecked>(*option)
@@ -96,8 +93,8 @@ pub(crate) fn finish(world: &mut World, entity: Entity) {
     {
         crate::set_control_checked(world, *first, true);
     }
-    for option in options {
-        world.entity_mut(parts.popup).add_child(option);
+    for child in authored {
+        world.entity_mut(parts.popup).add_child(child);
     }
     refresh_value(world, entity);
 }
@@ -106,14 +103,12 @@ pub(crate) fn refresh_value(world: &mut World, entity: Entity) {
     let Some(parts) = world.get::<ChoiceBoxParts>(entity).copied() else {
         return;
     };
-    let selected = world
-        .get::<bevy::ecs::hierarchy::Children>(parts.popup)
-        .and_then(|children| {
-            children.iter().copied().find(|child| {
-                world
-                    .get::<ControlChecked>(*child)
-                    .is_some_and(|checked| checked.0)
-            })
+    let selected = super::option::descendants(world, parts.popup)
+        .into_iter()
+        .find(|child| {
+            world
+                .get::<ControlChecked>(*child)
+                .is_some_and(|checked| checked.0)
         })
         .and_then(|option| world.get::<super::option::OptionData>(option))
         .map(|option| option.label.clone())
@@ -169,5 +164,53 @@ mod tests {
         );
         let popup = world.get::<ChoiceBoxParts>(custom).unwrap().popup;
         assert_eq!(world.get::<Node>(popup).unwrap().max_height, Val::Px(162.0));
+    }
+
+    #[test]
+    fn grouped_options_remain_in_the_popup_and_update_its_value() {
+        use bevy::ecs::hierarchy::ChildOf;
+
+        let mut world = World::new();
+        let choice = world
+            .spawn((
+                Node::default(),
+                crate::TiltElement {
+                    kind: tilt_ui_core::ElementKind::ChoiceBox,
+                },
+            ))
+            .id();
+        materialize(&mut world, choice, &[]);
+        let group = world
+            .spawn((
+                Node::default(),
+                crate::TiltElement {
+                    kind: tilt_ui_core::ElementKind::Div,
+                },
+            ))
+            .id();
+        let option = world
+            .spawn((
+                Node::default(),
+                crate::TiltElement {
+                    kind: tilt_ui_core::ElementKind::Option,
+                },
+                super::super::option::OptionData {
+                    value: "nested".into(),
+                    label: "Nested".into(),
+                },
+                crate::ControlChecked(true),
+            ))
+            .id();
+        world.entity_mut(group).add_child(option);
+        world.entity_mut(choice).add_child(group);
+
+        super::finish(&mut world, choice);
+        let parts = *world.get::<ChoiceBoxParts>(choice).unwrap();
+        assert_eq!(world.get::<ChildOf>(group).unwrap().parent(), parts.popup);
+        assert_eq!(world.get::<Text>(parts.value).unwrap().0, "Nested");
+        assert_eq!(
+            super::super::option::descendants(&world, choice),
+            vec![option]
+        );
     }
 }

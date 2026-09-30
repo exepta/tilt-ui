@@ -38,7 +38,7 @@
 .six-column { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: auto; grid-auto-flow: row; }
 .showcase-card { display: flex; flex-direction: column; box-sizing: border-box; flex-grow: 0; flex-shrink: 0; min-width: 0px; padding: 8px 10px 6px 10px; border-width: 1px; border-radius: calc(12px * sin(90deg)); }
 .six-column .showcase-card { width: 100%; height: 184px; }
-.five-column .showcase-card { width: 31%; height: 132px; }
+.five-column .showcase-card { width: 31%; height: 150px; }
 .five-column + .five-column .showcase-card { height: 146px; }
 .card-preview { display: flex; align-items: center; justify-content: center; flex-grow: 1; width: 100%; min-width: 0px; min-height: 0px; }
 .card-name { align-self: center; font-size: 13px; font-weight: 700; line-height: 1.2; text-wrap: wrap; text-transform: capitalize; }
@@ -66,8 +66,12 @@
 .paragraph-demo { width: 100%; font-size: 14px; }
 .headline-demo { width: 100%; font-size: 24px; font-weight: 700; }
 .sample-image { width: 100%; height: 116px; border-radius: 7px; }
+.icon-demo { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; width: 100%; }
+.icon-demo icon { color: #6D54C9; }
+.icon-demo icon[name="home-filled"], .icon-demo icon[name="briefcase-medical"] { color: #D4813F; }
+.icon-demo-background { width: 32px; height: 32px; background-image: url("tilt-icon:star@32"); background-size: contain; color: #E5A732; }
 .image-preview-demo { display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 0px; height: 142px; }
-.image-preview-demo input { width: 100%; min-width: 0px; min-height: 34px; height: 34px; font-size: 11px; }
+.image-preview-demo button { width: 100%; min-width: 0px; min-height: 34px; height: 34px; font-size: 11px; }
 .image-preview-demo .preview-image { height: 92px; flex-shrink: 0; }
 .avatar-wrap { position: relative; width: 110px; height: 110px; }
 .avatar-wrap avatar { width: 110px; height: 110px; border-radius: 50%; }
@@ -76,12 +80,31 @@
 .mail-demo p { font-family: ui-symbols; font-size: 66px; }
 .sample-divider { width: 90%; height: 2px; }
 .sample-button { width: 100%; height: 42px; }
+.button-demo { display: flex; flex-direction: column; gap: 5px; width: 100%; }
+.button-demo button { width: 100%; height: 30px; min-height: 30px; font-size: 12px; }
+.five-column .button-showcase-card { height: 180px; }
+.loading-demo { display: flex; gap: 5px; width: 100%; }
+.loading-demo button { flex: 1 1 0; min-width: 0px; }
+.loading-demo button::spinner { width: 14px; height: 14px; margin-right: 5px; }
 .checkbox-demo { display: flex; flex-direction: column; gap: 5px; width: 100%; height: 91px; overflow-y: auto; }
 .checkbox-demo checkbox { min-width: 0px; min-height: 23px; flex-shrink: 0; }
+.checkbox-demo checkbox.heart-checkbox::indicator,
+.checkbox-demo checkbox.heart-checkbox:checked::indicator {
+    width: 22px;
+    height: 22px;
+    background-color: transparent;
+    border-width: 0px;
+}
+.checkbox-demo checkbox.heart-checkbox::mark { width: 20px; height: 20px; color: #A833EA; }
+.checkbox-demo checkbox.heart-checkbox:checked::mark { color: #D52784; }
 .plain-fieldset { width: 100%; padding: 0px 10px; border-width: 0px; }
 .toggle-demo { display: flex; width: 100%; }
 .toggle-demo toggle-button { width: 50%; height: 38px; }
 .sample-input { width: 100%; min-width: 0px; }
+.input-demo { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.input-demo input { width: 100%; min-width: 0px; height: 38px; }
+.input-demo input[label] { height: 54px; }
+.input-demo input::indicator { border-radius: 50%; }
 .sample-textarea { width: 100%; min-width: 0px; height: 74px; }
 .card-preview choice-box { width: 100%; min-width: 0px; }
 .sample-list { width: 100%; min-width: 0px; height: 90px; overflow-y: auto; }
@@ -90,9 +113,18 @@
 .slider-demo slider { width: 100%; min-width: 0px; flex-grow: 1; }
 .slider-demo p { width: 28px; min-width: 28px; flex-shrink: 0; font-size: 14px; }
 .card-preview color-picker, .card-preview date-picker { width: 100%; min-width: 0px; }
+.date-demo { display: flex; flex-direction: column; gap: 8px; width: 100%; min-width: 0px; }
 .progress-demo { display: flex; align-items: center; gap: 8px; width: 100%; }
 .progress-demo progress-bar { width: 100%; min-width: 0px; flex-grow: 1; }
 .progress-demo p { width: 36px; min-width: 36px; flex-shrink: 0; font-size: 13px; }
+.spinner-demo { display: flex; align-items: center; gap: 12px; }
+.spinner-demo p { font-size: 13px; font-weight: 700; }
+.showcase-spinner { width: 34px; height: 34px; border-width: 4px; }
+.toast-demo-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.toast-demo-buttons button { min-width: 0px; min-height: 34px; padding: 5px 8px; font-size: 11px; }
+.showcase-custom-toast { background-color: #F4F0FF; border-left-color: #A833EA; }
+.showcase-custom-toast .toast-custom-kicker { color: #824BB0; font-size: 10px; font-weight: 700; }
+.showcase-custom-toast .toast-custom-title { color: #35204C; font-size: 15px; font-weight: 700; }
 .scroll-demo { width: 100%; height: 120px; padding: 8px 10px; overflow-x: hidden; overflow-y: auto; scroll-width: 8px; border-width: 1px; border-radius: 5px; }
 .scroll-demo p { width: 100%; min-width: 0px; font-size: 12px; }
 .tooltip-demo { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
@@ -106,6 +138,9 @@
 .context-anchor { width: 100%; }
 .theme-demo { display: flex; align-items: center; justify-content: center; width: 100%; height: 92px; border-width: 1px; border-radius: 7px; }
 .theme-demo p { font-size: 14px; font-weight: 700; }
+.cursor-demo { display: flex; align-items: center; justify-content: center; width: 100%; height: 105px; padding: 10px; background-color: #F7F3FC; border-width: 1px; border-color: #DEDCEF; border-radius: 7px; }
+.cursor-demo:hover { background-color: #EEE0FA; border-color: #A833EA; }
+.cursor-demo p { color: #6D229E; font-size: 13px; font-weight: 700; }
 .event-row .showcase-card { width: 23.5%; height: 154px; }
 .event-target, .event-scroll, .event-status { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 105px; min-width: 0px; padding: 8px; border-width: 1px; border-radius: 7px; }
 .event-scroll { justify-content: flex-start; gap: 12px; overflow-y: auto; }

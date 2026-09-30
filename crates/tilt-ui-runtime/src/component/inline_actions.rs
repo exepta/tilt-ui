@@ -383,6 +383,7 @@ mod tests {
             value: Some("Grace".into()),
             submitter: None,
             data: Default::default(),
+            form_data: None,
             handler: handler.into(),
         };
         (world, event)

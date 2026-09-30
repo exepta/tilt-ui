@@ -19,7 +19,10 @@ use bevy::{
     ui::widget::ImageNode,
 };
 use tilt_ui_core::TemplateAttribute;
-#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
+#[cfg(any(
+    feature = "tilt-icons",
+    all(feature = "svg", not(target_arch = "wasm32"))
+))]
 use wgpu_types::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::{
@@ -27,7 +30,10 @@ use crate::{
     widgets::controls::input::{FileInputOptions, FileInputSelected},
 };
 
-#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
+#[cfg(any(
+    feature = "tilt-icons",
+    all(feature = "svg", not(target_arch = "wasm32"))
+))]
 use resvg::{
     tiny_skia::{Pixmap, Transform},
     usvg::Options,
@@ -74,6 +80,22 @@ pub struct ImagePreviewInput {
 #[derive(Resource, Default)]
 struct RuntimeImageCache(HashMap<String, Handle<Image>>);
 
+// A catalog icon must not be pinned in memory after the last visible node drops
+// its handle. Asset IDs allow a still-live image to be reused without owning it.
+#[cfg(feature = "tilt-icons")]
+#[derive(Resource, Default)]
+struct RuntimeIconCache(HashMap<String, bevy::asset::AssetId<Image>>);
+
+/// Returns a cached Bevy image for a built-in icon and a physical pixel size.
+#[cfg(feature = "tilt-icons")]
+pub fn icon_image(
+    world: &mut World,
+    icon: tilt_ui_icons::Icon,
+    size: tilt_ui_icons::IconSize,
+) -> Option<Handle<Image>> {
+    load_image_handle(world, &icon.source(size))
+}
+
 /// Updates an image source on its existing entity without rebuilding children.
 pub fn set_image_source(world: &mut World, entity: Entity, source: Option<String>) -> bool {
     let Some(metadata) = world.get::<ImageMetadata>(entity) else {
@@ -82,12 +104,34 @@ pub fn set_image_source(world: &mut World, entity: Entity, source: Option<String
     if metadata.source == source {
         return false;
     }
-    let image = source
-        .as_ref()
-        .and_then(|source| load_image_handle(world, source));
+    #[cfg(feature = "tilt-icons")]
+    let lazy = world
+        .get::<crate::render::image::LazyIcon>(entity)
+        .is_some();
+    #[cfg(not(feature = "tilt-icons"))]
+    let lazy = false;
+    let image = if lazy {
+        None
+    } else {
+        source
+            .as_ref()
+            .and_then(|source| load_image_handle(world, source))
+    };
+    #[cfg(feature = "tilt-icons")]
+    let motion_icon = source
+        .as_deref()
+        .and_then(tilt_ui_icons::parse_source)
+        .map(|(icon, _)| icon);
     world.get_mut::<ImageMetadata>(entity).unwrap().source = source;
+    #[cfg(feature = "tilt-icons")]
+    if world
+        .get::<crate::render::image::IconElementSize>(entity)
+        .is_some()
+    {
+        crate::render::image::update_icon_motion(world, entity, motion_icon);
+    }
     if let Some(mut node) = world.get_mut::<ImageNode>(entity) {
-        node.image = image.unwrap_or_default();
+        node.image = image.unwrap_or_else(|| ImageNode::default().image);
     }
     true
 }
@@ -156,6 +200,39 @@ pub(crate) fn load_image_handle(world: &mut World, source: &str) -> Option<Handl
     let source = source.trim();
     if source.is_empty() {
         return None;
+    }
+    #[cfg(feature = "tilt-icons")]
+    if source.starts_with("tilt-icon:") {
+        if let Some(id) = world
+            .get_resource::<RuntimeIconCache>()
+            .and_then(|cache| cache.0.get(source).copied())
+            && let Some(mut images) = world.get_resource_mut::<Assets<Image>>()
+            && let Some(handle) = images.get_strong_handle(id)
+        {
+            return Some(handle);
+        }
+        let (icon, size) = tilt_ui_icons::parse_source(source)?;
+        let svg = icon.svg(size);
+        let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &Options::default()).ok()?;
+        let pixels = size.pixels();
+        let mut pixmap = Pixmap::new(pixels, pixels)?;
+        resvg::render(&tree, Transform::default(), &mut pixmap.as_mut());
+        let mut rgba = pixmap.take();
+        // The standalone SVG uses currentColor; Bevy receives a white alpha
+        // mask so ImageNode.color can tint a shared texture without rerendering.
+        for pixel in rgba.chunks_exact_mut(4) {
+            let alpha = pixel[3];
+            pixel[..3].fill(alpha);
+        }
+        let image = rgba8_srgb_linear_image(pixels, pixels, rgba);
+        world.init_resource::<Assets<Image>>();
+        let handle = world.resource_mut::<Assets<Image>>().add(image);
+        world.init_resource::<RuntimeIconCache>();
+        world
+            .resource_mut::<RuntimeIconCache>()
+            .0
+            .insert(source.to_owned(), handle.id());
+        return Some(handle);
     }
     let resolved = world
         .get_resource::<crate::UiRuntimeConfiguration>()
@@ -259,7 +336,10 @@ fn resolve_image_path(source: &str) -> Option<std::path::PathBuf> {
     asset_path.is_file().then_some(asset_path)
 }
 
-#[cfg(all(feature = "svg", not(target_arch = "wasm32")))]
+#[cfg(any(
+    feature = "tilt-icons",
+    all(feature = "svg", not(target_arch = "wasm32"))
+))]
 fn rgba8_srgb_linear_image(width: u32, height: u32, data: Vec<u8>) -> Image {
     let mut image = Image::new(
         Extent3d {
@@ -339,6 +419,45 @@ mod tests {
     };
 
     use super::*;
+
+    #[cfg(feature = "tilt-icons")]
+    #[test]
+    fn catalog_icons_rasterize_at_each_size_and_share_cached_assets() {
+        let mut world = World::new();
+        for &icon in tilt_ui_icons::Icon::ALL {
+            for size in [
+                tilt_ui_icons::IconSize::Px16,
+                tilt_ui_icons::IconSize::Px32,
+                tilt_ui_icons::IconSize::Px64,
+            ] {
+                let source = icon.source(size);
+                let first = load_image_handle(&mut world, &source)
+                    .unwrap_or_else(|| panic!("could not render {source}"));
+                let second = load_image_handle(&mut world, &source).unwrap();
+                assert_eq!(first, second, "{source} must reuse its image asset");
+                assert_eq!(first, icon_image(&mut world, icon, size).unwrap());
+                let image = world.resource::<Assets<Image>>().get(&first).unwrap();
+                assert_eq!(image.texture_descriptor.size.width, size.pixels());
+                assert_eq!(image.texture_descriptor.size.height, size.pixels());
+                assert!(
+                    image
+                        .data
+                        .as_deref()
+                        .unwrap()
+                        .chunks_exact(4)
+                        .any(|pixel| pixel[3] != 0),
+                    "{source} rendered empty"
+                );
+                assert!(image.data.as_deref().unwrap().chunks_exact(4).all(|pixel| {
+                    pixel[0] == pixel[3] && pixel[1] == pixel[3] && pixel[2] == pixel[3]
+                }));
+            }
+        }
+        assert_eq!(
+            world.resource::<RuntimeIconCache>().0.len(),
+            tilt_ui_icons::Icon::ALL.len() * 3
+        );
+    }
 
     #[test]
     fn image_metadata_retains_preview_target_without_hash() {

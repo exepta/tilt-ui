@@ -3,8 +3,7 @@
 use bevy::ecs::{component::Component, entity::Entity, world::World};
 use tilt_ui_core::TemplateAttribute;
 
-use crate::{ControlChecked, TiltElement};
-use tilt_ui_core::ElementKind;
+use crate::ControlChecked;
 
 /// Configures whether a ListBox permits more than one selected option.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,23 +25,14 @@ pub(crate) fn finish(world: &mut World, entity: Entity) {
     {
         return;
     }
-    let selected = world
-        .get::<bevy::ecs::hierarchy::Children>(entity)
-        .map(|children| {
-            children
-                .iter()
-                .copied()
-                .filter(|child| {
-                    world
-                        .get::<TiltElement>(*child)
-                        .is_some_and(|element| element.kind == ElementKind::Option)
-                        && world
-                            .get::<ControlChecked>(*child)
-                            .is_some_and(|value| value.0)
-                })
-                .collect::<Vec<_>>()
+    let selected = super::option::descendants(world, entity)
+        .into_iter()
+        .filter(|child| {
+            world
+                .get::<ControlChecked>(*child)
+                .is_some_and(|value| value.0)
         })
-        .unwrap_or_default();
+        .collect::<Vec<_>>();
     for extra in selected.into_iter().skip(1) {
         crate::set_control_checked(world, extra, false);
     }

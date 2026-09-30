@@ -1,6 +1,8 @@
 //! Targeted pointer triggers and viewport-aware placement for TiltUI tooltips.
 
 use bevy::{
+    app::{App, Plugin},
+    asset::{Asset, Assets, Handle},
     ecs::{
         component::Component,
         entity::Entity,
@@ -9,10 +11,17 @@ use bevy::{
         system::Commands,
         world::World,
     },
-    math::Vec2,
+    math::{Vec2, Vec4},
+    reflect::TypePath,
+    render::{RenderApp, render_resource::AsBindGroup},
+    shader::{Shader, ShaderRef},
     ui::{
-        ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex, Node, UiGlobalTransform, UiScale,
-        Val,
+        BackgroundColor, ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex, Node,
+        PositionType, UiGlobalTransform, UiRect, UiScale, Val,
+    },
+    ui_render::{
+        UiMaterialPlugin,
+        ui_material::{MaterialNode, UiMaterial},
     },
     window::{PrimaryWindow, Window},
 };
@@ -31,6 +40,44 @@ use crate::{
 
 /// Selects pointer-following or target-anchored tooltip placement.
 pub use tilt_ui_core::ToolTipVariant as TooltipVariant;
+
+const NOSE_SHADER: Handle<Shader> =
+    bevy::asset::uuid_handle!("4bb68526-e1cf-4a32-a147-cc264fd9b401");
+
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+struct TooltipNoseMaterial {
+    #[uniform(0)]
+    fill: Vec4,
+    #[uniform(1)]
+    side: Vec4,
+}
+
+impl UiMaterial for TooltipNoseMaterial {
+    fn fragment_shader() -> ShaderRef {
+        ShaderRef::Handle(NOSE_SHADER)
+    }
+}
+
+pub(crate) struct TooltipNosePlugin;
+
+impl Plugin for TooltipNosePlugin {
+    fn build(&self, app: &mut App) {
+        if app.get_sub_app(RenderApp).is_none() {
+            return;
+        }
+        app.world_mut()
+            .resource_mut::<Assets<Shader>>()
+            .insert(
+                NOSE_SHADER.id(),
+                Shader::from_wgsl(
+                    include_str!("tooltip_nose.wgsl"),
+                    "tilt_ui_tooltip_nose.wgsl",
+                ),
+            )
+            .expect("unique embedded tooltip nose shader");
+        app.add_plugins(UiMaterialPlugin::<TooltipNoseMaterial>::default());
+    }
+}
 
 /// Stores one tooltip's component-local target and trigger configuration.
 #[derive(Component, Debug, Clone)]
@@ -90,10 +137,23 @@ pub(crate) fn materialize(world: &mut World, entity: Entity, attributes: &[Templ
         drag: trigger.split(['|', ',', ' ']).any(|item| item == "drag"),
         target_id: attr("for").map(str::to_owned),
     };
+    let pointed = settings.variant == TooltipVariant::Point;
     world
         .entity_mut(entity)
         .insert((settings, Pickable::IGNORE, GlobalZIndex(10_000)));
     let nose = crate::widgets::controls::spawn_part(world, entity, ControlPartKind::Indicator);
+    if let Some(mut materials) = world.get_resource_mut::<Assets<TooltipNoseMaterial>>() {
+        let handle = materials.add(TooltipNoseMaterial {
+            fill: Vec4::new(0.14, 0.13, 0.29, 1.0),
+            side: Vec4::ZERO,
+        });
+        world.entity_mut(nose).insert(MaterialNode(handle));
+    }
+    world.entity_mut(nose).insert(if pointed {
+        bevy::prelude::Visibility::Visible
+    } else {
+        bevy::prelude::Visibility::Hidden
+    });
     world.entity_mut(entity).add_child(nose);
     set_widget_display(world, entity, false);
     if attr("open") == Some("true") {
@@ -148,6 +208,80 @@ pub(crate) fn resolve_targets(world: &mut World, scope: Entity) {
     }
 }
 
+pub(crate) fn reconfigure(world: &mut World, entity: Entity, name: &str, value: &str) {
+    let Some(mut settings) = world.get::<TooltipSettings>(entity).cloned() else {
+        return;
+    };
+    match name {
+        "for" => {
+            let next = (!value.is_empty()).then(|| value.trim_start_matches('#').to_owned());
+            if settings.target_id == next {
+                return;
+            }
+            if let Some(old) = settings.target {
+                if let Some(mut targets) = world.get_mut::<TooltipTargets>(old) {
+                    targets.0.retain(|target| *target != entity);
+                }
+            }
+            settings.target_id = next;
+            settings.target = None;
+            world.entity_mut(entity).insert(settings);
+            if let Some(scope) = world
+                .get::<ComponentStyleOwner>(entity)
+                .map(|owner| owner.0)
+            {
+                resolve_targets(world, scope);
+            }
+            return;
+        }
+        "trigger" => {
+            settings.hover = value.split(['|', ',', ' ']).any(|item| item == "hover");
+            settings.click = value.split(['|', ',', ' ']).any(|item| item == "click");
+            settings.drag = value.split(['|', ',', ' ']).any(|item| item == "drag");
+        }
+        "variant" => {
+            settings.variant = if value == "point" {
+                TooltipVariant::Point
+            } else {
+                TooltipVariant::Follow
+            }
+        }
+        "alignment" => {
+            settings.alignment = if value == "vertical" {
+                ToolTipAlignment::Vertical
+            } else {
+                ToolTipAlignment::Horizontal
+            }
+        }
+        "prio" | "priority" => {
+            settings.priority = match value {
+                "top" => ToolTipPriority::Top,
+                "bottom" | "down" => ToolTipPriority::Bottom,
+                "left" => ToolTipPriority::Left,
+                "right" => ToolTipPriority::Right,
+                _ => return,
+            }
+        }
+        _ => return,
+    }
+    if let Some(nose) = world.get::<Children>(entity).and_then(|children| {
+        children.iter().copied().find(|child| {
+            world
+                .get::<crate::ControlPart>(*child)
+                .is_some_and(|part| part.kind == ControlPartKind::Indicator)
+        })
+    }) {
+        world
+            .entity_mut(nose)
+            .insert(if settings.variant == TooltipVariant::Point {
+                bevy::prelude::Visibility::Visible
+            } else {
+                bevy::prelude::Visibility::Hidden
+            });
+    }
+    world.entity_mut(entity).insert(settings);
+}
+
 fn target_contains(world: &World, target: Entity, hit: Entity) -> bool {
     let mut current = Some(hit);
     while let Some(entity) = current {
@@ -194,6 +328,15 @@ fn set_tooltip_open(
         world.entity_mut(entity).remove::<OpenTooltip>();
     }
     set_widget_display(world, entity, open);
+}
+
+pub(crate) fn set_bound_open(world: &mut World, entity: Entity, open: bool) {
+    if world.get::<TooltipSettings>(entity).is_none()
+        || world.get::<OpenTooltip>(entity).is_some() == open
+    {
+        return;
+    }
+    set_tooltip_open(world, entity, open, PointerId::Mouse, Vec2::ZERO);
 }
 
 fn handle_target_event(
@@ -348,6 +491,7 @@ fn follow_position(pointer: Vec2, size: Vec2, viewport: Vec2, margin: f32, gap: 
     clamp_to_viewport(Vec2::new(x, y), size, viewport, margin)
 }
 
+#[cfg(test)]
 fn point_position(
     target: Vec2,
     target_size: Vec2,
@@ -357,6 +501,18 @@ fn point_position(
     margin: f32,
     gap: f32,
 ) -> Vec2 {
+    point_placement(target, target_size, size, viewport, priority, margin, gap).0
+}
+
+fn point_placement(
+    target: Vec2,
+    target_size: Vec2,
+    size: Vec2,
+    viewport: Vec2,
+    priority: ToolTipPriority,
+    margin: f32,
+    gap: f32,
+) -> (Vec2, ToolTipPriority) {
     let place = |side| match side {
         ToolTipPriority::Left => Vec2::new(
             target.x - size.x - gap,
@@ -388,12 +544,110 @@ fn point_position(
         ToolTipPriority::Top => first.y < margin,
         ToolTipPriority::Bottom => first.y + size.y > viewport.y - margin,
     };
-    clamp_to_viewport(
-        if overflows { place(opposite) } else { first },
-        size,
-        viewport,
-        margin,
+    let actual = if overflows { opposite } else { priority };
+    (
+        clamp_to_viewport(place(actual), size, viewport, margin),
+        actual,
     )
+}
+
+fn update_nose(world: &mut World, tooltip: Entity, side: ToolTipPriority) {
+    let Some(nose) = world
+        .get::<Children>(tooltip)
+        .into_iter()
+        .flatten()
+        .copied()
+        .find(|child| {
+            world.get::<crate::ControlPart>(*child).is_some_and(|part| {
+                part.owner == tooltip && part.kind == ControlPartKind::Indicator
+            })
+        })
+    else {
+        return;
+    };
+    let direction = match side {
+        ToolTipPriority::Top => 0.0,
+        ToolTipPriority::Bottom => 1.0,
+        ToolTipPriority::Right => 2.0,
+        ToolTipPriority::Left => 3.0,
+    };
+    let mut desired = Node {
+        position_type: PositionType::Absolute,
+        margin: UiRect::all(Val::Px(0.0)),
+        ..Default::default()
+    };
+    match side {
+        ToolTipPriority::Top => {
+            desired.width = Val::Px(14.0);
+            desired.height = Val::Px(8.0);
+            desired.left = Val::Percent(50.0);
+            desired.bottom = Val::Px(-7.0);
+            desired.margin.left = Val::Px(-7.0);
+        }
+        ToolTipPriority::Bottom => {
+            desired.width = Val::Px(14.0);
+            desired.height = Val::Px(8.0);
+            desired.left = Val::Percent(50.0);
+            desired.top = Val::Px(-7.0);
+            desired.margin.left = Val::Px(-7.0);
+        }
+        ToolTipPriority::Left => {
+            desired.width = Val::Px(8.0);
+            desired.height = Val::Px(14.0);
+            desired.right = Val::Px(-7.0);
+            desired.top = Val::Percent(50.0);
+            desired.margin.top = Val::Px(-7.0);
+        }
+        ToolTipPriority::Right => {
+            desired.width = Val::Px(8.0);
+            desired.height = Val::Px(14.0);
+            desired.left = Val::Px(-7.0);
+            desired.top = Val::Percent(50.0);
+            desired.margin.top = Val::Px(-7.0);
+        }
+    }
+    let needs_layout = world.get::<Node>(nose).is_some_and(|node| {
+        node.position_type != desired.position_type
+            || node.width != desired.width
+            || node.height != desired.height
+            || node.left != desired.left
+            || node.right != desired.right
+            || node.top != desired.top
+            || node.bottom != desired.bottom
+            || node.margin != desired.margin
+    });
+    if needs_layout && let Some(mut node) = world.get_mut::<Node>(nose) {
+        node.position_type = desired.position_type;
+        node.width = desired.width;
+        node.height = desired.height;
+        node.left = desired.left;
+        node.right = desired.right;
+        node.top = desired.top;
+        node.bottom = desired.bottom;
+        node.margin = desired.margin;
+    }
+    let Some(handle) = world
+        .get::<MaterialNode<TooltipNoseMaterial>>(nose)
+        .map(|node| node.0.clone())
+    else {
+        return;
+    };
+    let tint = world
+        .get::<BackgroundColor>(tooltip)
+        .map_or(bevy::color::Color::WHITE, |color| color.0)
+        .to_linear();
+    let fill = Vec4::new(tint.red, tint.green, tint.blue, tint.alpha);
+    let needs_material = world
+        .get_resource::<Assets<TooltipNoseMaterial>>()
+        .and_then(|materials| materials.get(&handle))
+        .is_some_and(|material| material.fill != fill || material.side.x != direction);
+    if needs_material
+        && let Some(mut materials) = world.get_resource_mut::<Assets<TooltipNoseMaterial>>()
+        && let Some(mut material) = materials.get_mut(&handle)
+    {
+        material.fill = fill;
+        material.side.x = direction;
+    }
 }
 
 pub(crate) fn place_open_tooltips(world: &mut World) {
@@ -425,6 +679,7 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
         let Some(inverse) = parent_transform.try_inverse() else {
             continue;
         };
+        let parent_size = parent_node.size();
         let scale = world
             .get::<ComputedUiRenderTargetInfo>(entity)
             .map_or(1.0, |target| target.scale_factor())
@@ -439,13 +694,16 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
         if size.x <= 0.0 || size.y <= 0.0 {
             continue;
         }
-        let position = match settings.variant {
-            TooltipVariant::Follow => follow_position(
-                open.pointer * scale,
-                size,
-                viewport,
-                6.0 * scale,
-                10.0 * scale,
+        let (position, nose_side) = match settings.variant {
+            TooltipVariant::Follow => (
+                follow_position(
+                    open.pointer * scale,
+                    size,
+                    viewport,
+                    6.0 * scale,
+                    10.0 * scale,
+                ),
+                None,
             ),
             TooltipVariant::Point => {
                 let Some(target) = settings.target else {
@@ -458,7 +716,7 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
                     continue;
                 };
                 let top_left = transform.affine().translation - node.size() * 0.5;
-                point_position(
+                let (position, side) = point_placement(
                     top_left,
                     node.size(),
                     size,
@@ -466,10 +724,14 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
                     settings.priority,
                     6.0 * scale,
                     8.0 * scale,
-                )
+                );
+                (position, Some(side))
             }
         };
-        let local = inverse.transform_point2(position) + parent_node.size() * 0.5;
+        if let Some(side) = nose_side {
+            update_nose(world, entity, side);
+        }
+        let local = inverse.transform_point2(position) + parent_size * 0.5;
         let layout = WidgetLayoutOverride {
             left: Some(Val::Px(local.x / scale)),
             top: Some(Val::Px(local.y / scale)),
@@ -491,7 +753,8 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::{
-        TooltipSettings, follow_position, point_position, resolve_targets, tooltips_for_hit,
+        TooltipSettings, follow_position, point_placement, point_position, resolve_targets,
+        tooltips_for_hit,
     };
     use crate::ComponentStyleOwner;
     use bevy::{
@@ -539,6 +802,19 @@ mod tests {
             6.0,
         );
         assert_eq!(flipped.x, 134.0);
+        assert_eq!(
+            point_placement(
+                Vec2::new(180.0, 50.0),
+                Vec2::new(20.0, 20.0),
+                size,
+                viewport,
+                ToolTipPriority::Right,
+                4.0,
+                6.0,
+            )
+            .1,
+            ToolTipPriority::Left
+        );
         let top = point_position(
             Vec2::new(50.0, 2.0),
             Vec2::new(20.0, 20.0),
@@ -549,6 +825,24 @@ mod tests {
             6.0,
         );
         assert_eq!(top.y, 28.0);
+    }
+
+    #[test]
+    fn triangle_nose_moves_to_the_side_facing_its_target() {
+        use crate::ControlPartKind;
+        let mut world = World::new();
+        let tooltip = world.spawn(Node::default()).id();
+        let nose =
+            crate::widgets::controls::spawn_part(&mut world, tooltip, ControlPartKind::Indicator);
+        world.entity_mut(tooltip).add_child(nose);
+        super::update_nose(&mut world, tooltip, ToolTipPriority::Top);
+        let node = world.get::<Node>(nose).unwrap();
+        assert_eq!(node.bottom, bevy::ui::Val::Px(-7.0));
+        assert_eq!(node.width, bevy::ui::Val::Px(14.0));
+        super::update_nose(&mut world, tooltip, ToolTipPriority::Right);
+        let node = world.get::<Node>(nose).unwrap();
+        assert_eq!(node.left, bevy::ui::Val::Px(-7.0));
+        assert_eq!(node.height, bevy::ui::Val::Px(14.0));
     }
 
     #[test]
@@ -590,6 +884,45 @@ mod tests {
         assert_eq!(world.get::<Pickable>(tooltip), Some(&Pickable::IGNORE));
         assert_eq!(world.get::<Pickable>(text), Some(&Pickable::IGNORE));
         assert_eq!(tooltips_for_hit(&world, target), vec![tooltip]);
+    }
+
+    #[test]
+    fn changing_target_unregisters_the_old_pointer_target() {
+        let mut world = World::new();
+        let scope = world.spawn(crate::ComponentElementIds::default()).id();
+        let first = world.spawn(Node::default()).id();
+        let second = world.spawn(Node::default()).id();
+        world
+            .get_mut::<crate::ComponentElementIds>(scope)
+            .unwrap()
+            .insert("first".into(), first);
+        world
+            .get_mut::<crate::ComponentElementIds>(scope)
+            .unwrap()
+            .insert("second".into(), second);
+        let tooltip = world
+            .spawn((Node::default(), ComponentStyleOwner(scope)))
+            .id();
+        super::materialize(
+            &mut world,
+            tooltip,
+            &[TemplateAttribute::Static {
+                name: "for".into(),
+                value: "first".into(),
+            }],
+        );
+        resolve_targets(&mut world, scope);
+        assert_eq!(
+            world.get::<TooltipSettings>(tooltip).unwrap().target,
+            Some(first)
+        );
+        super::reconfigure(&mut world, tooltip, "for", "second");
+        assert_eq!(
+            world.get::<TooltipSettings>(tooltip).unwrap().target,
+            Some(second)
+        );
+        assert!(tooltips_for_hit(&world, first).is_empty());
+        assert_eq!(tooltips_for_hit(&world, second), vec![tooltip]);
     }
 
     #[test]

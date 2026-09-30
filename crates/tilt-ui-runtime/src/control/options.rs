@@ -3,7 +3,7 @@
 use bevy::{
     ecs::{
         entity::Entity,
-        hierarchy::{ChildOf, Children},
+        hierarchy::ChildOf,
         message::{Message, MessageReader, Messages},
         system::Commands,
         world::World,
@@ -56,15 +56,7 @@ fn options(world: &World, control: Entity) -> Vec<Entity> {
     let parent = world
         .get::<ChoiceBoxParts>(control)
         .map_or(control, |parts| parts.popup);
-    world
-        .get::<Children>(parent)
-        .map_or_else(Vec::new, |children| {
-            children
-                .iter()
-                .copied()
-                .filter(|child| world.get::<OptionData>(*child).is_some())
-                .collect()
-        })
+    crate::widgets::controls::option::descendants(world, parent)
 }
 
 fn change_option(

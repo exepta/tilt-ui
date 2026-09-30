@@ -42,12 +42,24 @@ fn refresh_ui(time: Res<Time>) {
 
 #[html_fn("save")]
 fn save(In(event): In<HtmlSubmit>) {
-    info!(?event.data, "form submitted");
+    info!(?event.form_data, "form submitted");
 }
 ```
 
 `<form action="save"><input name="title" /><button type="submit">Save</button></form>`
-dispatches to that handler after submit validation succeeds. Static `onclick`
+dispatches to that handler after submit validation succeeds.
+`HtmlSubmit.form_data` is a `FormData` map from field names to ordered
+`Vec<FormValue>` entries. `FormValue::Text` carries text and selected options;
+`FormValue::File` carries filename, optional size and optional native path.
+The older `event.data` map still exposes the first value per name as a string.
+Use `validate="always|interact|send"` to show `:invalid` immediately, after
+field interaction or after a failed submit. `required`, `minlength`,
+`maxlength`, `pattern`, `min`, `max` and `step` participate in validation.
+For example, `<input type="number" show-fields="true" min="0" step="1" />`
+shows increment/decrement buttons; typing also accepts arithmetic with
+`+`, `-`, `*`, `/` and `%`, evaluated on commit.
+
+Static `onclick`
 and `onchange`, plus `(click)` and `(change)` bindings, dispatch through the
 same registry. Property and text bindings resolve JSON paths, literals,
 arithmetic, comparisons, boolean operators, array indexing, and ternaries;

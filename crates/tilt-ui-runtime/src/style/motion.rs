@@ -343,6 +343,18 @@ fn resolved_animations(style: &ComputedStyle) -> Vec<AnimationSpec> {
         .collect()
 }
 
+pub(crate) fn closing_animation_durations(style: &ComputedStyle) -> impl Iterator<Item = f32> {
+    resolved_animations(style).into_iter().filter_map(|spec| {
+        spec.name.map(|_| {
+            let count = match spec.iteration_count {
+                tilt_ui_css::IterationCount::Finite(count) => count.max(0.0),
+                tilt_ui_css::IterationCount::Infinite => 1.0,
+            };
+            (spec.delay.0 + spec.duration.0 * count).max(0.0)
+        })
+    })
+}
+
 fn animation_progress(animation: &ActiveAnimation) -> Option<f32> {
     if animation.elapsed < animation.spec.delay.0 || animation.spec.duration.0 <= 0.0 {
         return None;

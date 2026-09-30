@@ -31,6 +31,7 @@ use bevy_picking::{
     pointer::PointerButton,
 };
 
+use crate::widgets::controls::button::LoadingButton;
 use crate::{ControlPart, ControlTabIndex, ElementState, TiltControl, TiltElement};
 
 use super::{
@@ -87,6 +88,7 @@ type ActivatableControlQuery<'w, 's> = Query<
         Option<&'static mut Pressed>,
         Option<&'static crate::EditableText>,
         Option<&'static crate::NumericRange>,
+        Option<&'static LoadingButton>,
     ),
     With<TiltControl>,
 >;
@@ -127,6 +129,7 @@ impl Plugin for TiltUiControlRuntimePlugin {
             .add_message::<super::OptionSelectionChanged>()
             .add_message::<crate::widgets::advanced::hyperlink::LinkActivated>()
             .add_message::<crate::widgets::advanced::date_picker::DatePickerChanged>()
+            .add_message::<crate::widgets::advanced::date_picker::DatePickerRangeChanged>()
             .add_message::<crate::widgets::advanced::color_picker::ColorPickerChanged>()
             .add_message::<crate::EditableTextChanged>()
             .add_message::<crate::EditableTextCommitted>()
@@ -138,6 +141,11 @@ impl Plugin for TiltUiControlRuntimePlugin {
             .add_observer(project_focus_lost)
             .add_observer(editable_focus_lost)
             .add_observer(sync_native_edit)
+            .add_systems(
+                bevy::app::PostUpdate,
+                crate::widgets::controls::input::cap_input_width
+                    .after(bevy::ui::UiSystems::PostLayout),
+            )
             .add_observer(project_disabled_added)
             .add_observer(project_disabled_removed)
             .init_resource::<ProjectedElementHover>()
@@ -149,7 +157,10 @@ impl Plugin for TiltUiControlRuntimePlugin {
                 Update,
                 project_element_hover.in_set(TiltControlSystems::Interaction),
             )
-            .add_systems(Update, super::cursor::update_ui_cursor)
+            .add_systems(
+                Update,
+                super::cursor::update_ui_cursor.after(TiltControlSystems::Activation),
+            )
             .add_systems(
                 Update,
                 project_disabled.in_set(TiltControlSystems::Interaction),
@@ -196,6 +207,18 @@ impl Plugin for TiltUiControlRuntimePlugin {
             .add_systems(
                 Update,
                 process_option_activation
+                    .in_set(TiltControlSystems::Selection)
+                    .after(TiltControlSystems::Activation),
+            )
+            .add_systems(
+                Update,
+                crate::widgets::controls::input::process_number_activation
+                    .in_set(TiltControlSystems::Selection)
+                    .after(TiltControlSystems::Activation),
+            )
+            .add_systems(
+                Update,
+                crate::widgets::controls::input::normalize_number_commit
                     .in_set(TiltControlSystems::Selection)
                     .after(TiltControlSystems::Activation),
             )
@@ -290,7 +313,17 @@ impl Plugin for TiltUiControlRuntimePlugin {
         );
         app.add_systems(
             PostUpdate,
+            super::context_menu::update_context_submenus.before(UiSystems::Layout),
+        );
+        app.add_systems(
+            PostUpdate,
             super::text_selection::update_static_selection_highlight.after(UiSystems::Layout),
+        );
+        app.add_systems(
+            PostUpdate,
+            crate::widgets::advanced::color_picker::place_open_color_pickers
+                .in_set(UiSystems::PostLayout)
+                .after(UiSystems::Layout),
         );
         app.add_systems(
             PostUpdate,
@@ -459,6 +492,8 @@ fn pointer_activation(
     mut clicks: Option<MessageReader<Pointer<Click>>>,
     parts: Query<&ControlPart>,
     controls: Query<Option<&InteractionDisabled>, With<TiltControl>>,
+    loading_buttons: Query<&LoadingButton>,
+    dialogs: Query<&crate::DialogState>,
     parents: Query<&ChildOf>,
     mut focus: Option<ResMut<InputFocus>>,
     mut activated: bevy::ecs::message::MessageWriter<ControlActivated>,
@@ -477,9 +512,13 @@ fn pointer_activation(
             continue;
         }
         if let Some(entity) = nearest_control_root(click.entity, &controls, &parents)
+            && !inside_closing_dialog(entity, &parents, &dialogs)
             && controls
                 .get(entity)
                 .is_ok_and(|disabled| disabled.is_none())
+            && !loading_buttons
+                .get(entity)
+                .is_ok_and(|button| button.active)
         {
             if let Some(focus) = focus.as_deref_mut() {
                 focus.set(entity, FocusCause::Pressed);
@@ -489,17 +528,39 @@ fn pointer_activation(
     }
 }
 
+fn inside_closing_dialog(
+    mut entity: bevy::ecs::entity::Entity,
+    parents: &Query<&ChildOf>,
+    dialogs: &Query<&crate::DialogState>,
+) -> bool {
+    loop {
+        if dialogs.get(entity).is_ok_and(|dialog| dialog.closing) {
+            return true;
+        }
+        let Ok(parent) = parents.get(entity) else {
+            return false;
+        };
+        entity = parent.parent();
+    }
+}
+
 #[cfg(test)]
 fn activate_pointer_target(
     target: bevy::ecs::entity::Entity,
     controls: &Query<Option<&InteractionDisabled>, With<TiltControl>>,
+    loading_buttons: &Query<&LoadingButton>,
+    dialogs: &Query<&crate::DialogState>,
     parents: &Query<&ChildOf>,
     activated: &mut bevy::ecs::message::MessageWriter<ControlActivated>,
 ) {
     if let Some(entity) = nearest_control_root(target, controls, parents)
+        && !inside_closing_dialog(entity, parents, dialogs)
         && controls
             .get(entity)
             .is_ok_and(|disabled| disabled.is_none())
+        && !loading_buttons
+            .get(entity)
+            .is_ok_and(|button| button.active)
     {
         activated.write(ControlActivated { entity });
     }
@@ -523,16 +584,23 @@ fn keyboard_activation(
     mut keys: Option<MessageReader<KeyboardInput>>,
     focus: Option<Res<InputFocus>>,
     mut controls: ActivatableControlQuery<'_, '_>,
+    parents: Query<&ChildOf>,
+    dialogs: Query<&crate::DialogState>,
     mut commands: Commands,
     mut activated: bevy::ecs::message::MessageWriter<ControlActivated>,
 ) {
     let Some(entity) = focus.and_then(|focus| focus.get()) else {
         return;
     };
-    let Ok((mut state, disabled, pressed, editable, numeric)) = controls.get_mut(entity) else {
+    if inside_closing_dialog(entity, &parents, &dialogs) {
+        return;
+    }
+    let Ok((mut state, disabled, pressed, editable, numeric, loading)) = controls.get_mut(entity)
+    else {
         return;
     };
     if disabled.is_some()
+        || loading.is_some_and(|button| button.active)
         || editable.is_some_and(|state| state.input_type != tilt_ui_core::InputType::File)
         || numeric.is_some()
     {
@@ -578,6 +646,7 @@ mod tests {
     use bevy_picking::{backend::HitData, hover::HoverMap, pointer::PointerId};
     use tilt_ui_core::ElementKind;
 
+    use super::LoadingButton;
     use super::{
         ProjectedElementHover, TiltUiControlRuntimePlugin, activate_pointer_target,
         nearest_control_root, project_element_hover,
@@ -597,10 +666,19 @@ mod tests {
     fn activate_pointer_target_for_test(
         In(target): In<bevy::ecs::entity::Entity>,
         controls: Query<Option<&InteractionDisabled>, bevy::ecs::query::With<TiltControl>>,
+        loading_buttons: Query<&LoadingButton>,
+        dialogs: Query<&crate::DialogState>,
         parents: Query<&ChildOf>,
         mut activated: MessageWriter<ControlActivated>,
     ) {
-        activate_pointer_target(target, &controls, &parents, &mut activated);
+        activate_pointer_target(
+            target,
+            &controls,
+            &loading_buttons,
+            &dialogs,
+            &parents,
+            &mut activated,
+        );
     }
 
     #[test]
@@ -743,6 +821,81 @@ mod tests {
             events,
             vec![ControlActivated { entity: control }; 4],
             "each child target produces exactly one root activation"
+        );
+    }
+
+    #[test]
+    fn loading_button_blocks_pointer_activation_until_ready() {
+        let mut app = App::new();
+        app.add_message::<ControlActivated>();
+        let spinner = app.world_mut().spawn_empty().id();
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltControl,
+                ElementState {
+                    loading: true,
+                    ..Default::default()
+                },
+                LoadingButton {
+                    active: true,
+                    spinner,
+                },
+            ))
+            .id();
+        app.world_mut().entity_mut(button).add_child(spinner);
+
+        app.world_mut()
+            .run_system_once_with(activate_pointer_target_for_test, spinner)
+            .unwrap();
+        let mut cursor = MessageCursor::<ControlActivated>::default();
+        assert_eq!(
+            cursor
+                .read(app.world().resource::<Messages<ControlActivated>>())
+                .count(),
+            0
+        );
+
+        assert!(crate::set_button_loading(app.world_mut(), button, false));
+        app.world_mut()
+            .run_system_once_with(activate_pointer_target_for_test, spinner)
+            .unwrap();
+        assert_eq!(
+            cursor
+                .read(app.world().resource::<Messages<ControlActivated>>())
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn closing_dialog_blocks_child_button_activation() {
+        let mut app = App::new();
+        app.add_message::<ControlActivated>();
+        let dialog = app.world_mut().spawn(bevy::ui::Node::default()).id();
+        crate::widgets::advanced::dialog::materialize(
+            app.world_mut(),
+            dialog,
+            &[tilt_ui_core::TemplateAttribute::Static {
+                name: "animated".into(),
+                value: "true".into(),
+            }],
+        );
+        let panel = app.world().get::<crate::DialogState>(dialog).unwrap().panel;
+        let button = app.world_mut().spawn(TiltControl).id();
+        app.world_mut().entity_mut(panel).add_child(button);
+        assert!(crate::open_dialog(app.world_mut(), dialog));
+        assert!(crate::close_dialog(
+            app.world_mut(),
+            dialog,
+            crate::DialogResult::Closed
+        ));
+        app.world_mut()
+            .run_system_once_with(activate_pointer_target_for_test, button)
+            .unwrap();
+        assert_eq!(
+            app.world().resource::<Messages<ControlActivated>>().len(),
+            0
         );
     }
 

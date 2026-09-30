@@ -43,6 +43,8 @@ pub struct ElementState {
     pub focused: bool,
     /// Indicates whether the element matches `:disabled`.
     pub disabled: bool,
+    /// Indicates whether the element matches `:loading`.
+    pub loading: bool,
     /// Indicates whether the element matches `:checked`.
     pub checked: bool,
     /// Indicates whether the element matches `:readonly`.
@@ -51,6 +53,10 @@ pub struct ElementState {
     pub invalid: bool,
     /// Indicates whether a popup control matches `:open`.
     pub open: bool,
+    /// Indicates whether a dialog has animated presentation enabled.
+    pub animated: bool,
+    /// Indicates whether a dialog is playing its exit animation.
+    pub closing: bool,
 }
 
 /// Stores a static `id` attribute on an instantiated TiltUI element.

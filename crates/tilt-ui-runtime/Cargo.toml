@@ -27,6 +27,7 @@ hot-reload = ["bevy/file_watcher"]
 file-dialog = ["dep:rfd", "dep:wasm-bindgen-futures"]
 fluent = ["component", "dep:fluent-bundle", "dep:unic-langid"]
 svg = ["dep:resvg"]
+tilt-icons = ["component", "svg", "dep:tilt-ui-icons"]
 
 [dependencies]
 bevy = { workspace = true, features = ["bevy_asset", "bevy_log"] }
@@ -34,6 +35,7 @@ wgpu-types = "29"
 image = { version = "0.25", default-features = false }
 
 tilt-ui-core.workspace = true
+tilt-ui-icons = { workspace = true, optional = true }
 
 tilt-ui-html = {
     workspace = true,
@@ -51,6 +53,7 @@ inventory.workspace = true
 parley.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+regex = "1"
 selectors.workspace = true
 bevy_input_focus = "0.19"
 bevy_picking = "0.19"

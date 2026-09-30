@@ -5,12 +5,16 @@ pub use inventory;
 pub use serde;
 pub use serde_json;
 pub use tilt_ui_core::*;
+#[cfg(feature = "tilt-icons")]
+pub use tilt_ui_icons::{self, Icon, IconSize};
 #[cfg(feature = "css")]
 pub use tilt_ui_runtime::tilt_ui_css;
 pub use tilt_ui_runtime::{
     DEFAULT_TILT_UI_ASSET_PATH, TILT_UI_ASSET_SOURCE, TiltUiAssetSourcePlugin, TiltUiAssetsPlugin,
     UiRuntimeConfiguration,
 };
+#[cfg(feature = "tilt-icons")]
+pub use tilt_ui_runtime::{icon_image, set_icon_size};
 
 #[cfg(feature = "fluent")]
 pub use tilt_ui_runtime::{
@@ -85,34 +89,39 @@ pub use tilt_ui_runtime::component::ComponentUpdateRegistration;
 
 #[cfg(feature = "component")]
 pub use tilt_ui_runtime::{
-    CascadedStyle, ChoiceBoxParts, ComponentAssetHandles, ComponentAssetStore, ComponentCatalog,
-    ComponentElementIds, ComponentInitRegistration, ComponentInstance, ComponentInstantiationError,
-    ComponentRoot, ComponentStyleOwner, ContextMenu, ControlActivated, ControlChecked,
-    ControlCheckedChanged, ControlPart, ControlPartKind, ControlTabIndex, DialogClosed,
-    DialogConfig, DialogKind, DialogLayout, DialogRenderer, DialogResult, DialogSpawned,
-    DialogState, EditableText, EditableTextChanged, EditableTextCommitted, EditableTextOptions,
-    ElementClasses, ElementId, ElementState, EventBinding, EventBindings,
-    FailedComponentInstantiation, FieldSetSelection, FileInputOptions, FileInputSelected,
-    FileInputSelection, FormButton, FormSettings, FormSubmitted, FormValidationFailed, HtmlChange,
+    CascadedStyle, ChoiceBoxParts, ColorPickerChanged, ComponentAssetHandles, ComponentAssetStore,
+    ComponentCatalog, ComponentElementIds, ComponentInitRegistration, ComponentInstance,
+    ComponentInstantiationError, ComponentRoot, ComponentStyleOwner, ContextMenu, ControlActivated,
+    ControlChecked, ControlCheckedChanged, ControlPart, ControlPartKind, ControlTabIndex,
+    DatePickerChanged, DatePickerRangeChanged, DatePickerState, DialogClosed, DialogConfig,
+    DialogKind, DialogLayout, DialogRenderer, DialogResult, DialogSpawned, DialogState,
+    EditableText, EditableTextChanged, EditableTextCommitted, EditableTextOptions, ElementClasses,
+    ElementId, ElementState, EventBinding, EventBindings, FailedComponentInstantiation,
+    FieldSetSelection, FileInputOptions, FileInputSelected, FileInputSelection, FormButton,
+    FormData, FormFile, FormSettings, FormSubmitted, FormValidationFailed, FormValue, HtmlChange,
     HtmlClick, HtmlEvent, HtmlExpressionMethod, HtmlHandlerRegistration, HtmlMethodRegistration,
-    HtmlSubmit, ImageMetadata, ImagePreviewInput, InnerContentError, LoadedComponentAssets,
-    NumericParts, NumericRange, NumericValueChanged, OptionData, OptionSelectionChanged,
-    PendingComponent, PropertyBinding, PropertyBindings, ProviderChildPolicy, ProviderContext,
-    ProviderEffect, ProviderRules, ProviderScope, RangeOrientation, RouteComponent, RouteLifetime,
-    RouteTarget, Router, Routes, RoutesRegistration, RuntimeComputedStyle, SelectableStaticText,
-    SharedValueRegistration, ShowDialog, SliderChanged, SliderCommitted, SliderSettings,
-    StaticAttribute, StaticAttributes, TableCellInfo, TableInfo, TableSection, TemplateNodeRef,
-    ThemeProvider, TiltButton, TiltCheckbox, TiltControl, TiltElement, TiltRadioButton,
-    TiltSwitchButton, TiltText, TiltToggleButton, TiltUiCodePlugin, TiltUiComponentRuntimePlugin,
+    HtmlSubmit, ImageMetadata, ImagePreviewInput, InnerContentError, IsoDate,
+    LoadedComponentAssets, NumericParts, NumericRange, NumericValueChanged, OptionData,
+    OptionSelectionChanged, PendingComponent, PropertyBinding, PropertyBindings,
+    ProviderChildPolicy, ProviderContext, ProviderEffect, ProviderRules, ProviderScope,
+    RangeOrientation, RouteComponent, RouteLifetime, RouteTarget, Router, Routes,
+    RoutesRegistration, RuntimeComputedStyle, SelectableStaticText, SharedValueRegistration,
+    ShowDialog, ShowToast, SliderChanged, SliderCommitted, SliderSettings, StaticAttribute,
+    StaticAttributes, TableCellInfo, TableInfo, TableSection, TemplateNodeRef, ThemeProvider,
+    TiltButton, TiltCheckbox, TiltControl, TiltElement, TiltRadioButton, TiltSwitchButton,
+    TiltText, TiltToggleButton, TiltUiCodePlugin, TiltUiComponentRuntimePlugin,
     TiltUiComponentRuntimeSet, TiltUiControlRuntimePlugin, TiltUiRouterPlugin,
-    TiltUiStyleRuntimePlugin, UiBindingStore, UiCursor, UiDocumentInfo, UiDocumentState,
-    UiErrorCode, UiExpressionMethods, UiLoadState, UiMotionSettings, UiProvider, UiProviderAppExt,
-    UiProviderRegistry, UiSharedValues, UiState, UiStateError, UiStateEvent, UiStateRuntimeSet,
-    UiStateTarget, UiStore, UiStoreRegistration, UiThemeAppExt, UiThemes, WidgetLayoutOverride,
-    close_dialog, instantiate_component, normalize_path, open_dialog, register_ui_theme,
-    remove_ui_theme, reset_default_theme, set_control_checked, set_default_theme_css,
-    set_editable_readonly, set_editable_text, set_inner_bindings, set_inner_html, set_inner_text,
+    TiltUiStyleRuntimePlugin, ToastCloseReason, ToastClosed, ToastConfig, ToastKind,
+    ToastPlacement, ToastSpawned, ToastStackSettings, ToastState, UiBindingStore, UiCursor,
+    UiDocumentInfo, UiDocumentState, UiErrorCode, UiExpressionMethods, UiLoadState,
+    UiMotionSettings, UiProvider, UiProviderAppExt, UiProviderRegistry, UiSharedValues, UiState,
+    UiStateError, UiStateEvent, UiStateRuntimeSet, UiStateTarget, UiStore, UiStoreRegistration,
+    UiThemeAppExt, UiThemes, WidgetLayoutOverride, close_dialog, close_toast,
+    instantiate_component, normalize_path, open_dialog, register_ui_theme, remove_ui_theme,
+    reset_default_theme, set_color_value, set_control_checked, set_date_picker_open,
+    set_date_range, set_date_value, set_default_theme_css, set_editable_readonly,
+    set_editable_text, set_image_source, set_inner_bindings, set_inner_html, set_inner_text,
     set_numeric_value, set_option_selected, set_progress_value, set_slider_value,
-    set_slider_values, set_text_area_size, set_ui_cursor, spawn_component, spawn_dialog,
-    switch_ui_theme,
+    set_slider_values, set_text_area_size, set_ui_cursor, show_toast, spawn_component,
+    spawn_dialog, spawn_toast, switch_ui_theme,
 };
