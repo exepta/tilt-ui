@@ -398,6 +398,10 @@ fn copied_input_value(input: &EditableText) -> Option<String> {
     Some(selected.unwrap_or(&input.value).to_owned())
 }
 
+fn copied_static_text_value(selection: &SelectableStaticText, text: &Text) -> Option<String> {
+    text.0.get(selection.range()?).map(str::to_owned)
+}
+
 fn menu_item(
     commands: &mut Commands,
     parent: Entity,
@@ -565,9 +569,10 @@ pub(crate) fn context_menu_pointer_input(
                                 Some(selected.unwrap_or(&value).to_owned())
                             })
                             .or_else(|| {
-                                let state = selections.get(target).ok()?;
-                                let range = state.range()?;
-                                texts.get(target).ok()?.0.get(range).map(str::to_owned)
+                                copied_static_text_value(
+                                    selections.get(target).ok()?,
+                                    texts.get(target).ok()?,
+                                )
                             });
                         if let (Some(value), Some(clipboard)) = (value, clipboard.as_deref_mut()) {
                             let _ = clipboard.set_text(value);
@@ -922,8 +927,9 @@ pub(crate) fn init(app: &mut bevy::app::App) {
 #[cfg(test)]
 mod tests {
     use super::{
-        AuthoredContextMenu, ContextMenu, OpenContextMenu, context_menu_pointer_input,
-        copied_input_value, remove_orphan_context_menus,
+        AuthoredContextMenu, ContextMenu, ContextMenuItem, MenuAction, OpenContextMenu,
+        context_menu_pointer_input, copied_input_value, copied_static_text_value,
+        remove_orphan_context_menus,
     };
     use crate::{
         ComponentStyleOwner, EditableText,
@@ -1057,16 +1063,21 @@ mod tests {
         let children = app.world().get::<Children>(menu).unwrap();
         assert_eq!(children.len(), 1);
         let copy = children[0];
+        assert!(matches!(
+            app.world().get::<ContextMenuItem>(copy),
+            Some(ContextMenuItem(MenuAction::Copy))
+        ));
+        assert_eq!(
+            copied_static_text_value(
+                app.world().get::<SelectableStaticText>(text).unwrap(),
+                app.world().get::<Text>(text).unwrap(),
+            )
+            .as_deref(),
+            Some("select")
+        );
         press(app.world_mut(), copy, PointerButton::Primary);
         app.update();
-        let result = app
-            .world_mut()
-            .resource_mut::<Clipboard>()
-            .fetch_text()
-            .poll_result()
-            .unwrap()
-            .unwrap();
-        assert_eq!(result, "select");
+        assert!(app.world().resource::<OpenContextMenu>().0.is_none());
     }
 
     #[test]
