@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -12,6 +12,7 @@ import {
   plan,
   prepare,
   prCheck,
+  rateLimitRetryAt,
   stableCollisions,
   workspaceVersion,
 } from './release.mjs';
@@ -108,4 +109,72 @@ test('a release PR fails when its version already exists on crates.io', async (c
   };
   context.after(() => { globalThis.fetch = previousFetch; });
   await assert.rejects(prCheck(), /v0\.1\.0 already exists: crates\.io\/tilt-ui-icons/);
+});
+
+test('a partial RC resumes the same version and source commit', async (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'tilt-ui-release-'));
+  context.after(() => rmSync(root, { recursive: true }));
+  const output = join(root, 'output');
+  setEnvironment(context, {
+    GITHUB_REF_NAME: 'main',
+    GITHUB_REPOSITORY: 'owner/repo',
+    GITHUB_OUTPUT: output,
+    RELEASE_RESUME_VERSION: '0.1.0-rc.1',
+    RELEASE_SOURCE_SHA: 'a'.repeat(40),
+  });
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (url.includes('/crates/tilt-ui-core/versions')) {
+      return new Response(JSON.stringify({ versions: [{ num: '0.1.0-rc.1' }] }), { status: 200 });
+    }
+    if (url.includes('crates.io')) {
+      return new Response(JSON.stringify({ versions: [] }), { status: 200 });
+    }
+    return new Response('', { status: 404 });
+  };
+  context.after(() => { globalThis.fetch = previousFetch; });
+  await plan();
+  assert.equal(readFileSync(output, 'utf8'),
+    'publish=true\nversion=0.1.0-rc.1\ntag=v0.1.0-rc.1\nkind=rc\n');
+});
+
+test('crates.io retry time is parsed only from a rate limit response', () => {
+  const now = Date.parse('2026-09-30T19:00:00Z');
+  const response = 'status 429 Too Many Requests: Please try again after Wed, 30 Sep 2026 20:02:49 GMT and see https://crates.io/docs/rate-limits';
+  assert.equal(rateLimitRetryAt(response, now), Date.parse('2026-09-30T20:03:04Z'));
+  assert.equal(rateLimitRetryAt('status 500: Please try again after Wed, 30 Sep 2026 20:02:49 GMT and see docs', now), null);
+});
+
+test('publish skips completed crates and uploads only the remaining crates in order', async (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'tilt-ui-publish-'));
+  context.after(() => rmSync(root, { recursive: true }));
+  const bin = join(root, 'bin');
+  const calls = join(root, 'cargo-calls');
+  mkdirSync(bin);
+  writeFileSync(join(root, 'Cargo.toml'), '[workspace.package]\nversion = "0.1.0-rc.1"\n[workspace.dependencies]\n');
+  writeFileSync(join(bin, 'cargo'), '#!/usr/bin/env node\nrequire("node:fs").appendFileSync(process.env.CARGO_CALLS_FILE, process.argv.slice(2).join(" ") + "\\n");\n');
+  chmodSync(join(bin, 'cargo'), 0o755);
+  setEnvironment(context, {
+    TILT_UI_RELEASE_ROOT: root,
+    CARGO_CALLS_FILE: calls,
+    CARGO_REGISTRY_TOKEN: 'test-token',
+    PATH: `${bin}:${process.env.PATH}`,
+  });
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const name = url.match(/\/crates\/(tilt-ui(?:-[a-z]+)?)\/versions/)?.[1];
+    const versions = CRATES.indexOf(name) < 5 ? [{ num: '0.1.0-rc.1' }] : [];
+    return new Response(JSON.stringify({ versions }), { status: 200 });
+  };
+  context.after(() => { globalThis.fetch = previousFetch; });
+  const { publish } = await import('./release.mjs?publish-resume-test');
+  await publish('0.1.0-rc.1');
+  assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n'), [
+    'package --package tilt-ui-build --locked --no-verify',
+    'publish --package tilt-ui-build --locked --no-verify',
+    'package --package tilt-ui-runtime --locked --no-verify',
+    'publish --package tilt-ui-runtime --locked --no-verify',
+    'package --package tilt-ui --locked --no-verify',
+    'publish --package tilt-ui --locked --no-verify',
+  ]);
 });
