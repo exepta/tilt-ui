@@ -54,7 +54,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             g++ pkg-config libx11-dev libasound2-dev libudev-dev \
-            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev
+            libxkbcommon-x11-0 libwayland-dev libxkbcommon-dev \
+            libfontconfig-dev
+          pkg-config --modversion fontconfig
       - name: Install Rust toolchain
         run: rustup update stable
       - name: Test release planning
