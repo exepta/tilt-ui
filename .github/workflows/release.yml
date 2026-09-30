@@ -5,6 +5,16 @@ on:
     branches:
       - main
       - 'release-*'
+  workflow_dispatch:
+    inputs:
+      resume_version:
+        description: 'Partially published version, for example 0.1.0-rc.1'
+        required: true
+        type: string
+      source_sha:
+        description: '40-character commit SHA from the failed release run'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -31,6 +41,8 @@ jobs:
         id: release_plan
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_RESUME_VERSION: ${{ inputs.resume_version }}
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
         run: node scripts/release.mjs plan
 
   release:
@@ -39,12 +51,23 @@ jobs:
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
     environment: crates-io
+    env:
+      TILT_UI_RELEASE_ROOT: ${{ github.workspace }}
+      RELEASE_SCRIPT: ${{ github.event_name == 'workflow_dispatch' && '.release-automation/scripts/release.mjs' || 'scripts/release.mjs' }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
+      - name: Load current release tooling for a resumed run
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-automation
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -60,9 +83,9 @@ jobs:
       - name: Install Rust toolchain
         run: rustup update stable
       - name: Test release planning
-        run: node --test scripts/release.test.mjs
+        run: node --test "$(dirname "$RELEASE_SCRIPT")/release.test.mjs"
       - name: Prepare exact Cargo release versions
-        run: node scripts/release.mjs prepare '${{ needs.plan.outputs.version }}'
+        run: node "$RELEASE_SCRIPT" prepare '${{ needs.plan.outputs.version }}'
       - name: Test release snapshot
         run: cargo test --workspace --all-features
       - name: Record versioned source snapshot
@@ -78,7 +101,7 @@ jobs:
       - name: Publish all eight crates to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: node scripts/release.mjs publish '${{ needs.plan.outputs.version }}'
+        run: node "$RELEASE_SCRIPT" publish '${{ needs.plan.outputs.version }}'
       - name: Tag source and publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

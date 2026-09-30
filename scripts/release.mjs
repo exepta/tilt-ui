@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Version planning and crates.io publishing for the GitHub workflows.
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+export const ROOT = process.env.TILT_UI_RELEASE_ROOT ?? dirname(dirname(fileURLToPath(import.meta.url)));
 export const CRATES = [
   'tilt-ui-core',
   'tilt-ui-html',
@@ -19,6 +19,7 @@ export const CRATES = [
 ];
 
 const SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/;
+const PUBLISH_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc\.[1-9]\d*)?$/;
 const RELEASE_BRANCH = /^release-((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
 const DEPENDENCY = /^(tilt-ui(?:-[a-z]+)? = \{ path = "crates\/[^\"]+")(?:, version = "[^"]+")?( \})$/gm;
 const USER_AGENT = 'tilt-ui-release/1 (https://github.com/exepta/tilt-ui)';
@@ -175,6 +176,28 @@ export async function plan() {
   const base = baseVersion();
   const repo = process.env.GITHUB_REPOSITORY;
   const token = process.env.GH_TOKEN ?? '';
+  const resumeVersion = process.env.RELEASE_RESUME_VERSION;
+  if (resumeVersion) {
+    if (!PUBLISH_VERSION.test(resumeVersion) || resumeVersion.split('-')[0] !== base) {
+      throw new Error(`Invalid resume version ${resumeVersion} for workspace ${base}.`);
+    }
+    if (!/^[0-9a-f]{40}$/.test(process.env.RELEASE_SOURCE_SHA ?? '')) {
+      throw new Error('RELEASE_SOURCE_SHA must be the original 40-character release commit.');
+    }
+    const tag = `v${resumeVersion}`;
+    if (await tagExists(repo, tag, token)) {
+      throw new Error(`${tag} already has a GitHub tag; refusing to resume it.`);
+    }
+    const published = await publishedVersions();
+    const existing = CRATES.filter((name) => published[name].has(resumeVersion));
+    if (existing.length === 0 || existing.length === CRATES.length) {
+      throw new Error(`${tag} is not a partial crates.io release (${existing.length}/${CRATES.length} crates published).`);
+    }
+    const kind = resumeVersion.includes('-rc.') ? 'rc' : 'stable';
+    writeOutput({ publish: 'true', version: resumeVersion, tag, kind });
+    summary(`Resuming ${tag} from ${process.env.RELEASE_SOURCE_SHA}; already published: ${existing.join(', ')}.`);
+    return;
+  }
   const stable = branch.match(RELEASE_BRANCH);
   let version;
   let kind;
@@ -219,7 +242,7 @@ export async function plan() {
 }
 
 export function prepare(version, root = ROOT) {
-  if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc\.[1-9]\d*)?$/.test(version)) {
+  if (!PUBLISH_VERSION.test(version)) {
     throw new Error(`Invalid release version: ${version}`);
   }
   const path = join(root, 'Cargo.toml');
@@ -251,6 +274,39 @@ function cargo(args) {
   if (result.status !== 0) throw new Error(`cargo ${args.join(' ')} failed with status ${result.status}`);
 }
 
+async function cargoPublish(args) {
+  const child = spawn('cargo', args, { cwd: ROOT, stdio: ['inherit', 'pipe', 'pipe'] });
+  let output = '';
+  const record = (stream, chunk) => {
+    stream.write(chunk);
+    output = (output + chunk.toString()).slice(-16_384);
+  };
+  child.stdout.on('data', (chunk) => record(process.stdout, chunk));
+  child.stderr.on('data', (chunk) => record(process.stderr, chunk));
+  const status = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+  if (status !== 0) {
+    const error = new Error(`cargo ${args.join(' ')} failed with status ${status}`);
+    error.output = output;
+    throw error;
+  }
+}
+
+export function rateLimitRetryAt(output, now = Date.now()) {
+  if (!/429 Too Many Requests/.test(output)) return null;
+  const retryDate = output.match(/Please try again after ([^\n]+?) and see /)?.[1];
+  const timestamp = Date.parse(retryDate ?? '');
+  return Number.isFinite(timestamp) && timestamp > now ? timestamp + 15_000 : null;
+}
+
+async function waitUntil(timestamp) {
+  while (Date.now() < timestamp) {
+    await new Promise((resolve) => setTimeout(resolve, Math.min(timestamp - Date.now(), 60_000)));
+  }
+}
+
 export async function publish(version) {
   if (!process.env.CARGO_REGISTRY_TOKEN) {
     throw new Error('CARGO_REGISTRY_TOKEN is missing from the crates-io GitHub environment.');
@@ -260,17 +316,35 @@ export async function publish(version) {
     throw new Error(`Manifest version ${current} does not match requested ${version}.`);
   }
   const published = await publishedVersions();
-  const conflicts = CRATES.filter((name) => published[name].has(version));
-  if (conflicts.length) {
-    throw new Error(`Already on crates.io: ${conflicts.join(', ')} ${version}. Do not republish.`);
-  }
   for (const name of CRATES) {
+    if (published[name].has(version)) {
+      summary(`Skipping \`${name} ${version}\`: already on crates.io.`);
+      continue;
+    }
     summary(`Publishing \`${name} ${version}\` to crates.io`);
     // A dependent crate can be packaged after earlier crates reach the index.
     cargo(['package', '--package', name, '--locked', '--no-verify']);
     // The full workspace was tested before upload. Index propagation can make
     // isolated package verification fail between dependent crates.
-    cargo(['publish', '--package', name, '--locked', '--no-verify']);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await cargoPublish(['publish', '--package', name, '--locked', '--no-verify']);
+        break;
+      } catch (error) {
+        // Cargo can fail after an upload while waiting for index propagation.
+        if ((await crateVersions(name)).has(version)) {
+          summary(`\`${name} ${version}\` reached crates.io despite Cargo's error; continuing.`);
+          break;
+        }
+        const retryAt = rateLimitRetryAt(error.output ?? '');
+        if (retryAt === null || attempt >= 3 || retryAt - Date.now() > 2 * 60 * 60 * 1000) {
+          throw error;
+        }
+        summary(`crates.io rate limit reached. Retrying \`${name}\` after ${new Date(retryAt).toISOString()}.`);
+        await waitUntil(retryAt);
+      }
+    }
+    published[name].add(version);
   }
 }
 
