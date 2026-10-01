@@ -23,6 +23,15 @@ const PUBLISH_VERSION = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-rc\.
 const RELEASE_BRANCH = /^release-((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
 const DEPENDENCY = /^(tilt-ui(?:-[a-z]+)? = \{ path = "crates\/[^\"]+")(?:, version = "[^"]+")?( \})$/gm;
 const USER_AGENT = 'tilt-ui-release/1 (https://github.com/exepta/tilt-ui)';
+let nextCratesIoRequest = 0;
+
+async function waitForCratesIoSlot() {
+  const scheduled = Math.max(Date.now(), nextCratesIoRequest);
+  nextCratesIoRequest = scheduled + 1_100;
+  if (scheduled > Date.now()) {
+    await new Promise((resolve) => setTimeout(resolve, scheduled - Date.now()));
+  }
+}
 
 export function workspaceVersion(root = ROOT) {
   const manifest = readFileSync(join(root, 'Cargo.toml'), 'utf8');
@@ -41,8 +50,11 @@ export function baseVersion(root = ROOT) {
 }
 
 async function requestJson(url, token = '', missing = null) {
+  if (url.startsWith('https://crates.io/')) await waitForCratesIoSlot();
   const headers = {
-    Accept: 'application/vnd.github+json',
+    Accept: url.startsWith('https://api.github.com/')
+      ? 'application/vnd.github+json'
+      : 'application/json',
     'User-Agent': USER_AGENT,
   };
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -51,7 +63,17 @@ async function requestJson(url, token = '', missing = null) {
     signal: AbortSignal.timeout(30_000),
   });
   if (response.status === 404) return missing;
-  if (!response.ok) throw new Error(`HTTP ${response.status} while checking ${url}`);
+  if (!response.ok) {
+    const body = await response.text();
+    let detail;
+    try {
+      const data = JSON.parse(body);
+      detail = data.errors?.map((error) => error.detail).join('; ') || data.message;
+    } catch {
+      detail = body.slice(0, 300);
+    }
+    throw new Error(`HTTP ${response.status} while checking ${url}${detail ? `: ${detail}` : ''}`);
+  }
   return response.json();
 }
 
@@ -73,15 +95,25 @@ async function matchingTags(repo, prefix, token) {
   return refs.map((item) => item.ref.replace(/^refs\/tags\//, ''));
 }
 
-async function crateVersions(name) {
+export async function crateVersions(name) {
   const versions = new Set();
-  for (let page = 1; ; page += 1) {
-    const url = `https://crates.io/api/v1/crates/${name}/versions?page=${page}&per_page=100`;
+  const endpoint = `https://crates.io/api/v1/crates/${encodeURIComponent(name)}/versions`;
+  let url = `${endpoint}?per_page=100`;
+  const requested = new Set();
+  while (true) {
+    if (requested.has(url)) throw new Error(`crates.io repeated a versions page for ${name}: ${url}`);
+    requested.add(url);
     const data = await requestJson(url);
     if (data === null) return versions;
     const batch = data.versions ?? [];
     for (const item of batch) versions.add(item.num);
-    if (batch.length < 100) return versions;
+    const nextPage = data.meta?.next_page;
+    if (!nextPage) return versions;
+    const nextUrl = new URL(nextPage, endpoint);
+    if (nextUrl.origin !== 'https://crates.io' || nextUrl.pathname !== new URL(endpoint).pathname) {
+      throw new Error(`crates.io returned an invalid versions page for ${name}: ${nextPage}`);
+    }
+    url = nextUrl.href;
   }
 }
 

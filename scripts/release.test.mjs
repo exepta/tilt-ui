@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import {
   CRATES,
   ROOT,
+  crateVersions,
   findMergedRcPr,
   nextRc,
   plan,
@@ -37,6 +38,33 @@ test('next RC follows the highest GitHub tag or crates.io version', () => {
   const published = emptyRegistry();
   published['tilt-ui-core'].add('0.1.0-rc.2');
   assert.equal(nextRc('0.1.0', published, ['v0.1.0-rc.1', 'v0.1.0-rc.4']), '0.1.0-rc.5');
+});
+
+test('crate versions follow crates.io seek pagination without a page number', async (context) => {
+  const previousFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    if (new URL(url).searchParams.has('page')) {
+      return new Response(JSON.stringify({ errors: [{ detail: '?page= is not supported for this request' }] }), { status: 400 });
+    }
+    if (url.includes('seek=older')) {
+      return new Response(JSON.stringify({
+        versions: [{ num: '0.1.0-rc.1' }],
+        meta: { next_page: null },
+      }), { status: 200 });
+    }
+    return new Response(JSON.stringify({
+      versions: [{ num: '0.1.0-rc.2' }],
+      meta: { next_page: '?seek=older&per_page=100' },
+    }), { status: 200 });
+  };
+  context.after(() => { globalThis.fetch = previousFetch; });
+  assert.deepEqual([...await crateVersions('tilt-ui-icons')], ['0.1.0-rc.2', '0.1.0-rc.1']);
+  assert.deepEqual(requested, [
+    'https://crates.io/api/v1/crates/tilt-ui-icons/versions?per_page=100',
+    'https://crates.io/api/v1/crates/tilt-ui-icons/versions?seek=older&per_page=100',
+  ]);
 });
 
 test('only a merged RC: PR targeting main triggers an RC release', () => {

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CSS parser and styling engine for TiltUI"
+readme = "README.md"
 
 [lib]
 path = "src/lib.rs"

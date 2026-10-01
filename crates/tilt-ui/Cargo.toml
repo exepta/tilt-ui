@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A component-based HTML and CSS UI framework for Bevy"
+readme = "README.md"
 keywords = ["bevy", "ui", "html", "css", "gamedev"]
 categories = ["game-development", "gui"]
 

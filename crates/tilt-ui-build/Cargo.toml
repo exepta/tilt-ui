@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Build-time tooling and component discovery for TiltUI"
+readme = "README.md"
 
 [lib]
 path = "src/lib.rs"
