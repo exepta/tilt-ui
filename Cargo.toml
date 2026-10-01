@@ -11,7 +11,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-rc.2"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -19,14 +19,14 @@ repository = "https://github.com/exepta/tilt-ui"
 
 [workspace.dependencies]
 # TiltUI internal crates
-tilt-ui = { path = "crates/tilt-ui", version = "=0.1.0" }
-tilt-ui-core = { path = "crates/tilt-ui-core", version = "=0.1.0" }
-tilt-ui-html = { path = "crates/tilt-ui-html", version = "=0.1.0" }
-tilt-ui-css = { path = "crates/tilt-ui-css", version = "=0.1.0" }
-tilt-ui-runtime = { path = "crates/tilt-ui-runtime", version = "=0.1.0" }
-tilt-ui-icons = { path = "crates/tilt-ui-icons", version = "=0.1.0" }
-tilt-ui-macros = { path = "crates/tilt-ui-macros", version = "=0.1.0" }
-tilt-ui-build = { path = "crates/tilt-ui-build", version = "=0.1.0" }
+tilt-ui = { path = "crates/tilt-ui", version = "=0.1.0-rc.2" }
+tilt-ui-core = { path = "crates/tilt-ui-core", version = "=0.1.0-rc.2" }
+tilt-ui-html = { path = "crates/tilt-ui-html", version = "=0.1.0-rc.2" }
+tilt-ui-css = { path = "crates/tilt-ui-css", version = "=0.1.0-rc.2" }
+tilt-ui-runtime = { path = "crates/tilt-ui-runtime", version = "=0.1.0-rc.2" }
+tilt-ui-icons = { path = "crates/tilt-ui-icons", version = "=0.1.0-rc.2" }
+tilt-ui-macros = { path = "crates/tilt-ui-macros", version = "=0.1.0-rc.2" }
+tilt-ui-build = { path = "crates/tilt-ui-build", version = "=0.1.0-rc.2" }
 
 # Bevy
 bevy = { version = "0.19", default-features = false }

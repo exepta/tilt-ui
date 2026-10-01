@@ -5060,7 +5060,7 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "bevy",
  "bevy_winit",
@@ -5075,7 +5075,7 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui-build"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "syn 2.0.119",
  "thiserror 2.0.21",
@@ -5085,7 +5085,7 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui-core"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "smallvec",
  "thiserror 2.0.21",
@@ -5093,7 +5093,7 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui-css"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "cssparser 0.37.0",
  "precomputed-hash",
@@ -5173,7 +5173,7 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui-html"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "kuchiki",
  "quick-xml 0.42.0",
@@ -5183,11 +5183,11 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui-icons"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 
 [[package]]
 name = "tilt-ui-macros"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "quote",
  "syn 2.0.119",
@@ -5195,7 +5195,7 @@ dependencies = [
 
 [[package]]
 name = "tilt-ui-runtime"
-version = "0.1.0"
+version = "0.1.0-rc.2"
 dependencies = [
  "bevy",
  "bevy_input_focus",
