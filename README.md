@@ -6,6 +6,16 @@ Developed by tilt-us.
 
 Status: Early development.
 
+New to TiltUI? Start with the [main crate guide](crates/tilt-ui/README.md) for a complete minimal app, project layout, components, styling, routing, and optional features.
+
+## Version compatibility
+
+| TiltUI version | Bevy version | Notes |
+| --- | --- | --- |
+| `0.1.0-rc.*` and `0.1.0` | [`0.19.x`](https://bevy.org/news/bevy-0-19/) | Current compatibility target; this workspace tests with Bevy `0.19.1`. |
+
+Use matching versions of `tilt-ui` and `tilt-ui-build`. The workspace [Cargo.toml](Cargo.toml) defines the current Bevy requirement; compatibility with other Bevy lines has not been established.
+
 ## Getting started
 
 Every project needs `src-ui/index.html`. Its `<body>` is mounted once as the

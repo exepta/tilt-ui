@@ -63,8 +63,8 @@ Vergleichsbasis: Quellcode von `bevy_extended_ui` **1.6.0** und der aktuelle Til
 
 ## Validierung im laufenden Fenster
 
-- [ ] **Schnelles Body-Scrollen messen:** Radereignisse werden pro Frame gebündelt und der Body bewegt sich ohne Smooth-Scroll-Warteschlange; innere Scrollbereiche glätten mit begrenztem Rückstand. Regressionstests sind vorhanden. Framezeit und Scrollgefühl bei manuellen Rad-Bursts im Showcase prüfen; automatische Mausbedienung war hier ohne macOS-Bedienungshilfen-Zugriff nicht möglich.
-- [ ] **ColorPicker-Drag messen:** Hover-bedingte CSS-Neuberechnung wurde im Debug-Showcase von ungefähr 60 ms auf 3 ms reduziert. Drag-Latenz und verbleibende Framezeit-Spitzen im Fenster prüfen.
+- [x] **Schnelles Body-Scrollen messen:** Radereignisse werden pro Frame gebündelt; der Body übernimmt sie direkt ohne Smooth-Scroll-Warteschlange. Innere Scrollbereiche glätten weiterhin, aber ihr Ziel liegt höchstens eine Viewport-Länge (mindestens 224 px) voraus. Der reproduzierbare Fenster-Probe im Component-Showcase sendete 720 Radereignisse in zwei Läufen: jeweils 120 Frames, p95 19,19/19,39 ms, maximal 19,47/19,89 ms, keine Frames über 33,3 ms. Gezielte Regressionstests decken Body, innere Scrollbereiche und Event-Bündelung ab. Messaufbau und Grenzen: [Performance-Validierung](docs/performance.md).
+- [x] **ColorPicker-Drag messen:** Der Fenster-Probe öffnet die Palette und sendet 230 Pointer-Press-/Drag-Ereignisse über den normalen Widget-Eingabepfad; alle 230 änderten den Farbwert spätestens im folgenden Frame. In zwei Läufen mit je 120 Frames lagen p95 bei 19,20/19,24 ms und die Maxima bei 20,91/19,71 ms; kein Frame überschritt 33,3 ms. Hover-bedingte CSS-Neuberechnung war zuvor im Debug-Showcase von ungefähr 60 ms auf 3 ms reduziert worden. Messaufbau und Grenzen: [Performance-Validierung](docs/performance.md).
 
 ## Bereits umgesetzt – nicht erneut als Lücke erfassen
 
