@@ -364,7 +364,13 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
         if !owns_wheel {
             continue;
         }
-        let smooth = smooth && smooth_scroll_enabled(world);
+        // The document body can cover a large tree. Keeping it in the easing
+        // queue makes a wheel burst redraw that tree for several extra frames.
+        let smooth = smooth
+            && smooth_scroll_enabled(world)
+            && !world
+                .get::<TiltElement>(entity)
+                .is_some_and(|element| element.kind == tilt_ui_core::ElementKind::Body);
         if let Some(actual) = world.get::<TextScroll>(entity).map(|scroll| scroll.0) {
             let previous = if smooth {
                 world
@@ -380,6 +386,9 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
             }
             if scrollable(parts.y_mode) && max.y > 0.0 {
                 next.y = (previous.y + physical_delta.y).clamp(0.0, max.y);
+            }
+            if smooth {
+                next = bound_wheel_backlog(actual, next, node.content_box().size());
             }
             if next != previous {
                 if smooth {
@@ -408,6 +417,9 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
             if scrollable(parts.y_mode) && logical_max.y > 0.0 {
                 next.y = (previous.y + delta.y).clamp(0.0, logical_max.y);
             }
+            if smooth {
+                next = bound_wheel_backlog(actual, next, node.size() * node.inverse_scale_factor);
+            }
             if next != previous {
                 if smooth {
                     world.entity_mut(entity).insert(SmoothScrollTarget(next));
@@ -421,6 +433,11 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
         }
         break;
     }
+}
+
+fn bound_wheel_backlog(actual: Vec2, target: Vec2, viewport: Vec2) -> Vec2 {
+    let limit = viewport.max(Vec2::splat(56.0 * 4.0));
+    target.clamp(actual - limit, actual + limit)
 }
 
 fn wheel_start(actual: Vec2, target: Vec2, delta: Vec2) -> Vec2 {
@@ -1031,15 +1048,15 @@ mod tests {
         animate_wheel_scroll(&mut world);
         let position = world.get::<ScrollPosition>(body).unwrap().0.y;
         assert!(position > 0.0 && position < 300.0, "position: {position}");
-        assert_eq!(world.get::<SmoothScrollTarget>(body).unwrap().0.y, 1120.0);
+        assert_eq!(world.get::<SmoothScrollTarget>(body).unwrap().0.y, 224.0);
         for _ in 0..60 {
             animate_wheel_scroll(&mut world);
         }
-        assert_eq!(world.get::<ScrollPosition>(body).unwrap().0.y, 1120.0);
+        assert_eq!(world.get::<ScrollPosition>(body).unwrap().0.y, 224.0);
     }
 
     #[test]
-    fn body_wheel_burst_eases_like_other_scroll_containers() {
+    fn body_wheel_burst_applies_once_without_an_animation_queue() {
         let mut world = World::new();
         world.init_resource::<UiMotionSettings>();
         let body = world
@@ -1063,14 +1080,15 @@ mod tests {
         for _ in 0..20 {
             scroll_ancestors_with_motion(&mut world, body, Vec2::new(0.0, 56.0), true);
         }
-        assert_eq!(world.get::<ScrollPosition>(body).unwrap().0.y, 0.0);
-        assert_eq!(world.get::<SmoothScrollTarget>(body).unwrap().0.y, 1120.0);
+        assert_eq!(world.get::<ScrollPosition>(body).unwrap().0.y, 1120.0);
+        assert!(world.get::<SmoothScrollTarget>(body).is_none());
         animate_wheel_scroll(&mut world);
         let position = world.get::<ScrollPosition>(body).unwrap().0.y;
-        assert!(position > 0.0 && position < 300.0, "position: {position}");
+        assert_eq!(position, 1120.0);
         scroll_ancestors_with_motion(&mut world, body, Vec2::new(0.0, -56.0), true);
+        assert!(world.get::<SmoothScrollTarget>(body).is_none());
         assert_eq!(
-            world.get::<SmoothScrollTarget>(body).unwrap().0.y,
+            world.get::<ScrollPosition>(body).unwrap().0.y,
             position - 56.0
         );
         animate_wheel_scroll(&mut world);

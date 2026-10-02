@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use tilt_ui::{TiltUiPlugin, UiFrameRate, UiLang, UiRuntimeConfiguration};
 
+mod perf_probe;
+
 tilt_ui::include_components!();
 
 fn main() {
@@ -17,8 +19,8 @@ fn main() {
         .with_theme_names(["light", "dark"])
         .with_language_path("locales")
         .expect("valid language path");
-    App::new()
-        .insert_resource(UiLang::new("en-US"))
+    let mut app = App::new();
+    app.insert_resource(UiLang::new("en-US"))
         .add_plugins(
             TiltUiPlugin::new(tilt_ui_component_catalog())
                 .with_source_root(concat!(env!("CARGO_MANIFEST_DIR"), "/src-ui"))
@@ -32,6 +34,7 @@ fn main() {
                 ..default()
             }),
             ..default()
-        }))
-        .run();
+        }));
+    perf_probe::install(&mut app);
+    app.run();
 }
