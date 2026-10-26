@@ -8,21 +8,22 @@ TiltUI is in early development. Its HTML and CSS are rendered by Bevy; they are 
 
 | TiltUI line | Bevy line | Notes |
 | --- | --- | --- |
-| `0.1.0-rc.*` and `0.1.0` | [`0.19.x`](https://bevy.org/news/bevy-0-19/) | Current compatibility target; this repository tests with Bevy `0.19.1`. |
+| Published `0.1.0-rc.*` and `0.1.0` | [`0.19.x`](https://bevy.org/news/bevy-0-19/) | Published compatibility line. |
+| Git branch `preview-020` | [`0.20.0`](https://bevy.org/news/bevy-0-20/) | Preview target, Rust `1.97.1` or newer. |
 
-Use the **same TiltUI version** for `tilt-ui` and `tilt-ui-build`. Release candidates need their full version, including `-rc.N`. Other Bevy lines are not declared compatible with this TiltUI line. Check the [workspace manifest](https://github.com/exepta/tilt-ui/blob/main/Cargo.toml) for the current dependency target.
+Use the **same TiltUI version** for `tilt-ui` and `tilt-ui-build`. Release candidates need their full version, including `-rc.N`. Other Bevy lines are not declared compatible with this TiltUI line. Check the [preview workspace manifest](https://github.com/exepta/tilt-ui/blob/preview-020/Cargo.toml) for the current dependency target.
 
 ## Start a project
 
-You need Rust 1.85 or newer, Bevy 0.19, and a project with `src/` and `src-ui/`. While working from the current Git repository, the dependencies can be:
+This preview requires Rust 1.97.1 or newer, Bevy 0.20, and a project with `src/` and `src-ui/`. Use the preview branch for both dependencies:
 
 ```toml
 [dependencies]
-bevy = "0.19"
-tilt-ui = { git = "https://github.com/exepta/tilt-ui" }
+bevy = "0.20.0"
+tilt-ui = { git = "https://github.com/exepta/tilt-ui", branch = "preview-020" }
 
 [build-dependencies]
-tilt-ui-build = { git = "https://github.com/exepta/tilt-ui" }
+tilt-ui-build = { git = "https://github.com/exepta/tilt-ui", branch = "preview-020" }
 ```
 
 For a completed crates.io release, replace both Git dependencies with the **same published TiltUI version**. The two dependencies should also use the same Git revision if you pin one. Bevy's default features are the easiest way to start; if you disable them, include windowing, rendering, UI rendering, and font support.

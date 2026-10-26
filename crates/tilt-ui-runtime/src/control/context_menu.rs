@@ -1,5 +1,6 @@
 //! Default context actions for editable and selected static text.
 
+use crate::TiltButton as Button;
 use bevy::{
     asset::Handle,
     clipboard::Clipboard,
@@ -20,17 +21,14 @@ use bevy::{
     text::{EditableText as NativeEditableText, Font, FontSource, TextColor, TextEdit, TextFont},
     ui::{
         AlignItems, BackgroundColor, BorderColor, BorderRadius, ComputedNode,
-        ComputedUiRenderTargetInfo, FlexDirection, GlobalZIndex, Interaction, JustifyContent, Node,
-        PositionType, UiGlobalTransform, UiRect, UiScale, Val,
-        widget::{Button, Text},
+        ComputedUiRenderTargetInfo, FlexDirection, GlobalZIndex, JustifyContent, Node,
+        PositionType, Pressed, UiGlobalTransform, UiRect, UiScale, Val, widget::Text,
     },
     window::{PrimaryWindow, Window},
 };
 use bevy_input_focus::{FocusCause, InputFocus};
-use bevy_picking::{
-    events::{Pointer, Press},
-    pointer::PointerButton,
-};
+use bevy_picking::hover::Hovered;
+use bevy_picking::{events::PointerPress, pointer::PointerButton};
 use tilt_ui_core::{InputType, TemplateAttribute};
 
 use super::text_selection::{ActiveStaticTextSelection, SelectableStaticText};
@@ -522,7 +520,7 @@ fn remove_orphan_context_menus(world: &mut bevy::ecs::world::World) {
 
 pub(crate) fn context_menu_pointer_input(
     mut commands: Commands,
-    mut presses: Option<MessageReader<Pointer<Press>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
     mut open: ResMut<OpenContextMenu>,
     parents: Query<&ChildOf>,
     items: Query<&ContextMenuItem>,
@@ -627,7 +625,7 @@ pub(crate) fn context_menu_pointer_input(
             if !is_inside(press.entity, target, &parents) {
                 continue;
             }
-            let position = press.pointer_location.position;
+            let position = press.pointer.position;
             let size = geometry
                 .logical_size(entity)
                 .unwrap_or(bevy::math::Vec2::new(180.0, 46.0));
@@ -689,7 +687,7 @@ pub(crate) fn context_menu_pointer_input(
         open.0 = Some(spawn_menu(
             &mut commands,
             target,
-            press.pointer_location.position,
+            press.pointer.position,
             windows.iter().next(),
             &actions,
             &labels,
@@ -818,11 +816,11 @@ pub(crate) fn update_context_submenus(world: &mut bevy::ecs::world::World) {
         return;
     };
     let hovered = {
-        let mut query = world.query::<(Entity, &Interaction, &Button)>();
+        let mut query = world.query::<(Entity, &Hovered, &Button)>();
         query
             .iter(world)
             .filter(|(entity, interaction, _)| {
-                **interaction != Interaction::None && is_inside_world(world, *entity, root)
+                interaction.get() && is_inside_world(world, *entity, root)
             })
             .max_by_key(|(entity, _, _)| {
                 let mut depth = 0;
@@ -903,19 +901,28 @@ pub(crate) fn context_menu_keyboard_input(
 
 pub(crate) fn style_context_menu_items(
     mut items: Query<
-        (&Interaction, &mut BackgroundColor),
         (
-            bevy::ecs::query::With<ContextMenuItem>,
-            bevy::ecs::query::Changed<Interaction>,
+            &Hovered,
+            bevy::ecs::query::Has<Pressed>,
+            &mut BackgroundColor,
         ),
+        bevy::ecs::query::With<ContextMenuItem>,
     >,
+    buttons: Option<Res<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>>,
 ) {
-    for (interaction, mut background) in &mut items {
-        *background = BackgroundColor(match interaction {
-            Interaction::Hovered => Color::srgb(0.95, 0.91, 0.99),
-            Interaction::Pressed => Color::srgb(0.90, 0.82, 0.97),
-            Interaction::None => Color::NONE,
-        });
+    let primary_pressed =
+        buttons.is_some_and(|buttons| buttons.pressed(bevy::input::mouse::MouseButton::Left));
+    for (hovered, pressed, mut background) in &mut items {
+        let color = if pressed || hovered.get() && primary_pressed {
+            Color::srgb(0.90, 0.82, 0.97)
+        } else if hovered.get() {
+            Color::srgb(0.95, 0.91, 0.99)
+        } else {
+            Color::NONE
+        };
+        if background.0 != color {
+            background.0 = color;
+        }
     }
 }
 
@@ -931,6 +938,7 @@ mod tests {
         context_menu_pointer_input, copied_input_value, copied_static_text_value,
         remove_orphan_context_menus,
     };
+    use crate::TiltButton as Button;
     use crate::{
         ComponentStyleOwner, EditableText,
         control::text_selection::{ActiveStaticTextSelection, SelectableStaticText},
@@ -946,15 +954,13 @@ mod tests {
         math::Vec2,
         prelude::Visibility,
         text::{EditableText as NativeEditableText, TextEdit},
-        ui::{
-            Node, Val,
-            widget::{Button, Text},
-        },
+        ui::{Node, Val, widget::Text},
         window::{PrimaryWindow, Window},
     };
+    use bevy_picking::hover::Hovered;
     use bevy_picking::{
         backend::HitData,
-        events::{Pointer, Press},
+        events::{Pointer, PointerPress},
         pointer::{Location, PointerButton, PointerId},
     };
     use tilt_ui_core::InputType;
@@ -974,28 +980,28 @@ mod tests {
         position: Vec2,
     ) {
         world
-            .resource_mut::<Messages<Pointer<Press>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 400,
-                        height: 300,
-                    },
-                    position,
-                },
-                Press {
-                    button,
-                    hit: HitData::new(entity, 0.0, None, None),
-                    count: 1,
-                },
+            .resource_mut::<Messages<PointerPress>>()
+            .write(PointerPress {
                 entity,
-            ));
+                pointer: Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 400,
+                            height: 300,
+                        },
+                        position,
+                    },
+                ),
+                button,
+                hit: HitData::new(entity, 0.0, None, None),
+                count: 1,
+            });
     }
 
     fn app() -> App {
         let mut app = App::new();
-        app.add_message::<Pointer<Press>>()
+        app.add_message::<PointerPress>()
             .init_resource::<OpenContextMenu>()
             .init_resource::<ActiveStaticTextSelection>()
             .insert_resource(Clipboard::default())
@@ -1370,7 +1376,7 @@ mod tests {
             resolve_submenus, update_context_submenus,
         };
         use crate::{ComponentElementIds, StaticAttribute, StaticAttributes};
-        use bevy::ui::{ComputedNode, Interaction, UiGlobalTransform, UiTransform};
+        use bevy::ui::{ComputedNode, Pressed, UiGlobalTransform, UiTransform};
 
         let mut app = app();
         let scope = app.world_mut().spawn(ComponentElementIds::default()).id();
@@ -1402,7 +1408,7 @@ mod tests {
                     ..Default::default()
                 },
                 UiGlobalTransform::from_xy(190.0, 90.0),
-                Interaction::None,
+                Hovered(false),
                 StaticAttributes {
                     attributes: vec![StaticAttribute {
                         name: "submenu".into(),
@@ -1413,7 +1419,7 @@ mod tests {
             .id();
         let regular = app
             .world_mut()
-            .spawn((Button, Node::default(), Interaction::None))
+            .spawn((Button, Node::default(), Hovered(false)))
             .id();
         let panel = app
             .world_mut()
@@ -1433,7 +1439,7 @@ mod tests {
             .id();
         let child = app
             .world_mut()
-            .spawn((Button, Node::default(), Interaction::None))
+            .spawn((Button, Node::default(), Hovered(false)))
             .id();
         app.world_mut().entity_mut(scope).add_child(root);
         app.world_mut()
@@ -1452,9 +1458,7 @@ mod tests {
             Some(&Visibility::Hidden)
         );
         app.world_mut().resource_mut::<OpenContextMenu>().0 = Some(root);
-        app.world_mut()
-            .entity_mut(trigger)
-            .insert(Interaction::Hovered);
+        app.world_mut().entity_mut(trigger).insert(Hovered(true));
         update_context_submenus(app.world_mut());
         assert_eq!(
             app.world().get::<Visibility>(panel),
@@ -1489,22 +1493,16 @@ mod tests {
         assert_eq!(transform.translation.x, Val::Px(saved.0.x));
         assert_eq!(transform.translation.y, Val::Px(saved.0.y));
 
-        app.world_mut()
-            .entity_mut(trigger)
-            .insert(Interaction::None);
-        app.world_mut()
-            .entity_mut(child)
-            .insert(Interaction::Hovered);
+        app.world_mut().entity_mut(trigger).insert(Hovered(false));
+        app.world_mut().entity_mut(child).insert(Hovered(true));
         update_context_submenus(app.world_mut());
         assert_eq!(
             app.world().get::<Visibility>(panel),
             Some(&Visibility::Visible)
         );
 
-        app.world_mut().entity_mut(child).insert(Interaction::None);
-        app.world_mut()
-            .entity_mut(regular)
-            .insert(Interaction::Hovered);
+        app.world_mut().entity_mut(child).insert(Hovered(false));
+        app.world_mut().entity_mut(regular).insert(Hovered(true));
         update_context_submenus(app.world_mut());
         assert_eq!(
             app.world().get::<Visibility>(panel),
@@ -1514,12 +1512,8 @@ mod tests {
         app.world_mut()
             .entity_mut(panel)
             .insert(UiGlobalTransform::from_xy(previous.x, previous.y));
-        app.world_mut()
-            .entity_mut(regular)
-            .insert(Interaction::None);
-        app.world_mut()
-            .entity_mut(trigger)
-            .insert(Interaction::Hovered);
+        app.world_mut().entity_mut(regular).insert(Hovered(false));
+        app.world_mut().entity_mut(trigger).insert(Hovered(true));
         update_context_submenus(app.world_mut());
         assert_eq!(
             app.world().get::<Visibility>(panel),
@@ -1540,12 +1534,10 @@ mod tests {
         press(app.world_mut(), trigger, PointerButton::Primary);
         app.update();
         assert_eq!(app.world().resource::<OpenContextMenu>().0, Some(root));
-        app.world_mut()
-            .entity_mut(regular)
-            .insert(Interaction::None);
+        app.world_mut().entity_mut(regular).insert(Hovered(false));
         app.world_mut()
             .entity_mut(trigger)
-            .insert(Interaction::Pressed);
+            .insert((Hovered(true), Pressed));
         update_context_submenus(app.world_mut());
         assert_eq!(
             app.world().get::<Visibility>(panel),

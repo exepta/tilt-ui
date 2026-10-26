@@ -15,12 +15,14 @@ use bevy::{
     },
     input::{ButtonState, keyboard::KeyboardInput},
     prelude::{DetectChanges, IntoScheduleConfigs},
-    ui::{ScrollPosition, widget::TextScroll},
+    text::EditableText as NativeEditableText,
+    ui::ScrollPosition,
 };
 use bevy_input_focus::{FocusGained, FocusLost, InputFocus};
 use bevy_picking::{
     events::{
-        Drag, DragEnd, DragStart, Enter, Leave, Move, Out, Over, Pointer, Press, Release, Scroll,
+        PointerDrag, PointerDragEnd, PointerDragStart, PointerEnter, PointerLeave, PointerMove,
+        PointerOut, PointerOver, PointerPress, PointerRelease, PointerScroll,
     },
     pointer::PointerId,
 };
@@ -176,17 +178,17 @@ pub(super) fn install(app: &mut App) {
     // The code plugin is also usable on its own in minimal Bevy apps.
     // Register every input stream that its forwarders read.
     app.add_message::<KeyboardInput>()
-        .add_message::<Pointer<Over>>()
-        .add_message::<Pointer<Out>>()
-        .add_message::<Pointer<Enter>>()
-        .add_message::<Pointer<Leave>>()
-        .add_message::<Pointer<Press>>()
-        .add_message::<Pointer<Release>>()
-        .add_message::<Pointer<Move>>()
-        .add_message::<Pointer<DragStart>>()
-        .add_message::<Pointer<Drag>>()
-        .add_message::<Pointer<DragEnd>>()
-        .add_message::<Pointer<Scroll>>()
+        .add_message::<PointerOver>()
+        .add_message::<PointerOut>()
+        .add_message::<PointerEnter>()
+        .add_message::<PointerLeave>()
+        .add_message::<PointerPress>()
+        .add_message::<PointerRelease>()
+        .add_message::<PointerMove>()
+        .add_message::<PointerDragStart>()
+        .add_message::<PointerDrag>()
+        .add_message::<PointerDragEnd>()
+        .add_message::<PointerScroll>()
         .add_message::<HtmlEvent>()
         .add_message::<FormSubmitted>()
         .add_message::<ControlActivated>()
@@ -451,15 +453,28 @@ fn forward_scroll_position(
 }
 
 fn forward_text_scroll(
-    positions: Query<(Entity, bevy::ecs::change_detection::Ref<TextScroll>), Changed<TextScroll>>,
+    positions: Query<
+        (Entity, bevy::ecs::change_detection::Ref<NativeEditableText>),
+        Changed<NativeEditableText>,
+    >,
+    mut previous: bevy::ecs::system::Local<HashMap<Entity, bevy::math::Vec2>>,
+    mut removed: bevy::ecs::lifecycle::RemovedComponents<NativeEditableText>,
     handlers: HandlerQuery,
     mut events: MessageWriter<HtmlEvent>,
 ) {
+    for entity in removed.read() {
+        previous.remove(&entity);
+    }
     for (entity, position) in &positions {
-        if !position.is_added() {
+        let offset = position.viewport.offset;
+        if previous
+            .insert(entity, offset)
+            .is_some_and(|old| old != offset)
+            && !position.is_added()
+        {
             let mut data = BTreeMap::new();
-            data.insert("x".into(), position.0.x.to_string());
-            data.insert("y".into(), position.0.y.to_string());
+            data.insert("x".into(), offset.x.to_string());
+            data.insert("y".into(), offset.y.to_string());
             emit_bound(entity, "scroll", data, &handlers, &mut events);
         }
     }
@@ -468,20 +483,20 @@ fn forward_text_scroll(
 macro_rules! pointer_forwarder {
     ($name:ident, $event:ty, $kind:literal, $pointer:ident, $data:ident, $handlers:ident, $events:ident, $extra:block) => {
         fn $name(
-            mut source: MessageReader<Pointer<$event>>,
+            mut source: MessageReader<$event>,
             $handlers: HandlerQuery,
             mut $events: MessageWriter<HtmlEvent>,
         ) {
             for $pointer in source.read() {
                 if !has_bound_handler($pointer.entity, $kind, &$handlers)
-                    && pointer_alias($kind, $pointer.pointer_id)
+                    && pointer_alias($kind, $pointer.pointer.id)
                         .is_none_or(|alias| !has_bound_handler($pointer.entity, alias, &$handlers))
                 {
                     continue;
                 }
                 let mut $data = BTreeMap::new();
-                $data.insert("x".into(), $pointer.pointer_location.position.x.to_string());
-                $data.insert("y".into(), $pointer.pointer_location.position.y.to_string());
+                $data.insert("x".into(), $pointer.pointer.position.x.to_string());
+                $data.insert("y".into(), $pointer.pointer.position.y.to_string());
                 $extra
                 emit_bound($pointer.entity, $kind, $data, &$handlers, &mut $events);
             }
@@ -491,7 +506,7 @@ macro_rules! pointer_forwarder {
 
 pointer_forwarder!(
     forward_over,
-    Over,
+    PointerOver,
     "mouseover",
     pointer,
     data,
@@ -501,7 +516,7 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_out,
-    Out,
+    PointerOut,
     "mouseout",
     pointer,
     data,
@@ -511,7 +526,7 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_enter,
-    Enter,
+    PointerEnter,
     "mouseenter",
     pointer,
     data,
@@ -521,7 +536,7 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_leave,
-    Leave,
+    PointerLeave,
     "mouseleave",
     pointer,
     data,
@@ -531,15 +546,15 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_press,
-    Press,
+    PointerPress,
     "mousedown",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("button".into(), format!("{:?}", pointer.event.button));
-        if matches!(pointer.pointer_id, PointerId::Touch(_)) {
+        data.insert("button".into(), format!("{:?}", pointer.button));
+        if matches!(pointer.pointer.id, PointerId::Touch(_)) {
             emit_bound(
                 pointer.entity,
                 "touchstart",
@@ -552,15 +567,15 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_release,
-    Release,
+    PointerRelease,
     "mouseup",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("button".into(), format!("{:?}", pointer.event.button));
-        if matches!(pointer.pointer_id, PointerId::Touch(_)) {
+        data.insert("button".into(), format!("{:?}", pointer.button));
+        if matches!(pointer.pointer.id, PointerId::Touch(_)) {
             emit_bound(
                 pointer.entity,
                 "touchend",
@@ -573,16 +588,16 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_move,
-    Move,
+    PointerMove,
     "mousemove",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("delta_x".into(), pointer.event.delta.x.to_string());
-        data.insert("delta_y".into(), pointer.event.delta.y.to_string());
-        if matches!(pointer.pointer_id, PointerId::Touch(_)) {
+        data.insert("delta_x".into(), pointer.delta.x.to_string());
+        data.insert("delta_y".into(), pointer.delta.y.to_string());
+        if matches!(pointer.pointer.id, PointerId::Touch(_)) {
             emit_bound(
                 pointer.entity,
                 "touchmove",
@@ -595,44 +610,44 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_drag_start,
-    DragStart,
+    PointerDragStart,
     "dragstart",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("button".into(), format!("{:?}", pointer.event.button));
+        data.insert("button".into(), format!("{:?}", pointer.button));
     }
 );
 pointer_forwarder!(
     forward_drag,
-    Drag,
+    PointerDrag,
     "drag",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("button".into(), format!("{:?}", pointer.event.button));
-        data.insert("delta_x".into(), pointer.event.delta.x.to_string());
-        data.insert("delta_y".into(), pointer.event.delta.y.to_string());
-        data.insert("distance_x".into(), pointer.event.distance.x.to_string());
-        data.insert("distance_y".into(), pointer.event.distance.y.to_string());
+        data.insert("button".into(), format!("{:?}", pointer.button));
+        data.insert("delta_x".into(), pointer.delta.x.to_string());
+        data.insert("delta_y".into(), pointer.delta.y.to_string());
+        data.insert("distance_x".into(), pointer.distance.x.to_string());
+        data.insert("distance_y".into(), pointer.distance.y.to_string());
     }
 );
 pointer_forwarder!(
     forward_drag_end,
-    DragEnd,
+    PointerDragEnd,
     "dragend",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("button".into(), format!("{:?}", pointer.event.button));
-        data.insert("distance_x".into(), pointer.event.distance.x.to_string());
-        data.insert("distance_y".into(), pointer.event.distance.y.to_string());
+        data.insert("button".into(), format!("{:?}", pointer.button));
+        data.insert("distance_x".into(), pointer.distance.x.to_string());
+        data.insert("distance_y".into(), pointer.distance.y.to_string());
         emit_bound(
             pointer.entity,
             "dragstop",
@@ -644,16 +659,16 @@ pointer_forwarder!(
 );
 pointer_forwarder!(
     forward_wheel,
-    Scroll,
+    PointerScroll,
     "wheel",
     pointer,
     data,
     handlers,
     events,
     {
-        data.insert("delta_x".into(), pointer.event.x.to_string());
-        data.insert("delta_y".into(), pointer.event.y.to_string());
-        data.insert("unit".into(), format!("{:?}", pointer.event.unit));
+        data.insert("delta_x".into(), pointer.x.to_string());
+        data.insert("delta_y".into(), pointer.y.to_string());
+        data.insert("unit".into(), format!("{:?}", pointer.unit));
     }
 );
 
@@ -971,7 +986,7 @@ mod tests {
     };
     use bevy_input_focus::FocusCause;
     use bevy_picking::{
-        events::Drag,
+        events::{Pointer, PointerDrag},
         pointer::{Location, PointerButton},
     };
 
@@ -982,6 +997,63 @@ mod tests {
                 value: handler.into(),
             }],
         }
+    }
+
+    #[test]
+    fn native_viewport_emits_scroll_only_when_its_offset_changes() {
+        let mut app = App::new();
+        app.add_message::<HtmlEvent>()
+            .add_systems(Update, forward_text_scroll);
+        let target = app
+            .world_mut()
+            .spawn((
+                NativeEditableText::new("hello"),
+                attributes("onscroll", "on_scroll"),
+            ))
+            .id();
+        app.update();
+        assert!(
+            app.world_mut()
+                .resource_mut::<Messages<HtmlEvent>>()
+                .drain()
+                .next()
+                .is_none()
+        );
+        app.world_mut()
+            .get_mut::<NativeEditableText>(target)
+            .unwrap()
+            .max_characters = Some(40);
+        app.update();
+        assert!(
+            app.world_mut()
+                .resource_mut::<Messages<HtmlEvent>>()
+                .drain()
+                .next()
+                .is_none()
+        );
+        app.world_mut()
+            .get_mut::<NativeEditableText>(target)
+            .unwrap()
+            .viewport
+            .offset = Vec2::new(3., 12.);
+        app.update();
+        let events: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<HtmlEvent>>()
+            .drain()
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "scroll");
+        assert_eq!(events[0].data["x"], "3");
+        assert_eq!(events[0].data["y"], "12");
+        app.update();
+        assert!(
+            app.world_mut()
+                .resource_mut::<Messages<HtmlEvent>>()
+                .drain()
+                .next()
+                .is_none()
+        );
     }
 
     #[test]
@@ -1046,7 +1118,7 @@ mod tests {
     #[test]
     fn drag_and_real_scroll_position_forward_payloads() {
         let mut app = App::new();
-        app.add_message::<Pointer<Drag>>()
+        app.add_message::<PointerDrag>()
             .add_message::<HtmlEvent>()
             .add_systems(Update, (forward_drag, forward_scroll_position));
         let target = app
@@ -1074,23 +1146,23 @@ mod tests {
             .0
             .y = 28.0;
         app.world_mut()
-            .resource_mut::<Messages<Pointer<Drag>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 100,
-                        height: 100,
+            .resource_mut::<Messages<PointerDrag>>()
+            .write(PointerDrag {
+                entity: target,
+                pointer: Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 100,
+                            height: 100,
+                        },
+                        position: Vec2::new(12.0, 16.0),
                     },
-                    position: Vec2::new(12.0, 16.0),
-                },
-                Drag {
-                    button: PointerButton::Primary,
-                    distance: Vec2::new(0.0, 8.0),
-                    delta: Vec2::new(0.0, 3.0),
-                },
-                target,
-            ));
+                ),
+                button: PointerButton::Primary,
+                distance: Vec2::new(0.0, 8.0),
+                delta: Vec2::new(0.0, 3.0),
+            });
         app.update();
         let events: Vec<_> = app
             .world_mut()

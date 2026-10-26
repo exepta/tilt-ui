@@ -27,7 +27,9 @@ use bevy::{
 };
 use bevy_picking::{
     Pickable,
-    events::{Click, DragEnd, DragStart, Move, Out, Over, Pointer},
+    events::{
+        PointerClick, PointerDragEnd, PointerDragStart, PointerMove, PointerOut, PointerOver,
+    },
     hover::HoverMap,
     pointer::{PointerButton, PointerId},
 };
@@ -69,9 +71,9 @@ impl Plugin for TooltipNosePlugin {
             .resource_mut::<Assets<Shader>>()
             .insert(
                 NOSE_SHADER.id(),
-                Shader::from_wgsl(
-                    include_str!("tooltip_nose.wgsl"),
-                    "tilt_ui_tooltip_nose.wgsl",
+                Shader::from_wesl(
+                    include_str!("tooltip_nose.wesl"),
+                    "tilt_ui_tooltip_nose.wesl",
                 ),
             )
             .expect("unique embedded tooltip nose shader");
@@ -367,21 +369,17 @@ fn handle_target_event(
 }
 
 pub(crate) fn tooltip_pointer_input(
-    mut over: Option<MessageReader<Pointer<Over>>>,
-    mut out: Option<MessageReader<Pointer<Out>>>,
-    mut clicks: Option<MessageReader<Pointer<Click>>>,
-    mut moves: Option<MessageReader<Pointer<Move>>>,
-    mut starts: Option<MessageReader<Pointer<DragStart>>>,
-    mut ends: Option<MessageReader<Pointer<DragEnd>>>,
+    mut over: Option<MessageReader<PointerOver>>,
+    mut out: Option<MessageReader<PointerOut>>,
+    mut clicks: Option<MessageReader<PointerClick>>,
+    mut moves: Option<MessageReader<PointerMove>>,
+    mut starts: Option<MessageReader<PointerDragStart>>,
+    mut ends: Option<MessageReader<PointerDragEnd>>,
     mut commands: Commands,
 ) {
     if let Some(over) = over.as_mut() {
         for event in over.read() {
-            let (hit, pointer, position) = (
-                event.entity,
-                event.pointer_id,
-                event.pointer_location.position,
-            );
+            let (hit, pointer, position) = (event.entity, event.pointer.id, event.pointer.position);
             commands.queue(move |world: &mut World| {
                 handle_target_event(world, hit, pointer, position, 0)
             });
@@ -389,11 +387,7 @@ pub(crate) fn tooltip_pointer_input(
     }
     if let Some(out) = out.as_mut() {
         for event in out.read() {
-            let (hit, pointer, position) = (
-                event.entity,
-                event.pointer_id,
-                event.pointer_location.position,
-            );
+            let (hit, pointer, position) = (event.entity, event.pointer.id, event.pointer.position);
             commands.queue(move |world: &mut World| {
                 handle_target_event(world, hit, pointer, position, 1)
             });
@@ -404,11 +398,7 @@ pub(crate) fn tooltip_pointer_input(
             if event.button != PointerButton::Primary {
                 continue;
             }
-            let (hit, pointer, position) = (
-                event.entity,
-                event.pointer_id,
-                event.pointer_location.position,
-            );
+            let (hit, pointer, position) = (event.entity, event.pointer.id, event.pointer.position);
             commands.queue(move |world: &mut World| {
                 handle_target_event(world, hit, pointer, position, 2)
             });
@@ -419,11 +409,7 @@ pub(crate) fn tooltip_pointer_input(
             if event.button != PointerButton::Primary {
                 continue;
             }
-            let (hit, pointer, position) = (
-                event.entity,
-                event.pointer_id,
-                event.pointer_location.position,
-            );
+            let (hit, pointer, position) = (event.entity, event.pointer.id, event.pointer.position);
             commands.queue(move |world: &mut World| {
                 handle_target_event(world, hit, pointer, position, 3)
             });
@@ -434,11 +420,7 @@ pub(crate) fn tooltip_pointer_input(
             if event.button != PointerButton::Primary {
                 continue;
             }
-            let (hit, pointer, position) = (
-                event.entity,
-                event.pointer_id,
-                event.pointer_location.position,
-            );
+            let (hit, pointer, position) = (event.entity, event.pointer.id, event.pointer.position);
             commands.queue(move |world: &mut World| {
                 handle_target_event(world, hit, pointer, position, 4)
             });
@@ -446,8 +428,8 @@ pub(crate) fn tooltip_pointer_input(
     }
     if let Some(moves) = moves.as_mut() {
         for event in moves.read() {
-            let position = event.pointer_location.position;
-            let pointer = event.pointer_id;
+            let position = event.pointer.position;
+            let pointer = event.pointer.id;
             commands.queue(move |world: &mut World| {
                 let mut query = world.query::<(Entity, &TooltipSettings, &OpenTooltip)>();
                 let follows = query

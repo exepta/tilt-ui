@@ -105,6 +105,7 @@ pub(crate) fn logical_sibling_entity(world: &World, entity: Entity) -> Entity {
 struct OverlayCamera(Entity);
 
 #[derive(Component, Clone, Copy, Default, ExtractComponent, ShaderType)]
+#[extract_app(RenderApp)]
 struct LiveUiEffects {
     control: Vec4,
     bounds: Vec4,
@@ -165,9 +166,9 @@ fn install_render_effects(app: &mut App) {
         .resource_mut::<Assets<Shader>>()
         .insert(
             EFFECTS_SHADER.id(),
-            Shader::from_wgsl(
-                include_str!("live_effects.wgsl"),
-                "tilt_ui_live_effects.wgsl",
+            Shader::from_wesl(
+                include_str!("live_effects.wesl"),
+                "tilt_ui_live_effects.wesl",
             ),
         )
         .expect("unique embedded backdrop blur shader");
@@ -413,10 +414,10 @@ fn sync_dialog_backdrops(world: &mut World) {
             (origin.y + size.y) / viewport.y,
         );
         desired.radii[index] = Vec4::new(
-            radii.top_left,
-            radii.top_right,
-            radii.bottom_right,
-            radii.bottom_left,
+            radii.top_left.x,
+            radii.top_right.x,
+            radii.bottom_right.x,
+            radii.bottom_left.x,
         );
         desired.filters[index] = params;
         desired.control.x += 1.0;

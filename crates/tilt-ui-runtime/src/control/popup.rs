@@ -3,10 +3,7 @@
 use bevy::ecs::{
     entity::Entity, hierarchy::ChildOf, message::MessageReader, system::Commands, world::World,
 };
-use bevy_picking::{
-    events::{Pointer, Press},
-    pointer::PointerButton,
-};
+use bevy_picking::{events::PointerPress, pointer::PointerButton};
 
 use crate::widgets::{
     advanced::{
@@ -17,7 +14,7 @@ use crate::widgets::{
 };
 
 pub(crate) fn dismiss_popups_on_press(
-    mut presses: Option<MessageReader<Pointer<Press>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
     mut commands: Commands,
 ) {
     let Some(presses) = presses.as_mut() else {
@@ -95,7 +92,7 @@ mod tests {
     };
     use bevy_picking::{
         backend::HitData,
-        events::{Pointer, Press},
+        events::{Pointer, PointerPress},
         pointer::{Location, PointerButton, PointerId},
     };
 
@@ -117,30 +114,30 @@ mod tests {
     #[test]
     fn pointer_press_message_dismisses_open_choice() {
         let mut app = App::new();
-        app.add_message::<Pointer<Press>>()
+        app.add_message::<PointerPress>()
             .add_systems(Update, dismiss_popups_on_press);
         let choice = app.world_mut().spawn(Node::default()).id();
         materialize_choice(app.world_mut(), choice, &[]);
         set_choice_open(app.world_mut(), choice, true);
         let outside = app.world_mut().spawn(Node::default()).id();
         app.world_mut()
-            .resource_mut::<bevy::ecs::message::Messages<Pointer<Press>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 100,
-                        height: 100,
+            .resource_mut::<bevy::ecs::message::Messages<PointerPress>>()
+            .write(PointerPress {
+                entity: outside,
+                pointer: Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 100,
+                            height: 100,
+                        },
+                        position: Vec2::ZERO,
                     },
-                    position: Vec2::ZERO,
-                },
-                Press {
-                    button: PointerButton::Primary,
-                    hit: HitData::new(outside, 0.0, None, None),
-                    count: 1,
-                },
-                outside,
-            ));
+                ),
+                button: PointerButton::Primary,
+                hit: HitData::new(outside, 0.0, None, None),
+                count: 1,
+            });
         app.update();
         assert!(!app.world().get::<ChoiceBoxParts>(choice).unwrap().open);
     }

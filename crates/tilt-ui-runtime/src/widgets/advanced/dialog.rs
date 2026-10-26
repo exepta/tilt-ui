@@ -6,6 +6,7 @@ use std::sync::{
     mpsc::{Receiver, TryRecvError, channel},
 };
 
+use crate::TiltButton as Button;
 use bevy::{
     app::{App, PostUpdate, Update},
     ecs::{
@@ -18,20 +19,13 @@ use bevy::{
     },
     input::{ButtonInput, keyboard::KeyCode},
     prelude::IntoScheduleConfigs,
-    ui::{
-        FocusPolicy, GlobalZIndex, Node, UiSystems,
-        widget::{Button, Text},
-    },
+    ui::{FocusPolicy, GlobalZIndex, Node, UiSystems, widget::Text},
 };
 use bevy_input_focus::{
     FocusCause, InputFocus,
     tab_navigation::{TabGroup, TabIndex},
 };
-use bevy_picking::{
-    Pickable,
-    events::{Click, Pointer},
-    pointer::PointerButton,
-};
+use bevy_picking::{Pickable, events::PointerClick, pointer::PointerButton};
 use tilt_ui_core::{ElementKind, TemplateAttribute};
 
 use crate::{
@@ -921,7 +915,7 @@ fn dismiss_on_escape(world: &mut World) {
     }
 }
 
-fn dismiss_on_backdrop(mut clicks: Option<MessageReader<Pointer<Click>>>, mut commands: Commands) {
+fn dismiss_on_backdrop(mut clicks: Option<MessageReader<PointerClick>>, mut commands: Commands) {
     let Some(clicks) = clicks.as_mut() else {
         return;
     };
@@ -1102,7 +1096,7 @@ mod tests {
     use bevy_input_focus::{InputFocus, tab_navigation::TabGroup};
     use bevy_picking::{
         backend::HitData,
-        events::{Click, Pointer},
+        events::{Pointer, PointerClick},
         pointer::{Location, PointerButton, PointerId},
     };
     use tilt_ui_core::{ElementKind, TemplateAttribute};
@@ -1120,7 +1114,7 @@ mod tests {
     fn setup() -> (App, bevy::ecs::entity::Entity, bevy::ecs::entity::Entity) {
         let mut app = App::new();
         app.add_message::<ControlActivated>()
-            .add_message::<Pointer<Click>>();
+            .add_message::<PointerClick>();
         install(&mut app);
         let scope = app.world_mut().spawn(ComponentElementIds::default()).id();
         let body = app
@@ -1448,24 +1442,24 @@ mod tests {
         let (mut app, dialog, _) = setup();
         open_dialog(app.world_mut(), dialog);
         app.world_mut()
-            .resource_mut::<Messages<Pointer<Click>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 400,
-                        height: 300,
+            .resource_mut::<Messages<PointerClick>>()
+            .write(PointerClick {
+                entity: dialog,
+                pointer: Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 400,
+                            height: 300,
+                        },
+                        position: Vec2::new(12.0, 12.0),
                     },
-                    position: Vec2::new(12.0, 12.0),
-                },
-                Click {
-                    button: PointerButton::Primary,
-                    hit: HitData::new(dialog, 0.0, None, None),
-                    duration: Duration::from_millis(20),
-                    count: 1,
-                },
-                dialog,
-            ));
+                ),
+                button: PointerButton::Primary,
+                hit: HitData::new(dialog, 0.0, None, None),
+                duration: Duration::from_millis(20),
+                count: 1,
+            });
         app.update();
         assert!(!app.world().get::<DialogState>(dialog).unwrap().open);
         let messages = app.world().resource::<Messages<DialogClosed>>();

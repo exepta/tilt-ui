@@ -109,9 +109,9 @@ impl Plugin for BackgroundRuntimePlugin {
             .resource_mut::<Assets<Shader>>()
             .insert(
                 CONTAIN_SHADER.id(),
-                Shader::from_wgsl(
-                    include_str!("positioned_contain.wgsl"),
-                    "tilt_ui_positioned_contain.wgsl",
+                Shader::from_wesl(
+                    include_str!("positioned_contain.wesl"),
+                    "tilt_ui_positioned_contain.wesl",
                 ),
             )
             .expect("unique embedded contain shader");

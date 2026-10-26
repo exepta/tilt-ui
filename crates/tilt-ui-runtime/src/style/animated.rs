@@ -127,10 +127,10 @@ pub(crate) fn sync_animated_pass(
             );
             let radii = node.border_radius();
             pass.radii[index] = Vec4::new(
-                radii.top_left,
-                radii.top_right,
-                radii.bottom_right,
-                radii.bottom_left,
+                radii.top_left.x,
+                radii.top_right.x,
+                radii.bottom_right.x,
+                radii.bottom_left.x,
             );
             pass.specs[index] = Vec4::new(
                 kind_id(effect.kind),
@@ -171,8 +171,27 @@ pub(crate) fn effect_rect(
         max = max.max(point);
     }
     if let Some(clip) = clip {
-        min = min.max(clip.clip.min);
-        max = max.min(clip.clip.max);
+        let Some(rects) = clip.rects() else {
+            return Rect::default();
+        };
+        for clip in rects {
+            let to_world = clip.world_to_clip_local.inverse();
+            let points = [
+                clip.rect.min,
+                Vec2::new(clip.rect.max.x, clip.rect.min.y),
+                clip.rect.max,
+                Vec2::new(clip.rect.min.x, clip.rect.max.y),
+            ];
+            let mut lower = Vec2::splat(f32::INFINITY);
+            let mut upper = Vec2::splat(f32::NEG_INFINITY);
+            for point in points {
+                let point = to_world.transform_point2(point);
+                lower = lower.min(point);
+                upper = upper.max(point);
+            }
+            min = min.max(lower);
+            max = max.min(upper);
+        }
     }
     Rect {
         min: min.clamp(Vec2::ZERO, viewport),
@@ -196,6 +215,37 @@ fn kind_id(kind: AnimatedEffectKind) -> f32 {
 mod tests {
     use super::*;
     use bevy::{time::Time, ui::Node};
+
+    #[test]
+    fn effects_intersect_transformed_ancestor_clips_and_fully_clipped_nodes() {
+        let node = ComputedNode {
+            size: Vec2::splat(100.),
+            ..Default::default()
+        };
+        let transform = UiGlobalTransform::from_xy(100., 100.);
+        let mut clip = CalculatedClip::default();
+        clip.push_rect(
+            Rect::from_corners(Vec2::ZERO, Vec2::splat(40.)),
+            bevy::math::Affine2::from_translation(Vec2::new(-80., -90.)),
+        );
+        clip.push_rect(
+            Rect::from_corners(Vec2::ZERO, Vec2::new(500., 115.)),
+            bevy::math::Affine2::IDENTITY,
+        );
+        assert_eq!(
+            effect_rect(&node, &transform, Some(&clip), Vec2::splat(500.)),
+            Rect::from_corners(Vec2::new(80., 90.), Vec2::new(120., 115.))
+        );
+        assert_eq!(
+            effect_rect(
+                &node,
+                &transform,
+                Some(&CalculatedClip::FullyClipped),
+                Vec2::splat(500.)
+            ),
+            Rect::default()
+        );
+    }
 
     #[test]
     fn gpu_pass_exists_only_for_visible_active_effects() {

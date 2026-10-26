@@ -11,6 +11,11 @@ use super::spawn_part;
 
 /// Marks a materialized TiltUI control with native button semantics.
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[require(
+    bevy::ui::Node,
+    bevy::ui::FocusPolicy::Block,
+    bevy_picking::hover::Hovered
+)]
 pub struct TiltButton;
 
 /// A button that opens the same file picker as `<input type="file">`.

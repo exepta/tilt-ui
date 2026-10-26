@@ -1,5 +1,6 @@
 //! Persistent Gregorian calendar and ISO date selection for TiltUI.
 
+use crate::TiltButton as Button;
 use bevy::{
     ecs::{
         component::Component,
@@ -9,10 +10,7 @@ use bevy::{
         world::World,
     },
     prelude::Visibility,
-    ui::{
-        GlobalZIndex, InteractionDisabled,
-        widget::{Button, Text},
-    },
+    ui::{GlobalZIndex, InteractionDisabled, widget::Text},
 };
 use bevy_input_focus::{FocusCause, InputFocus, tab_navigation::TabIndex};
 use bevy_picking::Pickable;

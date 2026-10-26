@@ -15,7 +15,7 @@ IDs are retained as diagnostics and never replace the first entity.
 ## Editable text
 
 `Input` and `TextArea` share TiltUI `EditableText` semantic state and Bevy
-0.19's low-level `bevy::text::EditableText` editor. The native editor owns
+0.20's low-level `bevy::text::EditableText` editor. The native editor owns
 Unicode-aware caret movement, selection, clipboard operations, and text layout;
 TiltUI projects completed edits into its semantic value and emits
 `EditableTextChanged` or `EditableTextCommitted`. The keyboard adapter reads

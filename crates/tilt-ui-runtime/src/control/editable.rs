@@ -25,13 +25,13 @@ use bevy::{
     },
     ui::{
         ComputedNode, ComputedUiRenderTargetInfo, InteractionDisabled, UiGlobalTransform, UiScale,
-        widget::{Text, TextScroll},
+        widget::Text,
     },
     window::{Ime, PrimaryWindow, Window},
 };
 use bevy_input_focus::{FocusCause, FocusLost, InputFocus};
 use bevy_picking::{
-    events::{Drag, Pointer, Press},
+    events::{PointerDrag, PointerPress},
     pointer::PointerButton,
 };
 
@@ -506,7 +506,6 @@ type EditorGeometry<'w, 's> = Query<
         &'static ComputedNode,
         &'static ComputedUiRenderTargetInfo,
         &'static UiGlobalTransform,
-        &'static TextScroll,
         Option<&'static InteractionDisabled>,
     ),
 >;
@@ -516,18 +515,18 @@ fn local_point(
     node: &ComputedNode,
     target: &ComputedUiRenderTargetInfo,
     transform: &UiGlobalTransform,
-    scroll: &TextScroll,
+    scroll: bevy::math::Vec2,
     scale: f32,
 ) -> Option<bevy::math::Vec2> {
     transform.try_inverse().map(|inverse| {
         inverse.transform_point2(position * target.scale_factor() / scale) - node.content_box().min
-            + scroll.0
+            + scroll
     })
 }
 
 /// Places the caret and focus on primary pointer press.
 pub(crate) fn editable_pointer_press(
-    mut events: Option<MessageReader<Pointer<Press>>>,
+    mut events: Option<MessageReader<PointerPress>>,
     context: EditablePointerContext,
     mut editors: EditorGeometry,
     states: Query<&EditableText>,
@@ -546,7 +545,7 @@ pub(crate) fn editable_pointer_press(
         if context
             .scroll_drags
             .iter()
-            .any(|drag| drag.pointer == press.pointer_id)
+            .any(|drag| drag.pointer == press.pointer.id)
         {
             continue;
         }
@@ -566,8 +565,7 @@ pub(crate) fn editable_pointer_press(
         {
             continue;
         }
-        let Ok((mut native, node, target, transform, scroll, disabled)) = editors.get_mut(entity)
-        else {
+        let Ok((mut native, node, target, transform, disabled)) = editors.get_mut(entity) else {
             continue;
         };
         if disabled.is_some() {
@@ -580,11 +578,11 @@ pub(crate) fn editable_pointer_press(
             continue;
         }
         let Some(point) = local_point(
-            press.pointer_location.position,
+            press.pointer.position,
             node,
             target,
             transform,
-            scroll,
+            native.viewport.offset,
             scale,
         ) else {
             continue;
@@ -606,7 +604,7 @@ pub(crate) fn editable_pointer_press(
 
 /// Extends selected text while a pointer drags inside an editable control.
 pub(crate) fn editable_pointer_drag(
-    mut events: Option<MessageReader<Pointer<Drag>>>,
+    mut events: Option<MessageReader<PointerDrag>>,
     context: EditablePointerContext,
     mut editors: EditorGeometry,
     scale: Option<Res<UiScale>>,
@@ -622,7 +620,7 @@ pub(crate) fn editable_pointer_drag(
         if context
             .scroll_drags
             .iter()
-            .any(|active| active.pointer == drag.pointer_id)
+            .any(|active| active.pointer == drag.pointer.id)
         {
             continue;
         }
@@ -636,19 +634,18 @@ pub(crate) fn editable_pointer_drag(
         let Some(entity) = nearest_control(drag.entity, &context.hierarchy) else {
             continue;
         };
-        let Ok((mut native, node, target, transform, scroll, disabled)) = editors.get_mut(entity)
-        else {
+        let Ok((mut native, node, target, transform, disabled)) = editors.get_mut(entity) else {
             continue;
         };
         if disabled.is_some() || native.is_composing() {
             continue;
         }
         let Some(point) = local_point(
-            drag.pointer_location.position,
+            drag.pointer.position,
             node,
             target,
             transform,
-            scroll,
+            native.viewport.offset,
             scale,
         ) else {
             continue;
@@ -729,7 +726,6 @@ pub(crate) fn update_ime_candidate_position(
         &ComputedNode,
         &UiGlobalTransform,
         &ComputedUiRenderTargetInfo,
-        &TextScroll,
     )>,
     mut windows: Query<&mut Window, bevy::ecs::query::With<PrimaryWindow>>,
     scale: Option<Res<UiScale>>,
@@ -737,15 +733,15 @@ pub(crate) fn update_ime_candidate_position(
     let Some(entity) = focus.as_ref().and_then(|focus| focus.get()) else {
         return;
     };
-    let Ok((native, node, transform, target, scroll)) = editors.get(entity) else {
+    let Ok((native, node, transform, target)) = editors.get(entity) else {
         return;
     };
     let Ok(mut window) = windows.single_mut() else {
         return;
     };
     let area = native.editor().ime_cursor_area();
-    let point =
-        bevy::math::Vec2::new(area.x0 as f32, area.y1 as f32) + node.content_box().min - scroll.0;
+    let point = bevy::math::Vec2::new(area.x0 as f32, area.y1 as f32) + node.content_box().min
+        - native.viewport.offset;
     window.ime_position = transform.affine().transform_point2(point)
         * scale.as_ref().map_or(1.0, |scale| scale.0)
         / target.scale_factor();
@@ -807,13 +803,11 @@ mod tests {
         },
         math::Vec2,
         text::{EditableText as NativeEditableText, TextEdit, TextPlugin},
-        ui::{
-            ComputedNode, ComputedUiRenderTargetInfo, Node, UiGlobalTransform, widget::TextScroll,
-        },
+        ui::{ComputedNode, ComputedUiRenderTargetInfo, Node, UiGlobalTransform},
     };
     use bevy_input_focus::{FocusCause, InputFocus};
     use bevy_picking::{
-        events::{Drag, Pointer},
+        events::{Pointer, PointerDrag},
         pointer::{Location, PointerButton, PointerId},
     };
     use tilt_ui_core::InputType;
@@ -1264,7 +1258,7 @@ mod tests {
     fn captured_scrollbar_drag_never_extends_text_selection() {
         let mut app = App::new();
         app.add_plugins(TiltUiControlRuntimePlugin)
-            .add_message::<Pointer<Drag>>();
+            .add_message::<PointerDrag>();
         let entity = app
             .world_mut()
             .spawn((
@@ -1272,7 +1266,6 @@ mod tests {
                 TiltControl,
                 EditableText::new("hello".into(), InputType::Text, false, true),
                 NativeEditableText::new("hello"),
-                TextScroll::default(),
                 ComputedNode {
                     size: Vec2::new(120.0, 50.0),
                     ..Default::default()
@@ -1291,8 +1284,9 @@ mod tests {
             .unwrap()
             .pending_edits
             .clear();
-        let drag = || {
-            Pointer::new(
+        let drag = || PointerDrag {
+            entity,
+            pointer: Pointer::new(
                 PointerId::Mouse,
                 Location {
                     target: NormalizedRenderTarget::None {
@@ -1301,16 +1295,13 @@ mod tests {
                     },
                     position: Vec2::new(10.0, 10.0),
                 },
-                Drag {
-                    button: PointerButton::Primary,
-                    distance: Vec2::new(0.0, 10.0),
-                    delta: Vec2::new(0.0, 10.0),
-                },
-                entity,
-            )
+            ),
+            button: PointerButton::Primary,
+            distance: Vec2::new(0.0, 10.0),
+            delta: Vec2::new(0.0, 10.0),
         };
         app.world_mut()
-            .resource_mut::<Messages<Pointer<Drag>>>()
+            .resource_mut::<Messages<PointerDrag>>()
             .write(drag());
         app.update();
         assert!(
@@ -1325,7 +1316,7 @@ mod tests {
             .entity_mut(entity)
             .remove::<ActiveScrollbarDrag>();
         app.world_mut()
-            .resource_mut::<Messages<Pointer<Drag>>>()
+            .resource_mut::<Messages<PointerDrag>>()
             .write(drag());
         app.update();
         assert!(

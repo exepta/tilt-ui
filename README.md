@@ -12,9 +12,16 @@ New to TiltUI? Start with the [main crate guide](crates/tilt-ui/README.md) for a
 
 | TiltUI version | Bevy version | Notes |
 | --- | --- | --- |
-| `0.1.0-rc.*` and `0.1.0` | [`0.19.x`](https://bevy.org/news/bevy-0-19/) | Current compatibility target; this workspace tests with Bevy `0.19.1`. |
+| Published `0.1.0-rc.*` and `0.1.0` | [`0.19.x`](https://bevy.org/news/bevy-0-19/) | Published compatibility line. |
+| Git branch `preview-020` | [`0.20.0`](https://bevy.org/news/bevy-0-20/) | Bevy 0.20 preview; requires Rust `1.97.1` or newer. |
 
 Use matching versions of `tilt-ui` and `tilt-ui-build`. The workspace [Cargo.toml](Cargo.toml) defines the current Bevy requirement; compatibility with other Bevy lines has not been established.
+
+For the Bevy 0.20 preview, select `branch = "preview-020"` on both Git
+dependencies. The [toolchain file](rust-toolchain.toml) installs the Rust
+version and browser target used by this branch. The package version remains
+`0.1.0` during this Git preview; no crates.io release is created by a preview push.
+See [the migration notes](docs/bevy-020.md) for integration changes.
 
 ## Getting started
 

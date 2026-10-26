@@ -3,7 +3,7 @@
 TiltUI controls separate native interaction state from CSS selector state.
 
 ```text
-Interaction / InputFocus / InteractionDisabled / Pressed
+Hovered / pointer buttons / InputFocus / InteractionDisabled / Pressed
     ↓
 TiltUiControlRuntimePlugin
     ↓
@@ -50,12 +50,15 @@ declared checked to be unchecked at runtime without being reset on a later
 schedule pass.
 
 The first native control is `TiltButton`. Materialization adds `TiltControl`,
-`TiltButton`, Bevy's UI `Button`, and `TabIndex(0)` to the existing template
-element. Template children remain untouched. Native tab navigation is provided
+`TiltButton` and `TabIndex(0)` to the existing template element. `TiltButton`
+requires a `Node`, blocking focus policy, and Bevy's `Hovered` component.
+Template children remain untouched. Native tab navigation is provided
 by Bevy's `TabNavigationPlugin`; top-level component boundaries receive a
 `TabGroup` and nested components participate in that page-level group.
 
-Pointer interaction projects changed `Interaction` values only. Focus is
+Pointer interaction projects changed `Hovered` values and `Pressed` additions /
+removals. Physical mouse/touch press transitions refresh active controls;
+unchanged frames keep the filtered change-detection path. Focus is
 projected from Bevy `FocusGained` and `FocusLost` entity events. Enter emits
 an activation for the focused enabled button. Space marks it active on press,
 then clears it and activates on release. Disabled controls use
@@ -87,9 +90,8 @@ same `ControlActivated` message, so selection logic is identical for pointer,
 Enter, and Space activation.
 
 The component runtime enables Bevy's `ui_picking` feature. Bevy's UI picking
-backend produces the `Pointer<Click>` messages consumed by the shared
-activation system; UI `Interaction` alone only provides hover and pressed
-state and is not an activation event source.
+backend produces the `PointerClick` messages consumed by the shared
+activation system. Hover and pressed state are not activation event sources.
 
 The initial internal-part CSS API is available through these pseudo-elements:
 

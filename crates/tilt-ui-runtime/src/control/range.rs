@@ -18,7 +18,7 @@ use bevy::{
 };
 use bevy_input_focus::{FocusCause, InputFocus};
 use bevy_picking::{
-    events::{Drag, DragEnd, Pointer, Press, Release},
+    events::{PointerDrag, PointerDragEnd, PointerPress, PointerRelease},
     pointer::{PointerButton, PointerId},
 };
 use tilt_ui_core::SliderType;
@@ -128,10 +128,10 @@ fn choose_thumb(world: &World, entity: bevy::ecs::entity::Entity, value: f32) ->
 
 /// Converts pointer press and drag events into semantic slider values.
 pub(crate) fn range_pointer_input(
-    mut presses: Option<MessageReader<Pointer<Press>>>,
-    mut drags: Option<MessageReader<Pointer<Drag>>>,
-    mut ends: Option<MessageReader<Pointer<DragEnd>>>,
-    mut releases: Option<MessageReader<Pointer<Release>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
+    mut drags: Option<MessageReader<PointerDrag>>,
+    mut ends: Option<MessageReader<PointerDragEnd>>,
+    mut releases: Option<MessageReader<PointerRelease>>,
     mut commands: Commands,
 ) {
     if let Some(presses) = presses.as_mut() {
@@ -140,8 +140,8 @@ pub(crate) fn range_pointer_input(
                 continue;
             }
             let target = press.entity;
-            let position = press.pointer_location.position;
-            let pointer = press.pointer_id;
+            let position = press.pointer.position;
+            let pointer = press.pointer.id;
             commands.queue(move |world: &mut World| {
                 let Some(entity) = slider_root(world, target) else {
                     return;
@@ -177,8 +177,8 @@ pub(crate) fn range_pointer_input(
                 continue;
             }
             let target = drag.entity;
-            let position = drag.pointer_location.position;
-            let pointer = drag.pointer_id;
+            let position = drag.pointer.position;
+            let pointer = drag.pointer.id;
             commands.queue(move |world: &mut World| {
                 let Some(entity) = slider_root(world, target) else {
                     return;
@@ -216,7 +216,7 @@ pub(crate) fn range_pointer_input(
             if end.button != PointerButton::Primary {
                 continue;
             }
-            queue_commit(&mut commands, end.entity, end.pointer_id);
+            queue_commit(&mut commands, end.entity, end.pointer.id);
         }
     }
     if let Some(releases) = releases.as_mut() {
@@ -224,7 +224,7 @@ pub(crate) fn range_pointer_input(
             if release.button != PointerButton::Primary {
                 continue;
             }
-            queue_commit(&mut commands, release.entity, release.pointer_id);
+            queue_commit(&mut commands, release.entity, release.pointer.id);
         }
     }
 }

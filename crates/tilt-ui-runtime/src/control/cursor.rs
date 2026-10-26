@@ -1,5 +1,6 @@
 //! Per-element window cursors and built-in control defaults.
 
+use crate::TiltButton as Button;
 use bevy::{
     ecs::{
         entity::Entity,
@@ -7,7 +8,6 @@ use bevy::{
         query::With,
         system::{Commands, Query, Res},
     },
-    ui::widget::Button,
     window::{CursorIcon, SystemCursorIcon, Window},
 };
 use bevy_picking::{hover::HoverMap, pointer::PointerId};

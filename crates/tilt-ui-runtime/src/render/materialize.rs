@@ -1,9 +1,6 @@
 use bevy::{
     ecs::{entity::Entity, world::World},
-    ui::{
-        Checkable, Checked, FocusPolicy, Interaction, InteractionDisabled, Node,
-        widget::{Button, Text},
-    },
+    ui::{Checkable, Checked, FocusPolicy, InteractionDisabled, Node, widget::Text},
 };
 use bevy_input_focus::tab_navigation::TabIndex;
 use tilt_ui_core::{ElementKind, TemplateAttribute};
@@ -99,7 +96,7 @@ pub(crate) fn materialize_element(
                     },
                 ));
                 if kind != ElementKind::Button {
-                    materialized.insert(Interaction::None);
+                    materialized.insert(bevy_picking::hover::Hovered::default());
                 }
                 if kind != ElementKind::Button {
                     materialized.insert((
@@ -110,7 +107,6 @@ pub(crate) fn materialize_element(
                 }
                 if kind == ElementKind::Button {
                     materialized.insert((
-                        Button,
                         TiltButton,
                         crate::widgets::structure::form::FormButton::from_attributes(attributes),
                         ControlTabIndex(tab_index),
@@ -391,7 +387,7 @@ mod tests {
         let button = world.spawn_empty().id();
         materialize_element(&mut world, button, ElementKind::Button, &[]);
 
-        assert!(world.get::<bevy::ui::widget::Button>(button).is_some());
+        assert!(world.get::<bevy_picking::hover::Hovered>(button).is_some());
         assert!(world.get::<TiltControl>(button).is_some());
         assert!(world.get::<TiltButton>(button).is_some());
         assert!(world.get::<Text>(button).is_none());

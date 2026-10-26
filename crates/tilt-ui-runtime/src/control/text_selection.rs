@@ -21,7 +21,7 @@ use bevy::{
 };
 use bevy_input_focus::InputFocus;
 use bevy_picking::{
-    events::{Drag, Pointer, Press},
+    events::{PointerDrag, PointerPress},
     pointer::{PointerButton, PointerId},
 };
 use parley::editing::{Cursor, Selection};
@@ -109,8 +109,8 @@ type TextGeometry<'w, 's> = Query<
 >;
 
 pub(crate) fn select_static_text(
-    mut presses: Option<MessageReader<Pointer<Press>>>,
-    mut drags: Option<MessageReader<Pointer<Drag>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
+    mut drags: Option<MessageReader<PointerDrag>>,
     mut active: ResMut<ActiveStaticTextSelection>,
     mut selectable: Query<&mut SelectableStaticText>,
     geometry: TextGeometry,
@@ -145,7 +145,7 @@ pub(crate) fn select_static_text(
                 continue;
             };
             let Some(point) = local_point(
-                press.pointer_location.position,
+                press.pointer.position,
                 node,
                 render_target,
                 transform,
@@ -162,7 +162,7 @@ pub(crate) fn select_static_text(
                 state.anchor = selection.anchor().index();
                 state.focus = selection.focus().index();
                 active.entity = Some(entity);
-                active.pointer = Some(press.pointer_id);
+                active.pointer = Some(press.pointer.id);
                 if let Some(focus) = focus.as_deref_mut() {
                     focus.clear();
                 }
@@ -171,7 +171,7 @@ pub(crate) fn select_static_text(
     }
     if let Some(drags) = drags.as_mut() {
         for drag in drags.read() {
-            if drag.button != PointerButton::Primary || active.pointer != Some(drag.pointer_id) {
+            if drag.button != PointerButton::Primary || active.pointer != Some(drag.pointer.id) {
                 continue;
             }
             let Some(entity) = active.entity else {
@@ -180,13 +180,9 @@ pub(crate) fn select_static_text(
             let Ok((block, node, render_target, transform)) = geometry.get(entity) else {
                 continue;
             };
-            let Some(point) = local_point(
-                drag.pointer_location.position,
-                node,
-                render_target,
-                transform,
-                scale,
-            ) else {
+            let Some(point) =
+                local_point(drag.pointer.position, node, render_target, transform, scale)
+            else {
                 continue;
             };
             if let Ok(mut state) = selectable.get_mut(entity) {

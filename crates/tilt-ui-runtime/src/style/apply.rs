@@ -1359,18 +1359,18 @@ fn apply_text(
                             || matches!(style.font_weight, Some(FontWeight::Number(value)) if value >= 600);
                         FontSource::Handle(if bold { fonts.bold.clone() } else { fonts.regular.clone() })
                     })
-                    .unwrap_or(FontSource::SansSerif),
+                    .unwrap_or(FontSource::sans_serif()),
                 FontFamily::Monospace => FontSource::default(),
-                FontFamily::Serif => FontSource::Serif,
-                FontFamily::Cursive => FontSource::Cursive,
-                FontFamily::Fantasy => FontSource::Fantasy,
-                FontFamily::SystemUi => FontSource::SystemUi,
-                FontFamily::Emoji => FontSource::Emoji,
+                FontFamily::Serif => FontSource::serif(),
+                FontFamily::Cursive => FontSource::cursive(),
+                FontFamily::Fantasy => FontSource::fantasy(),
+                FontFamily::SystemUi => FontSource::system_ui(),
+                FontFamily::Emoji => FontSource::emoji(),
                 FontFamily::Named(name) => FontSource::Family(name.clone().into()),
                 FontFamily::UiSymbols => world
                     .get_resource::<crate::theme::DefaultThemeFonts>()
                     .map(|fonts| FontSource::Handle(fonts.symbols.clone()))
-                    .unwrap_or(FontSource::SansSerif),
+                    .unwrap_or(FontSource::sans_serif()),
             };
             applied.font_family = true;
         } else if applied.font_family {

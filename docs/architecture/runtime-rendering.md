@@ -20,7 +20,7 @@ interchangeable.
 ## Component Boundaries
 
 Each component instance has a `ComponentRoot` ownership boundary. The boundary
-uses Bevy 0.19's experimental `GhostNode` internally so it remains transparent
+uses Bevy's experimental `GhostNode` internally so it remains transparent
 to UI layout while retaining the ECS hierarchy needed for component ownership,
 teardown, scoped styling, and lifecycle work.
 

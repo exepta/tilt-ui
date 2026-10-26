@@ -63,12 +63,12 @@ scope dirty. CSS owns supported Bevy style fields on TiltUI materialized
 entities; external writes to those fields can be replaced on the next dirty
 style pass.
 
-Supported layout mappings update Bevy 0.19 `Node`: display, position, typed
+Supported layout mappings update Bevy 0.20 `Node`: display, position, typed
 `overflow`/`overflow-x`/`overflow-y` (`visible`, `hidden`, `clip`, `auto`,
 `scroll`), box
 sizes and offsets, margin, padding, gaps, flex settings, border widths, and
 border radii. Colors map to `BackgroundColor`, `BorderColor`, and `TextColor`.
-Text formatting maps to `TextFont` and `TextLayout`. Bevy 0.19 requires
+Text formatting maps to `TextFont` and `TextLayout`. Bevy requires
 `BackgroundColor` and `BorderColor` on every `Node`; when CSS stops owning a
 color the runtime restores Bevy's transparent default rather than removing a
 required component.

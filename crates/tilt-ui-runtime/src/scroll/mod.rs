@@ -1,5 +1,6 @@
 //! Shared overflow scrolling and CSS-styled scrollbar parts.
 
+use bevy::text::EditableText as NativeEditableText;
 use bevy::{
     app::{App, Plugin, PostUpdate, Update},
     ecs::{
@@ -18,13 +19,12 @@ use bevy::{
     ui::{
         ComputedNode, ComputedUiRenderTargetInfo, ComputedUiTargetCamera, IgnoreScroll, Node,
         OverflowAxis, ScrollPosition, UiGlobalTransform, UiScale, UiStack, UiSystems, UiTransform,
-        Val,
-        widget::{TextScroll, scroll_editable_text},
+        Val, widget::update_editable_text_layout,
     },
 };
 use bevy_picking::{
     Pickable,
-    events::{Drag, DragEnd, Pointer, Press, Release, Scroll},
+    events::{PointerDrag, PointerDragEnd, PointerPress, PointerRelease, PointerScroll},
     hover::HoverMap,
     pointer::{PointerButton, PointerId},
 };
@@ -58,7 +58,7 @@ impl Plugin for TiltUiScrollRuntimePlugin {
             PostUpdate,
             (
                 animate_wheel_scroll.before(UiSystems::Layout),
-                restore_user_text_scroll.after(scroll_editable_text),
+                restore_user_text_scroll.after(update_editable_text_layout),
                 update_scrollbar_visuals
                     .after(restore_user_text_scroll)
                     .after(UiSystems::PostLayout),
@@ -88,10 +88,10 @@ pub(crate) struct ActiveScrollbarDrag {
 #[derive(Component, Debug, Clone, Copy)]
 pub(crate) struct UserTextScroll(Vec2);
 
-fn restore_user_text_scroll(
+pub(crate) fn restore_user_text_scroll(
     mut editors: Query<(
         &mut UserTextScroll,
-        &mut TextScroll,
+        &mut NativeEditableText,
         &ComputedNode,
         Option<&TextLayoutInfo>,
     )>,
@@ -102,8 +102,8 @@ fn restore_user_text_scroll(
         if requested.0 != clamped {
             requested.0 = clamped;
         }
-        if actual.0 != clamped {
-            actual.0 = clamped;
+        if actual.viewport.offset != clamped {
+            actual.viewport.offset = clamped;
         }
     }
 }
@@ -151,7 +151,7 @@ pub(crate) fn ensure_scrollbar_parts(world: &mut World, scope: Entity) -> bool {
             created = true;
         }
         if parts.x.is_some() || parts.y.is_some() {
-            if world.get::<TextScroll>(owner).is_none()
+            if world.get::<NativeEditableText>(owner).is_none()
                 && world.get::<ScrollPosition>(owner).is_none()
             {
                 world.entity_mut(owner).insert(ScrollPosition::default());
@@ -188,7 +188,7 @@ fn spawn_axis(world: &mut World, owner: Entity, vertical: bool) -> (Entity, Enti
 }
 
 fn wheel_scroll(
-    mut wheels: Option<MessageReader<Pointer<Scroll>>>,
+    mut wheels: Option<MessageReader<PointerScroll>>,
     hover: Option<Res<HoverMap>>,
     mut commands: Commands,
 ) {
@@ -200,7 +200,7 @@ fn wheel_scroll(
     let mut batches: Vec<(PointerId, Entity, Entity, Vec2, Vec2, bool)> = Vec::new();
     for wheel in wheels.read() {
         let target = hover
-            .get(&wheel.pointer_id)
+            .get(&wheel.pointer.id)
             .into_iter()
             .flat_map(|hits| hits.iter())
             .min_by(|(_, a), (_, b)| a.depth.total_cmp(&b.depth))
@@ -214,11 +214,11 @@ fn wheel_scroll(
         // trackpads already describe the intermediate positions of a gesture.
         let smooth = matches!(wheel.unit, MouseScrollUnit::Line);
         let target = wheel.entity;
-        let position = wheel.pointer_location.position;
+        let position = wheel.pointer.position;
         let camera = wheel.hit.camera;
         if let Some(batch) = batches.iter_mut().find(
             |(pointer, entity, hit_camera, hit_position, _, batch_smooth)| {
-                *pointer == wheel.pointer_id
+                *pointer == wheel.pointer.id
                     && *entity == target
                     && *hit_camera == camera
                     && *hit_position == position
@@ -227,7 +227,7 @@ fn wheel_scroll(
         ) {
             batch.4 += delta;
         } else {
-            batches.push((wheel.pointer_id, target, camera, position, delta, smooth));
+            batches.push((wheel.pointer.id, target, camera, position, delta, smooth));
         }
     }
     for (_, target, camera, position, delta, smooth) in batches {
@@ -371,7 +371,10 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
             && !world
                 .get::<TiltElement>(entity)
                 .is_some_and(|element| element.kind == tilt_ui_core::ElementKind::Body);
-        if let Some(actual) = world.get::<TextScroll>(entity).map(|scroll| scroll.0) {
+        if let Some(actual) = world
+            .get::<NativeEditableText>(entity)
+            .map(|scroll| scroll.viewport.offset)
+        {
             let previous = if smooth {
                 world
                     .get::<SmoothScrollTarget>(entity)
@@ -395,8 +398,8 @@ fn scroll_ancestors_with_motion(world: &mut World, target: Entity, delta: Vec2, 
                     world.entity_mut(entity).insert(SmoothScrollTarget(next));
                 } else {
                     world.entity_mut(entity).remove::<SmoothScrollTarget>();
-                    if let Some(mut scroll) = world.get_mut::<TextScroll>(entity) {
-                        scroll.0 = next;
+                    if let Some(mut scroll) = world.get_mut::<NativeEditableText>(entity) {
+                        scroll.viewport.offset = next;
                     }
                     world.entity_mut(entity).insert(UserTextScroll(next));
                 }
@@ -486,7 +489,7 @@ fn animate_wheel_scroll(world: &mut World) {
             continue;
         };
         let (_, max) = scroll_geometry(world, entity, node);
-        let text = world.get::<TextScroll>(entity).is_some();
+        let text = world.get::<NativeEditableText>(entity).is_some();
         let max = if text {
             max
         } else {
@@ -494,7 +497,9 @@ fn animate_wheel_scroll(world: &mut World) {
         };
         let target = target.clamp(Vec2::ZERO, max);
         let actual = if text {
-            world.get::<TextScroll>(entity).map(|scroll| scroll.0)
+            world
+                .get::<NativeEditableText>(entity)
+                .map(|scroll| scroll.viewport.offset)
         } else {
             world.get::<ScrollPosition>(entity).map(|scroll| scroll.0)
         };
@@ -508,8 +513,8 @@ fn animate_wheel_scroll(world: &mut World) {
             actual.lerp(target, amount)
         };
         if text {
-            if let Some(mut scroll) = world.get_mut::<TextScroll>(entity) {
-                scroll.0 = next;
+            if let Some(mut scroll) = world.get_mut::<NativeEditableText>(entity) {
+                scroll.viewport.offset = next;
             }
             world.entity_mut(entity).insert(UserTextScroll(next));
         } else if let Some(mut scroll) = world.get_mut::<ScrollPosition>(entity) {
@@ -522,7 +527,7 @@ fn animate_wheel_scroll(world: &mut World) {
 }
 
 fn scroll_geometry(world: &World, entity: Entity, node: &ComputedNode) -> (Vec2, Vec2) {
-    if world.get::<TextScroll>(entity).is_some() {
+    if world.get::<NativeEditableText>(entity).is_some() {
         let view = node.content_box().size();
         (
             view,
@@ -538,10 +543,10 @@ fn scroll_geometry(world: &World, entity: Entity, node: &ComputedNode) -> (Vec2,
 }
 
 fn scrollbar_pointer_input(
-    mut presses: Option<MessageReader<Pointer<Press>>>,
-    mut drags: Option<MessageReader<Pointer<Drag>>>,
-    mut ends: Option<MessageReader<Pointer<DragEnd>>>,
-    mut releases: Option<MessageReader<Pointer<Release>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
+    mut drags: Option<MessageReader<PointerDrag>>,
+    mut ends: Option<MessageReader<PointerDragEnd>>,
+    mut releases: Option<MessageReader<PointerRelease>>,
     mut commands: Commands,
 ) {
     if let Some(presses) = presses.as_mut() {
@@ -550,8 +555,8 @@ fn scrollbar_pointer_input(
             .filter(|event| event.button == PointerButton::Primary)
         {
             let target = press.entity;
-            let pointer = press.pointer_id;
-            let position = press.pointer_location.position;
+            let pointer = press.pointer.id;
+            let position = press.pointer.position;
             commands.queue(move |world: &mut World| {
                 let Some((owner, kind, vertical)) = scrollbar_hit(world, target, position) else {
                     return;
@@ -596,8 +601,8 @@ fn scrollbar_pointer_input(
             .read()
             .filter(|event| event.button == PointerButton::Primary)
         {
-            let pointer = drag.pointer_id;
-            let position = drag.pointer_location.position;
+            let pointer = drag.pointer.id;
+            let position = drag.pointer.position;
             commands.queue(move |world: &mut World| {
                 let active_owner = {
                     let mut query = world.query::<(Entity, &ActiveScrollbarDrag)>();
@@ -636,7 +641,7 @@ fn scrollbar_pointer_input(
             .read()
             .filter(|event| event.button == PointerButton::Primary)
         {
-            queue_drag_end(&mut commands, end.pointer_id);
+            queue_drag_end(&mut commands, end.pointer.id);
         }
     }
     if let Some(releases) = releases.as_mut() {
@@ -644,7 +649,7 @@ fn scrollbar_pointer_input(
             .read()
             .filter(|event| event.button == PointerButton::Primary)
         {
-            queue_drag_end(&mut commands, release.pointer_id);
+            queue_drag_end(&mut commands, release.pointer.id);
         }
     }
 }
@@ -763,8 +768,8 @@ fn scroll_fraction(world: &World, entity: Entity, vertical: bool) -> Option<f32>
     let node = world.get::<ComputedNode>(entity)?;
     let (_, max) = scroll_geometry(world, entity, node);
     let current = world
-        .get::<TextScroll>(entity)
-        .map(|scroll| scroll.0)
+        .get::<NativeEditableText>(entity)
+        .map(|scroll| scroll.viewport.offset)
         .or_else(|| {
             world
                 .get::<ScrollPosition>(entity)
@@ -799,13 +804,13 @@ fn set_scroll_fraction(world: &mut World, entity: Entity, vertical: bool, fracti
         return;
     };
     let (_, max) = scroll_geometry(world, entity, &node);
-    if let Some(mut text_scroll) = world.get_mut::<TextScroll>(entity) {
+    if let Some(mut text_scroll) = world.get_mut::<NativeEditableText>(entity) {
         if vertical {
-            text_scroll.0.y = max.y * fraction;
+            text_scroll.viewport.offset.y = max.y * fraction;
         } else {
-            text_scroll.0.x = max.x * fraction;
+            text_scroll.viewport.offset.x = max.x * fraction;
         }
-        let requested = text_scroll.0;
+        let requested = text_scroll.viewport.offset;
         world.entity_mut(entity).insert(UserTextScroll(requested));
     } else if let Some(mut scroll) = world.get_mut::<ScrollPosition>(entity) {
         let logical_max = max * node.inverse_scale_factor;
@@ -962,12 +967,12 @@ mod tests {
         text::{EditableText as NativeEditableText, TextLayoutInfo},
         ui::{
             ComputedNode, ComputedUiRenderTargetInfo, Node, ScrollPosition, UiGlobalTransform,
-            UiStack, UiTransform, Val, widget::TextScroll,
+            UiStack, UiTransform, Val,
         },
     };
     use bevy_picking::{
         backend::HitData,
-        events::{Pointer, Press, Scroll},
+        events::{Pointer, PointerPress, PointerScroll},
         hover::HoverMap,
         pointer::{Location, PointerButton, PointerId},
     };
@@ -1095,9 +1100,9 @@ mod tests {
         assert!(world.get::<ScrollPosition>(body).unwrap().0.y < position);
     }
 
-    fn native_cursor_recenter(mut editors: Query<&mut TextScroll>) {
+    fn native_cursor_recenter(mut editors: Query<&mut NativeEditableText>) {
         for mut scroll in &mut editors {
-            scroll.0 = Vec2::ZERO;
+            scroll.viewport.offset = Vec2::ZERO;
         }
     }
 
@@ -1111,7 +1116,7 @@ mod tests {
         let area = app
             .world_mut()
             .spawn((
-                TextScroll::default(),
+                NativeEditableText::default(),
                 TextLayoutInfo {
                     size: Vec2::new(100.0, 150.0),
                     ..Default::default()
@@ -1130,16 +1135,40 @@ mod tests {
 
         scroll_ancestors(app.world_mut(), area, Vec2::new(0.0, 35.0));
         app.update();
-        assert_eq!(app.world().get::<TextScroll>(area).unwrap().0.y, 35.0);
+        assert_eq!(
+            app.world()
+                .get::<NativeEditableText>(area)
+                .unwrap()
+                .viewport
+                .offset
+                .y,
+            35.0
+        );
         assert_eq!(app.world().get::<UserTextScroll>(area).unwrap().0.y, 35.0);
 
         set_scroll_fraction(app.world_mut(), area, true, 0.75);
         app.update();
-        assert_eq!(app.world().get::<TextScroll>(area).unwrap().0.y, 75.0);
+        assert_eq!(
+            app.world()
+                .get::<NativeEditableText>(area)
+                .unwrap()
+                .viewport
+                .offset
+                .y,
+            75.0
+        );
 
         app.world_mut().entity_mut(area).remove::<UserTextScroll>();
         app.update();
-        assert_eq!(app.world().get::<TextScroll>(area).unwrap().0.y, 0.0);
+        assert_eq!(
+            app.world()
+                .get::<NativeEditableText>(area)
+                .unwrap()
+                .viewport
+                .offset
+                .y,
+            0.0
+        );
     }
 
     #[test]
@@ -1483,7 +1512,7 @@ mod tests {
     #[test]
     fn batched_wheel_events_scroll_only_the_targeted_container() {
         let mut app = App::new();
-        app.add_message::<Pointer<Scroll>>()
+        app.add_message::<PointerScroll>()
             .insert_resource(HoverMap::default())
             .add_systems(Update, wheel_scroll);
         let scope = app.world_mut().spawn_empty().id();
@@ -1518,8 +1547,35 @@ mod tests {
             .insert(child, hit.clone());
         for _ in 0..2 {
             app.world_mut()
-                .resource_mut::<bevy::ecs::message::Messages<Pointer<Scroll>>>()
-                .write(Pointer::new(
+                .resource_mut::<bevy::ecs::message::Messages<PointerScroll>>()
+                .write(PointerScroll {
+                    entity: child,
+                    pointer: Pointer::new(
+                        PointerId::Mouse,
+                        Location {
+                            target: NormalizedRenderTarget::None {
+                                width: 100,
+                                height: 100,
+                            },
+                            position: Vec2::ZERO,
+                        },
+                    ),
+                    unit: MouseScrollUnit::Pixel,
+                    x: 0.0,
+                    y: -24.0,
+                    hit: hit.clone(),
+                    phase: TouchPhase::Moved,
+                });
+        }
+        app.update();
+        assert_eq!(app.world().get::<ScrollPosition>(owner).unwrap().0.y, 48.0);
+
+        app.world_mut().init_resource::<UiMotionSettings>();
+        app.world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<PointerScroll>>()
+            .write(PointerScroll {
+                entity: child,
+                pointer: Pointer::new(
                     PointerId::Mouse,
                     Location {
                         target: NormalizedRenderTarget::None {
@@ -1528,40 +1584,13 @@ mod tests {
                         },
                         position: Vec2::ZERO,
                     },
-                    Scroll {
-                        unit: MouseScrollUnit::Pixel,
-                        x: 0.0,
-                        y: -24.0,
-                        hit: hit.clone(),
-                        phase: TouchPhase::Moved,
-                    },
-                    child,
-                ));
-        }
-        app.update();
-        assert_eq!(app.world().get::<ScrollPosition>(owner).unwrap().0.y, 48.0);
-
-        app.world_mut().init_resource::<UiMotionSettings>();
-        app.world_mut()
-            .resource_mut::<bevy::ecs::message::Messages<Pointer<Scroll>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 100,
-                        height: 100,
-                    },
-                    position: Vec2::ZERO,
-                },
-                Scroll {
-                    unit: MouseScrollUnit::Line,
-                    x: 0.0,
-                    y: -1.0,
-                    hit,
-                    phase: TouchPhase::Moved,
-                },
-                child,
-            ));
+                ),
+                unit: MouseScrollUnit::Line,
+                x: 0.0,
+                y: -1.0,
+                hit,
+                phase: TouchPhase::Moved,
+            });
         app.update();
         assert_eq!(app.world().get::<ScrollPosition>(owner).unwrap().0.y, 48.0);
         assert_eq!(
@@ -1577,7 +1606,7 @@ mod tests {
     fn scrollbar_press_captures_pointer_before_editor_selection() {
         let mut app = App::new();
         app.add_plugins((TiltUiControlRuntimePlugin, TiltUiScrollRuntimePlugin))
-            .add_message::<Pointer<Press>>();
+            .add_message::<PointerPress>();
         let owner = app
             .world_mut()
             .spawn((
@@ -1589,7 +1618,6 @@ mod tests {
                     size: Vec2::new(120.0, 150.0),
                     ..Default::default()
                 },
-                TextScroll::default(),
                 ComputedNode {
                     size: Vec2::new(120.0, 50.0),
                     content_size: Vec2::new(120.0, 150.0),
@@ -1625,23 +1653,23 @@ mod tests {
             ..Default::default()
         });
         app.world_mut()
-            .resource_mut::<bevy::ecs::message::Messages<Pointer<Press>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 120,
-                        height: 50,
+            .resource_mut::<bevy::ecs::message::Messages<PointerPress>>()
+            .write(PointerPress {
+                entity: owner,
+                pointer: Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 120,
+                            height: 50,
+                        },
+                        position: Vec2::ZERO,
                     },
-                    position: Vec2::ZERO,
-                },
-                Press {
-                    button: PointerButton::Primary,
-                    hit: HitData::new(owner, 0.0, None, None),
-                    count: 1,
-                },
-                owner,
-            ));
+                ),
+                button: PointerButton::Primary,
+                hit: HitData::new(owner, 0.0, None, None),
+                count: 1,
+            });
         app.update();
         assert!(app.world().get::<ActiveScrollbarDrag>(owner).is_some());
         assert!(

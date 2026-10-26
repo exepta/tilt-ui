@@ -12,16 +12,16 @@ use bevy::{
     text::{EditableText as BevyEditableText, LineBreak, TextCursorStyle, TextEdit, TextLayout},
     ui::{
         ContentSize, InteractionDisabled,
-        widget::{ImageNode, TextNodeFlags, TextScroll},
+        widget::{ImageNode, TextNodeFlags},
     },
 };
 use tilt_ui_core::{InputType, TemplateAttribute};
 
+use crate::TiltButton as Button;
 use crate::{
     ControlActivated, ControlPartKind, EditableText, EditableTextChanged, EditableTextCommitted,
     EditableTextOptions, ElementState, TiltControl, widgets::state::EditableTextParts,
 };
-use bevy::ui::widget::Button;
 use bevy_input_focus::tab_navigation::TabIndex;
 use bevy_picking::Pickable;
 
@@ -640,7 +640,6 @@ pub(crate) fn materialize_parts(
         }),
         TextNodeFlags::default(),
         ContentSize::default(),
-        TextScroll::default(),
     ));
     if input_type != InputType::Password
         && input_type != InputType::File

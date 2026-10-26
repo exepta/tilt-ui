@@ -10,7 +10,7 @@ use bevy::{
     picking::{
         PickingSystems,
         backend::HitData,
-        events::{Drag, Pointer, Press, Scroll},
+        events::{Pointer, PointerDrag, PointerPress, PointerScroll},
         hover::HoverMap,
         pointer::{Location, PointerButton, PointerId},
     },
@@ -39,6 +39,7 @@ struct Probe {
     max_color_lag_frames: usize,
     wheel_events: usize,
     body_moves: usize,
+    body: Option<Entity>,
     last_body_y: Option<f32>,
     last_color: Option<tilt_ui::tilt_ui_css::CssColor>,
 }
@@ -114,11 +115,10 @@ fn step(world: &mut World) {
 
     let phase = probe.frame.saturating_sub(WARMUP) / SAMPLE_FRAMES;
     if probe.frame >= WARMUP && matches!(phase, 1 | 3) {
-        let position = world
-            .query::<(&TiltElement, &ScrollPosition)>()
-            .iter(world)
-            .find(|(element, _)| element.kind == ElementKind::Body)
-            .map(|(_, scroll)| scroll.0.y);
+        let position = probe
+            .body
+            .and_then(|entity| world.get::<ScrollPosition>(entity))
+            .map(|scroll| scroll.0.y);
         if position.is_some_and(|position| probe.last_body_y.is_some_and(|old| old != position)) {
             probe.body_moves += 1;
         }
@@ -183,12 +183,14 @@ fn wheel_events(world: &mut World) {
     let Some(body) = body else {
         return;
     };
+    world.resource_mut::<Probe>().body = Some(body);
     let hit = HitData::new(body, 0.0, None, None);
-    world
-        .resource_mut::<HoverMap>()
-        .entry(PointerId::Mouse)
-        .or_default()
-        .insert(body, hit.clone());
+    {
+        let mut hover = world.resource_mut::<HoverMap>();
+        let hits = hover.entry(PointerId::Mouse).or_default();
+        hits.clear();
+        hits.insert(body, hit.clone());
+    }
     let phase = frame.saturating_sub(WARMUP) / SAMPLE_FRAMES;
     if frame < WARMUP || !matches!(phase, 1 | 3) {
         return;
@@ -200,25 +202,25 @@ fn wheel_events(world: &mut World) {
     };
     for _ in 0..3 {
         world
-            .resource_mut::<Messages<Pointer<Scroll>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                Location {
-                    target: NormalizedRenderTarget::None {
-                        width: 1440,
-                        height: 1060,
+            .resource_mut::<Messages<PointerScroll>>()
+            .write(PointerScroll {
+                entity: body,
+                pointer: Pointer::new(
+                    PointerId::Mouse,
+                    Location {
+                        target: NormalizedRenderTarget::None {
+                            width: 1440,
+                            height: 1060,
+                        },
+                        position: Vec2::new(4.0, 4.0),
                     },
-                    position: Vec2::new(4.0, 4.0),
-                },
-                Scroll {
-                    unit: MouseScrollUnit::Line,
-                    x: 0.0,
-                    y: direction,
-                    hit: hit.clone(),
-                    phase: TouchPhase::Moved,
-                },
-                body,
-            ));
+                ),
+                unit: MouseScrollUnit::Line,
+                x: 0.0,
+                y: direction,
+                hit: hit.clone(),
+                phase: TouchPhase::Moved,
+            });
     }
     world.resource_mut::<Probe>().wheel_events += 3;
     if (frame - WARMUP) % SAMPLE_FRAMES == 0 {
@@ -279,30 +281,24 @@ fn drag_color(world: &mut World, probe: &mut Probe, frame: usize) {
     };
     if frame == 5 {
         world
-            .resource_mut::<Messages<Pointer<Press>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                location,
-                Press {
-                    button: PointerButton::Primary,
-                    hit: HitData::new(canvas, 0.0, None, None),
-                    count: 1,
-                },
-                canvas,
-            ));
+            .resource_mut::<Messages<PointerPress>>()
+            .write(PointerPress {
+                entity: canvas,
+                pointer: Pointer::new(PointerId::Mouse, location),
+                button: PointerButton::Primary,
+                hit: HitData::new(canvas, 0.0, None, None),
+                count: 1,
+            });
     } else {
         world
-            .resource_mut::<Messages<Pointer<Drag>>>()
-            .write(Pointer::new(
-                PointerId::Mouse,
-                location,
-                Drag {
-                    button: PointerButton::Primary,
-                    distance: Vec2::ZERO,
-                    delta: Vec2::ZERO,
-                },
-                canvas,
-            ));
+            .resource_mut::<Messages<PointerDrag>>()
+            .write(PointerDrag {
+                entity: canvas,
+                pointer: Pointer::new(PointerId::Mouse, location),
+                button: PointerButton::Primary,
+                distance: Vec2::ZERO,
+                delta: Vec2::ZERO,
+            });
     }
     probe.color_events += 1;
     probe.last_color_event_frame = Some(probe.frame);

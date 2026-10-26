@@ -5,9 +5,9 @@ use bevy::{
         lifecycle::{Add, Remove},
         message::MessageReader,
         observer::On,
-        query::{Changed, With},
+        query::{Added, Changed, Has, Or, With},
         schedule::SystemSet,
-        system::{Commands, Query, Res, ResMut},
+        system::{Commands, ParamSet, Query, Res, ResMut},
         world::World,
     },
     input::{
@@ -16,18 +16,15 @@ use bevy::{
         mouse::MouseButton,
     },
     prelude::IntoScheduleConfigs,
-    ui::{
-        Interaction, InteractionDisabled, Pressed, UiSystems,
-        widget::{scroll_editable_text, update_editable_text_layout},
-    },
+    ui::{InteractionDisabled, Pressed, UiSystems, widget::update_editable_text_layout},
 };
 use bevy_input_focus::{
     FocusCause, FocusGained, FocusLost, InputFocus, InputFocusPlugin,
     tab_navigation::{TabIndex, TabNavigationPlugin},
 };
 use bevy_picking::{
-    events::{Click, Pointer},
-    hover::HoverMap,
+    events::PointerClick,
+    hover::{HoverMap, Hovered},
     pointer::PointerButton,
 };
 
@@ -48,16 +45,15 @@ use super::{
     selection::process_selectable_activation,
 };
 
-type InteractionControlQuery<'w, 's> = Query<
-    'w,
-    's,
-    (
-        &'static Interaction,
-        &'static mut ElementState,
-        Option<&'static InteractionDisabled>,
-    ),
-    (With<TiltControl>, Changed<Interaction>),
->;
+type InteractionState = (
+    &'static Hovered,
+    Has<Pressed>,
+    &'static mut ElementState,
+    Option<&'static InteractionDisabled>,
+);
+type InteractionControlQuery<'w, 's> =
+    Query<'w, 's, InteractionState, (With<TiltControl>, Or<(Changed<Hovered>, Added<Pressed>)>)>;
+type AllInteractionControls<'w, 's> = Query<'w, 's, InteractionState, With<TiltControl>>;
 type DisabledControlQuery<'w, 's> = Query<
     'w,
     's,
@@ -282,7 +278,7 @@ impl Plugin for TiltUiControlRuntimePlugin {
             update_ime_candidate_position
                 .in_set(UiSystems::PostLayout)
                 .after(update_editable_text_layout)
-                .after(scroll_editable_text),
+                .after(crate::scroll::restore_user_text_scroll),
         );
         app.add_systems(
             PostUpdate,
@@ -335,21 +331,47 @@ impl Plugin for TiltUiControlRuntimePlugin {
 }
 
 /// Synchronizes Bevy interaction state with CSS pseudo-state data.
-fn project_interaction(mut controls: InteractionControlQuery<'_, '_>) {
-    for (interaction, mut state, disabled) in &mut controls {
+fn project_interaction(
+    mut controls: ParamSet<(
+        InteractionControlQuery<'_, '_>,
+        AllInteractionControls<'_, '_>,
+    )>,
+    mut released: bevy::ecs::lifecycle::RemovedComponents<Pressed>,
+    mouse: Option<Res<ButtonInput<MouseButton>>>,
+    touches: Option<Res<bevy::input::touch::Touches>>,
+    mut previous_pointer_pressed: bevy::ecs::system::Local<bool>,
+) {
+    let pointer_pressed = mouse.is_some_and(|buttons| buttons.pressed(MouseButton::Left))
+        || touches.is_some_and(|touches| touches.iter().next().is_some());
+    for (hovered, active, mut state, disabled) in &mut controls.p0() {
         if disabled.is_some() {
             continue;
         }
-        let (hovered, active) = match interaction {
-            Interaction::None => (false, false),
-            Interaction::Hovered => (true, false),
-            Interaction::Pressed => (true, true),
-        };
+        let hovered = hovered.get();
+        let active = active || hovered && pointer_pressed;
         if state.hovered != hovered {
             state.hovered = hovered;
         }
         if state.active != active {
             state.active = active;
+        }
+    }
+    if *previous_pointer_pressed != pointer_pressed {
+        *previous_pointer_pressed = pointer_pressed;
+        for (hovered, keyboard_pressed, mut state, disabled) in &mut controls.p1() {
+            let active =
+                disabled.is_none() && (keyboard_pressed || hovered.get() && pointer_pressed);
+            if state.active != active {
+                state.active = active;
+            }
+        }
+    }
+    for entity in released.read() {
+        if let Ok((hovered, still_pressed, mut state, disabled)) = controls.p1().get_mut(entity) {
+            let active = disabled.is_none() && (still_pressed || hovered.get() && pointer_pressed);
+            if state.active != active {
+                state.active = active;
+            }
         }
     }
 }
@@ -447,7 +469,7 @@ fn project_disabled(mut controls: DisabledControlQuery<'_, '_>) {
 }
 
 fn project_disabled_added(
-    trigger: On<Add, InteractionDisabled>,
+    trigger: On<Add<InteractionDisabled>>,
     mut controls: TabControlQuery<'_, '_>,
 ) {
     if let Ok((mut state, tab_index, _)) = controls.get_mut(trigger.entity) {
@@ -459,7 +481,7 @@ fn project_disabled_added(
 }
 
 fn project_disabled_removed(
-    trigger: On<Remove, InteractionDisabled>,
+    trigger: On<Remove<InteractionDisabled>>,
     mut controls: TabControlQuery<'_, '_>,
 ) {
     if let Ok((mut state, tab_index, normal_tab_index)) = controls.get_mut(trigger.entity) {
@@ -489,7 +511,7 @@ fn project_focus_lost(
 }
 
 fn pointer_activation(
-    mut clicks: Option<MessageReader<Pointer<Click>>>,
+    mut clicks: Option<MessageReader<PointerClick>>,
     parts: Query<&ControlPart>,
     controls: Query<Option<&InteractionDisabled>, With<TiltControl>>,
     loading_buttons: Query<&LoadingButton>,
@@ -641,9 +663,13 @@ mod tests {
             world::World,
         },
         input::{ButtonInput, mouse::MouseButton},
-        ui::{Interaction, InteractionDisabled},
+        ui::{InteractionDisabled, Pressed},
     };
-    use bevy_picking::{backend::HitData, hover::HoverMap, pointer::PointerId};
+    use bevy_picking::{
+        backend::HitData,
+        hover::{HoverMap, Hovered},
+        pointer::PointerId,
+    };
     use tilt_ui_core::ElementKind;
 
     use super::LoadingButton;
@@ -687,31 +713,62 @@ mod tests {
         app.add_plugins(TiltUiControlRuntimePlugin);
         let entity = app
             .world_mut()
-            .spawn((TiltControl, ElementState::default(), Interaction::None))
+            .spawn((TiltControl, ElementState::default()))
             .id();
 
         app.update();
-        app.world_mut()
-            .get_mut::<Interaction>(entity)
-            .unwrap()
-            .clone_from(&Interaction::Hovered);
+        app.world_mut().entity_mut(entity).insert(Hovered(true));
         app.update();
         assert!(app.world().get::<ElementState>(entity).unwrap().hovered);
         assert!(!app.world().get::<ElementState>(entity).unwrap().active);
 
-        app.world_mut()
-            .get_mut::<Interaction>(entity)
-            .unwrap()
-            .clone_from(&Interaction::Pressed);
+        app.world_mut().entity_mut(entity).insert(Pressed);
         app.update();
         assert!(app.world().get::<ElementState>(entity).unwrap().active);
 
         app.world_mut()
-            .get_mut::<Interaction>(entity)
-            .unwrap()
-            .clone_from(&Interaction::None);
+            .entity_mut(entity)
+            .insert(Hovered(false))
+            .remove::<Pressed>();
         app.update();
         assert!(!app.world().get::<ElementState>(entity).unwrap().hovered);
+        assert!(!app.world().get::<ElementState>(entity).unwrap().active);
+    }
+
+    #[test]
+    fn physical_pointer_release_keeps_hover_and_keyboard_pressed_state() {
+        let mut app = App::new();
+        app.add_plugins(TiltUiControlRuntimePlugin)
+            .init_resource::<ButtonInput<MouseButton>>();
+        let entity = app
+            .world_mut()
+            .spawn((TiltControl, ElementState::default(), Hovered(true)))
+            .id();
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert!(app.world().get::<ElementState>(entity).unwrap().active);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Left);
+        app.update();
+        let state = app.world().get::<ElementState>(entity).unwrap();
+        assert!(state.hovered);
+        assert!(!state.active);
+        app.world_mut().entity_mut(entity).insert(Pressed);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .release(MouseButton::Left);
+        app.update();
+        assert!(app.world().get::<ElementState>(entity).unwrap().active);
+        app.world_mut().entity_mut(entity).remove::<Pressed>();
+        app.update();
         assert!(!app.world().get::<ElementState>(entity).unwrap().active);
     }
 

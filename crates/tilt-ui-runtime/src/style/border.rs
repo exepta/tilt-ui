@@ -74,7 +74,7 @@ impl Plugin for BorderRuntimePlugin {
             .resource_mut::<Assets<Shader>>()
             .insert(
                 BORDER_SHADER.id(),
-                Shader::from_wgsl(include_str!("border.wgsl"), "tilt_ui_border.wgsl"),
+                Shader::from_wesl(include_str!("border.wesl"), "tilt_ui_border.wesl"),
             )
             .expect("unique embedded border shader");
         app.add_plugins(UiMaterialPlugin::<BorderMaterial>::default());
@@ -212,10 +212,10 @@ fn update_border_materials(
                 widths.min_inset.x,
             ),
             radii: Vec4::new(
-                radii.top_left,
-                radii.top_right,
-                radii.bottom_right,
-                radii.bottom_left,
+                radii.top_left.x,
+                radii.top_right.x,
+                radii.bottom_right.x,
+                radii.bottom_left.x,
             ),
             styles: Vec4::new(
                 style_number(overlay.styles.top),

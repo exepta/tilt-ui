@@ -6,7 +6,7 @@ use bevy::{
     ui::{ComputedNode, ComputedUiRenderTargetInfo, InteractionDisabled, UiScale},
 };
 use bevy_picking::{
-    events::{Drag, DragEnd, Pointer, Press, Release},
+    events::{PointerDrag, PointerDragEnd, PointerPress, PointerRelease},
     pointer::PointerButton,
 };
 
@@ -16,10 +16,10 @@ use super::drag::{ActiveControlDrag, DragKind};
 
 /// Routes lower-right handle gestures through the shared active-drag state.
 pub(crate) fn text_area_resize_input(
-    mut presses: Option<MessageReader<Pointer<Press>>>,
-    mut drags: Option<MessageReader<Pointer<Drag>>>,
-    mut ends: Option<MessageReader<Pointer<DragEnd>>>,
-    mut releases: Option<MessageReader<Pointer<Release>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
+    mut drags: Option<MessageReader<PointerDrag>>,
+    mut ends: Option<MessageReader<PointerDragEnd>>,
+    mut releases: Option<MessageReader<PointerRelease>>,
     mut commands: Commands,
 ) {
     if let Some(presses) = presses.as_mut() {
@@ -28,8 +28,8 @@ pub(crate) fn text_area_resize_input(
                 continue;
             }
             let target = press.entity;
-            let position = press.pointer_location.position;
-            let pointer = press.pointer_id;
+            let position = press.pointer.position;
+            let pointer = press.pointer.id;
             commands.queue(move |world: &mut World| {
                 let Some(part) = world
                     .get::<ControlPart>(target)
@@ -66,8 +66,8 @@ pub(crate) fn text_area_resize_input(
                 continue;
             }
             let target = drag.entity;
-            let position = drag.pointer_location.position;
-            let pointer = drag.pointer_id;
+            let position = drag.pointer.position;
+            let pointer = drag.pointer.id;
             commands.queue(move |world: &mut World| {
                 let Some(part) = world
                     .get::<ControlPart>(target)
@@ -103,14 +103,14 @@ pub(crate) fn text_area_resize_input(
     if let Some(ends) = ends.as_mut() {
         for end in ends.read() {
             if end.button == PointerButton::Primary {
-                queue_end(&mut commands, end.entity, end.pointer_id);
+                queue_end(&mut commands, end.entity, end.pointer.id);
             }
         }
     }
     if let Some(releases) = releases.as_mut() {
         for release in releases.read() {
             if release.button == PointerButton::Primary {
-                queue_end(&mut commands, release.entity, release.pointer_id);
+                queue_end(&mut commands, release.entity, release.pointer.id);
             }
         }
     }

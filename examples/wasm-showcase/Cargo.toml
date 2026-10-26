@@ -24,4 +24,4 @@ tilt-ui-build.workspace = true
 # Enable browser GPU backends without enabling Bevy's unrelated optional
 # anti-aliasing crate through the umbrella `bevy/webgl2` feature.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-bevy_render = { version = "0.19", default-features = false, features = ["webgl", "webgpu"] }
+bevy_render = { version = "0.20.0", default-features = false, features = ["webgl", "webgpu"] }

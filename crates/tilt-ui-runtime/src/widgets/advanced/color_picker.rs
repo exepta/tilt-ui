@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::TiltButton as Button;
 use bevy::window::{PrimaryWindow, Window};
 use bevy::{
     asset::{Assets, Handle, RenderAssetUsages},
@@ -18,13 +19,13 @@ use bevy::{
     ui::{
         ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex, InteractionDisabled, Node,
         UiGlobalTransform, UiScale, Val,
-        widget::{Button, ImageNode, NodeImageMode},
+        widget::{ImageNode, NodeImageMode},
     },
 };
 use bevy_input_focus::{FocusCause, InputFocus, tab_navigation::TabIndex};
 use bevy_picking::{
     Pickable,
-    events::{Drag, DragEnd, Pointer, Press, Release},
+    events::{PointerDrag, PointerDragEnd, PointerPress, PointerRelease},
     pointer::{PointerButton, PointerId},
 };
 use tilt_ui_core::TemplateAttribute;
@@ -843,10 +844,10 @@ fn finish_drag(commands: &mut Commands, pointer: PointerId) {
 }
 
 pub(crate) fn color_pointer_input(
-    mut presses: Option<MessageReader<Pointer<Press>>>,
-    mut drags: Option<MessageReader<Pointer<Drag>>>,
-    mut ends: Option<MessageReader<Pointer<DragEnd>>>,
-    mut releases: Option<MessageReader<Pointer<Release>>>,
+    mut presses: Option<MessageReader<PointerPress>>,
+    mut drags: Option<MessageReader<PointerDrag>>,
+    mut ends: Option<MessageReader<PointerDragEnd>>,
+    mut releases: Option<MessageReader<PointerRelease>>,
     mut commands: Commands,
 ) {
     if let Some(presses) = presses.as_mut() {
@@ -854,11 +855,8 @@ pub(crate) fn color_pointer_input(
             if press.button != PointerButton::Primary {
                 continue;
             }
-            let (target, position, pointer) = (
-                press.entity,
-                press.pointer_location.position,
-                press.pointer_id,
-            );
+            let (target, position, pointer) =
+                (press.entity, press.pointer.position, press.pointer.id);
             commands.queue(move |world: &mut World| {
                 let Some((owner, surface)) = color_surface(world, target) else {
                     return;
@@ -884,7 +882,7 @@ pub(crate) fn color_pointer_input(
             if drag.button != PointerButton::Primary {
                 continue;
             }
-            latest.insert(drag.pointer_id, drag.pointer_location.position);
+            latest.insert(drag.pointer.id, drag.pointer.position);
         }
         for (pointer, position) in latest {
             commands.queue(move |world: &mut World| {
@@ -901,14 +899,14 @@ pub(crate) fn color_pointer_input(
     if let Some(ends) = ends.as_mut() {
         for end in ends.read() {
             if end.button == PointerButton::Primary {
-                finish_drag(&mut commands, end.pointer_id);
+                finish_drag(&mut commands, end.pointer.id);
             }
         }
     }
     if let Some(releases) = releases.as_mut() {
         for release in releases.read() {
             if release.button == PointerButton::Primary {
-                finish_drag(&mut commands, release.pointer_id);
+                finish_drag(&mut commands, release.pointer.id);
             }
         }
     }
