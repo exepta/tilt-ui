@@ -44,3 +44,43 @@ caused an approximately 125 ms frame from changing the hover state of the
 whole document. That is not part of the steady scroll or drag measurement;
 it is a separate whole-page hover transition and should be profiled if it is
 observed during normal mouse use.
+
+## Bevy 0.20 Runtime Workloads
+
+The `preview-020` runtime also covers retained inventories and large reactive
+stores. Dotted paths and compound expressions borrow JSON containers while
+traversing them; only a returned leaf or an explicitly returned container is
+cloned. Shared-resource snapshots are refreshed independently, retain their
+allocation when their serialized value is unchanged, and share one allocation
+between aliases. Updating a small HUD resource therefore does not serialize an
+unchanged inventory or recipe catalog again.
+
+Reactive template construction resolves widget targets once per completed
+component transaction. Cold style scopes capture selector metadata together
+instead of each scanning the whole UI world. Existing warm selector snapshots
+continue to update only the affected state. These changes do not replace
+widgets or bypass authored CSS and bindings.
+
+For an intentionally retained but hidden tree, `ParkedUiBindings::take` pauses
+its flows, property bindings and text interpolation, including widgets moved to
+a portal. The application must hide that tree separately. Call `restore` before
+showing it again; the same entities catch up to the current binding state. This
+is opt-in and adds no global per-frame parking scan. Order application parking
+and restoration before `TiltUiComponentRuntimeSet::Reactivity` when they must
+take effect within the same update.
+
+Hover tooltips resample the current picking state, so showing a prebuilt tree
+under a stationary pointer does not require another click or pointer-enter
+event. Disabled tooltips stay closed, placement accounts for UI scale and
+window DPI, and unchanged placement does not dirty layout or material assets.
+
+Run the focused runtime regressions with:
+
+```sh
+cargo test --locked -p tilt-ui-runtime --lib
+```
+
+The tests check allocation identity, snapshot capture counts, lookup precedence,
+short-circuit behavior, parked subtree identity, batched target and selector
+capture counts, and tooltip placement/change detection. They are correctness
+and bounded-work regressions, not a replacement for application FPS profiling.

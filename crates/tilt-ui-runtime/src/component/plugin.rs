@@ -42,6 +42,8 @@ pub struct TiltUiComponentRuntimePlugin {
 pub enum TiltUiComponentRuntimeSet {
     /// Instantiates pending component templates into semantic and Bevy UI entities.
     Instantiate,
+    /// Refreshes shared state, structural flows, properties and text in that order.
+    Reactivity,
 }
 
 #[derive(Resource, Default)]

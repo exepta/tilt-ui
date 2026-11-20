@@ -13,6 +13,7 @@ mod motion;
 mod plugin;
 mod state;
 
+pub(crate) use apply::refresh_inherited_opacity;
 pub(crate) use inline::InlineStyle;
 pub use motion::ActiveAnimations;
 pub(crate) use motion::closing_animation_durations;

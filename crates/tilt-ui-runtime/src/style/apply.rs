@@ -426,6 +426,35 @@ fn nearest_parent_opacity(world: &World, mut entity: Entity) -> f32 {
     1.0
 }
 
+/// Portals can leave their CSS owner's physical subtree after initial style application.
+pub(crate) fn refresh_inherited_opacity(world: &mut World, entity: Entity) {
+    let Some(style) = world
+        .get::<MotionDisplayedStyle>(entity)
+        .map(|style| style.0.clone())
+        .or_else(|| {
+            world
+                .get::<RuntimeComputedStyle>(entity)
+                .map(|style| style.0.clone())
+        })
+    else {
+        return;
+    };
+    let opacity = nearest_parent_opacity(world, entity) * style.opacity.unwrap_or(1.0);
+    if world
+        .get::<ResolvedOpacity>(entity)
+        .is_none_or(|previous| previous.0 != opacity)
+    {
+        world.entity_mut(entity).insert(ResolvedOpacity(opacity));
+        apply_element_visual(world, entity, &style);
+        if world.get::<Text>(entity).is_some()
+            || world.get::<bevy::text::EditableText>(entity).is_some()
+        {
+            apply_motion_text(world, entity, &style);
+        }
+    }
+    reapply_descendant_opacity(world, entity, opacity);
+}
+
 fn reapply_descendant_opacity(world: &mut World, parent: Entity, parent_opacity: f32) {
     let children = super::backdrop::logical_children(world, parent);
     for entity in children {
@@ -1709,6 +1738,114 @@ mod table_tests {
         super::apply_motion_style(&mut world, parent, &animated);
         assert_eq!(world.get::<ImageNode>(child).unwrap().color.alpha(), 0.125);
         assert_eq!(world.get::<TextColor>(text).unwrap().0.alpha(), 0.125);
+    }
+
+    #[test]
+    fn portaled_surface_refreshes_cached_zero_opacity_without_changing_authored_alpha_or_idle_state()
+     {
+        use crate::CascadedStyle;
+        use bevy::{
+            color::Alpha,
+            ecs::change_detection::DetectChanges,
+            text::TextColor,
+            ui::{BackgroundColor, widget::Text},
+        };
+        use tilt_ui_core::ElementKind;
+        use tilt_ui_css::CssColor;
+        let mut world = World::new();
+        let document = world.spawn_empty().id();
+        let scope = world.spawn_empty().id();
+        world.entity_mut(document).add_child(scope);
+        let hidden = world
+            .spawn((
+                Node::default(),
+                crate::TiltElement {
+                    kind: ElementKind::Div,
+                },
+                CascadedStyle(ComputedStyle {
+                    opacity: Some(0.0),
+                    ..Default::default()
+                }),
+            ))
+            .id();
+        let tooltip = world
+            .spawn((
+                Node::default(),
+                crate::TiltElement {
+                    kind: ElementKind::ToolTip,
+                },
+                CascadedStyle(ComputedStyle {
+                    opacity: Some(0.8),
+                    background_color: Some(CssColor::rgba(0.1, 0.2, 0.3, 0.9)),
+                    ..Default::default()
+                }),
+            ))
+            .id();
+        let paragraph = world
+            .spawn((
+                Node::default(),
+                crate::TiltElement {
+                    kind: ElementKind::Paragraph,
+                },
+                CascadedStyle(ComputedStyle {
+                    opacity: Some(0.5),
+                    color: Some(CssColor::rgba(0.3, 0.6, 0.4, 0.75)),
+                    ..Default::default()
+                }),
+            ))
+            .id();
+        let text = world
+            .spawn(Text::new("Leather helmet fitted from layered hide."))
+            .id();
+        world.entity_mut(scope).add_child(hidden);
+        world.entity_mut(hidden).add_child(tooltip);
+        world.entity_mut(tooltip).add_child(paragraph);
+        world.entity_mut(paragraph).add_child(text);
+        super::resolve_and_apply_tree(&mut world, scope);
+        assert_eq!(world.get::<TextColor>(text).unwrap().0.alpha(), 0.0);
+        world.entity_mut(document).add_child(tooltip);
+        // Restyling the original scope cannot visit the portaled tooltip anymore.
+        super::resolve_and_apply_tree(&mut world, scope);
+        assert_eq!(world.get::<TextColor>(text).unwrap().0.alpha(), 0.0);
+        super::refresh_inherited_opacity(&mut world, tooltip);
+        let background = world.get::<BackgroundColor>(tooltip).unwrap().0.to_srgba();
+        let color = world.get::<TextColor>(text).unwrap().0.to_srgba();
+        assert!((background.alpha - 0.72).abs() < 0.0001);
+        assert!((color.alpha - 0.3).abs() < 0.0001);
+        assert!((color.red - 0.3).abs() < 0.0001);
+        assert!((color.green - 0.6).abs() < 0.0001);
+        world.clear_trackers();
+        for _ in 0..3 {
+            super::refresh_inherited_opacity(&mut world, tooltip);
+        }
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<Node>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<BackgroundColor>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .entity(text)
+                .get_ref::<TextColor>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .entity(text)
+                .get_ref::<super::ResolvedOpacity>()
+                .unwrap()
+                .is_changed()
+        );
     }
 
     #[test]

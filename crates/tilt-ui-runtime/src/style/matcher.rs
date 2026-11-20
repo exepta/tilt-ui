@@ -24,6 +24,10 @@ use crate::{
     StaticAttributes, TiltElement,
 };
 
+#[path = "rule_index.rs"]
+mod rule_index;
+pub(crate) use rule_index::RuleIndex;
+
 #[derive(Debug)]
 struct ViewNode {
     entity: Entity,
@@ -52,10 +56,38 @@ pub(crate) struct SelectorView {
     by_entity: HashMap<Entity, usize>,
 }
 
+#[cfg(test)]
+#[derive(bevy::ecs::resource::Resource, Default)]
+pub(super) struct SelectorBuildPasses(pub usize);
+
 impl SelectorView {
     pub(crate) fn build(world: &mut World, owner: Entity) -> Self {
-        let mut nodes = Vec::new();
-        let mut by_entity = HashMap::new();
+        Self::build_many(world, &HashSet::from([owner]))
+            .remove(&owner)
+            .unwrap()
+    }
+
+    /// Capture cold scopes together: slot components must not each rescan the UI world.
+    pub(crate) fn build_many(world: &mut World, owners: &HashSet<Entity>) -> HashMap<Entity, Self> {
+        let mut views: HashMap<_, _> = owners
+            .iter()
+            .map(|owner| {
+                (
+                    *owner,
+                    Self {
+                        nodes: Vec::new(),
+                        by_entity: HashMap::new(),
+                    },
+                )
+            })
+            .collect();
+        if views.is_empty() {
+            return views;
+        }
+        #[cfg(test)]
+        if let Some(mut passes) = world.get_resource_mut::<SelectorBuildPasses>() {
+            passes.0 += 1;
+        }
         let mut query = world.query::<(
             Entity,
             &TiltElement,
@@ -66,11 +98,11 @@ impl SelectorView {
             Option<&ElementState>,
         )>();
         for (entity, element, style_owner, id, classes, attributes, state) in query.iter(world) {
-            if style_owner.0 != owner {
+            let Some(view) = views.get_mut(&style_owner.0) else {
                 continue;
-            }
-            by_entity.insert(entity, nodes.len());
-            nodes.push(ViewNode {
+            };
+            view.by_entity.insert(entity, view.nodes.len());
+            view.nodes.push(ViewNode {
                 entity,
                 tag: element.kind.tag_name(),
                 id: id.map(|id| id.0.clone()),
@@ -100,14 +132,14 @@ impl SelectorView {
             Option<&CalendarRangePosition>,
         )>();
         for (entity, part, style_owner, state, range_position) in parts.iter(world) {
-            if style_owner.0 != owner {
+            let Some(view) = views.get_mut(&style_owner.0) else {
                 continue;
-            }
+            };
             let mut control_owner = part.owner;
             while let Some(parent_part) = world.get::<ControlPart>(control_owner) {
                 control_owner = parent_part.owner;
             }
-            let Some(owner_index) = by_entity.get(&control_owner).copied() else {
+            let Some(owner_index) = view.by_entity.get(&control_owner).copied() else {
                 continue;
             };
             let Some(control) = world.get::<TiltElement>(control_owner) else {
@@ -117,8 +149,8 @@ impl SelectorView {
                 .copied()
                 .or_else(|| world.get::<ElementState>(control_owner).copied())
                 .unwrap_or_default();
-            by_entity.insert(entity, nodes.len());
-            nodes.push(ViewNode {
+            view.by_entity.insert(entity, view.nodes.len());
+            view.nodes.push(ViewNode {
                 entity,
                 tag: control.kind.tag_name(),
                 id: None,
@@ -134,25 +166,33 @@ impl SelectorView {
                 next: None,
             });
         }
-        for node in &mut nodes {
+        for (owner, view) in &mut views {
+            view.link(world, *owner);
+        }
+        views
+    }
+
+    fn link(&mut self, world: &World, owner: Entity) {
+        for node in &mut self.nodes {
             if node.part.is_some() {
                 continue;
             }
             let mut current = node.entity;
             while let Some(parent) = super::backdrop::logical_parent(world, current) {
-                if let Some(parent_index) = by_entity.get(&parent).copied() {
+                if let Some(parent_index) = self.by_entity.get(&parent).copied() {
                     node.parent = Some(parent_index);
                     break;
                 }
                 current = parent;
             }
         }
-        let order_keys = nodes
+        let order_keys = self
+            .nodes
             .iter()
             .map(|node| document_order_key(world, node.entity, owner))
             .collect::<Vec<_>>();
         let mut siblings_by_parent: HashMap<Option<usize>, Vec<usize>> = HashMap::new();
-        for (index, node) in nodes.iter().enumerate() {
+        for (index, node) in self.nodes.iter().enumerate() {
             siblings_by_parent
                 .entry(node.parent)
                 .or_default()
@@ -161,14 +201,18 @@ impl SelectorView {
         for (parent, mut siblings) in siblings_by_parent {
             siblings.sort_by(|left, right| order_keys[*left].cmp(&order_keys[*right]));
             if let Some(parent) = parent {
-                nodes[parent].first_child = siblings.first().copied();
+                self.nodes[parent].first_child = siblings.first().copied();
             }
             for pair in siblings.windows(2) {
-                nodes[pair[0]].next = Some(pair[1]);
-                nodes[pair[1]].previous = Some(pair[0]);
+                self.nodes[pair[0]].next = Some(pair[1]);
+                self.nodes[pair[1]].previous = Some(pair[0]);
             }
         }
-        Self { nodes, by_entity }
+    }
+    pub(crate) fn contains_entities(&self, entities: &HashSet<Entity>) -> bool {
+        entities
+            .iter()
+            .all(|entity| self.by_entity.contains_key(entity))
     }
     pub(crate) fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.nodes.iter().map(|node| node.entity)
@@ -630,11 +674,133 @@ pub(crate) fn matching_specificity(
 #[cfg(test)]
 mod tests {
     use bevy::ecs::world::World;
+    use std::collections::HashSet;
     use tilt_ui_core::ElementKind;
     use tilt_ui_css::parse_stylesheet;
 
-    use super::{CalendarRangePosition, SelectorView, matching_specificity};
-    use crate::{ComponentStyleOwner, ControlPart, ControlPartKind, ElementState, TiltElement};
+    use super::{CalendarRangePosition, SelectorBuildPasses, SelectorView, matching_specificity};
+    use crate::{
+        ComponentStyleOwner, ControlPart, ControlPartKind, ElementClasses, ElementState,
+        TiltElement,
+    };
+
+    #[test]
+    fn grouped_views_match_isolated_scopes_and_resample_live_nested_metadata_next_pass() {
+        let mut world = World::new();
+        world.init_resource::<SelectorBuildPasses>();
+        let outer = world.spawn_empty().id();
+        let inner = world.spawn_empty().id();
+        let unrelated = world.spawn_empty().id();
+        let shell = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Div,
+                },
+                ComponentStyleOwner(outer),
+                ElementClasses {
+                    classes: vec!["shell".into()],
+                },
+            ))
+            .id();
+        let first = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(outer),
+                ElementState::default(),
+            ))
+            .id();
+        let second = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(outer),
+                ElementState::default(),
+            ))
+            .id();
+        let nested = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(inner),
+                ElementState {
+                    hovered: true,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let spinner = world
+            .spawn((
+                ControlPart {
+                    owner: nested,
+                    kind: ControlPartKind::Spinner,
+                },
+                ComponentStyleOwner(inner),
+            ))
+            .id();
+        let foreign = world
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(unrelated),
+                ElementState::default(),
+            ))
+            .id();
+        world.entity_mut(outer).add_child(shell);
+        world
+            .entity_mut(shell)
+            .add_child(first)
+            .add_child(inner)
+            .add_child(second);
+        world.entity_mut(inner).add_child(nested);
+        world.entity_mut(nested).add_child(spinner);
+        world.entity_mut(unrelated).add_child(foreign);
+        let owners = HashSet::from([outer, inner, unrelated]);
+        let views = SelectorView::build_many(&mut world, &owners);
+        assert_eq!(world.resource::<SelectorBuildPasses>().0, 1);
+        let sheet = parse_stylesheet(".shell > button { width: 1px; } button + button { height: 2px; } button:hover { opacity: 0.5; } button:hover::spinner { width: 3px; }").unwrap();
+        let all = [shell, first, second, nested, spinner, foreign];
+        for owner in owners.iter().copied() {
+            let isolated = SelectorView::build(&mut world, owner);
+            assert_eq!(
+                views[&owner].entities().collect::<Vec<_>>(),
+                isolated.entities().collect::<Vec<_>>()
+            );
+            for entity in all {
+                for rule in sheet.rules() {
+                    assert_eq!(
+                        matching_specificity(&views[&owner], entity, &rule.selectors),
+                        matching_specificity(&isolated, entity, &rule.selectors)
+                    );
+                }
+            }
+        }
+        assert!(matching_specificity(&views[&outer], first, &sheet.rules()[0].selectors).is_some());
+        assert!(
+            matching_specificity(&views[&inner], nested, &sheet.rules()[0].selectors).is_none()
+        );
+        assert!(
+            matching_specificity(&views[&inner], spinner, &sheet.rules()[3].selectors).is_some()
+        );
+        world.get_mut::<ElementState>(nested).unwrap().hovered = false;
+        world.entity_mut(second).insert(ComponentStyleOwner(inner));
+        world.entity_mut(inner).add_child(second);
+        let next = SelectorView::build_many(&mut world, &owners);
+        assert!(!next[&outer].contains_entities(&HashSet::from([second])));
+        assert!(next[&inner].contains_entities(&HashSet::from([second])));
+        assert!(
+            matching_specificity(&next[&inner], spinner, &sheet.rules()[3].selectors).is_none()
+        );
+        assert!(matching_specificity(&next[&inner], second, &sheet.rules()[1].selectors).is_some());
+        assert!(
+            matching_specificity(&views[&inner], spinner, &sheet.rules()[3].selectors).is_some()
+        );
+        assert!(SelectorView::build_many(&mut world, &HashSet::new()).is_empty());
+    }
 
     #[test]
     fn loading_spinner_selector_tracks_button_state() {

@@ -270,6 +270,14 @@ pub(super) fn instantiate_template_children(
 }
 
 pub(super) fn resolve_template_targets(world: &mut World, owner: Entity) {
+    if let Some(mut deferred) = world.get_resource_mut::<super::flow::DeferredTargets>() {
+        deferred.0.insert(owner);
+        return;
+    }
+    #[cfg(test)]
+    if let Some(mut calls) = world.get_resource_mut::<TargetResolutionCounts>() {
+        *calls.0.entry(owner).or_default() += 1;
+    }
     crate::widgets::advanced::tooltip::resolve_targets(world, owner);
     crate::widgets::advanced::date_picker::resolve_targets(world, owner);
     crate::widgets::advanced::dialog::resolve_targets(world, owner);
@@ -279,6 +287,10 @@ pub(super) fn resolve_template_targets(world: &mut World, owner: Entity) {
     crate::control::context_menu::resolve_targets(world, owner);
     crate::widgets::advanced::hyperlink::finalize_icons(world);
 }
+
+#[cfg(test)]
+#[derive(bevy::ecs::resource::Resource, Default)]
+pub(super) struct TargetResolutionCounts(pub std::collections::HashMap<Entity, usize>);
 
 struct TemplateInstantiationContext<'a> {
     world: &'a mut World,

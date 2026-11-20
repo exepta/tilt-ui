@@ -2,6 +2,7 @@
 
 use bevy::{
     ecs::{
+        change_detection::{DetectChanges, Ref},
         component::Component,
         entity::Entity,
         hierarchy::{ChildOf, Children},
@@ -12,18 +13,19 @@ use bevy::{
     ui::{InteractionDisabled, widget::Text},
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 use crate::{ElementState, PropertyBindings, TiltText};
 
 use super::binding::{UiBindingStore, UiSharedValues};
+use super::dependencies::Dependencies;
 use super::element::BoundClasses;
 
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
-struct AppliedPropertyRevision(u64, u64, u64, u64);
+#[derive(Component, Clone)]
+struct AppliedPropertyRevision(u64, u64, u64, u64, Dependencies);
 
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
-struct AppliedTextRevision(u64, u64, u64, u64);
+#[derive(Component, Clone)]
+struct AppliedTextRevision(u64, u64, u64, u64, Dependencies);
 
 #[derive(Resource, Default)]
 struct LastBindingRevision(Option<(u64, u64, u64, u64)>);
@@ -54,13 +56,21 @@ pub(crate) fn apply_bindings(world: &mut World) {
         .get_resource::<LastBindingRevision>()
         .is_none_or(|last| last.0 != Some(revision));
     let properties = if revision_changed {
-        let mut query =
-            world.query::<(Entity, &PropertyBindings, Option<&AppliedPropertyRevision>)>();
+        let mut query = world.query::<(
+            Entity,
+            Ref<PropertyBindings>,
+            Option<&AppliedPropertyRevision>,
+        )>();
         query
             .iter(world)
-            .filter(|(_, _, applied)| {
-                applied.map(|applied| (applied.0, applied.1, applied.2, applied.3))
-                    != Some(revision)
+            .filter(|(entity, bindings, applied)| {
+                bindings.is_changed()
+                    || applied.is_none_or(|applied| {
+                        (applied.0, applied.1, applied.2, applied.3) != revision
+                            && ((applied.0, applied.2, applied.3)
+                                != (revision.0, revision.2, revision.3)
+                                || applied.4.changed(world, *entity))
+                    })
             })
             .map(|(entity, bindings, _)| (entity, bindings.bindings.clone()))
             .collect::<Vec<_>>()
@@ -83,6 +93,14 @@ pub(crate) fn apply_bindings(world: &mut World) {
             "range-end" => 2,
             _ => 3,
         });
+        let dependencies = Dependencies::capture(
+            world,
+            entity,
+            bindings.iter().map(|binding| binding.expression.as_str()),
+            &[],
+        );
+        #[cfg(test)]
+        super::dependencies::record(world, entity);
         for binding in bindings {
             let value = resolve(world, entity, &binding.expression);
             if let Some(value) = value {
@@ -90,17 +108,30 @@ pub(crate) fn apply_bindings(world: &mut World) {
             }
         }
         world.entity_mut(entity).insert(AppliedPropertyRevision(
-            revision.0, revision.1, revision.2, revision.3,
+            revision.0,
+            revision.1,
+            revision.2,
+            revision.3,
+            dependencies,
         ));
     }
     let texts = if revision_changed {
-        let mut query = world.query_filtered::<(Entity, &TiltText, Option<&AppliedTextRevision>), Without<super::content::LiteralInnerText>>();
+        let mut query = world
+            .query_filtered::<(Entity, Ref<TiltText>, Option<&AppliedTextRevision>), (
+                Without<super::content::LiteralInnerText>,
+                Without<super::ParkedUi>,
+            )>();
         query
             .iter(world)
-            .filter(|(_, text, applied)| {
+            .filter(|(entity, text, applied)| {
                 text.value.contains("{{")
-                    && applied.map(|applied| (applied.0, applied.1, applied.2, applied.3))
-                        != Some(revision)
+                    && (text.is_changed()
+                        || applied.is_none_or(|applied| {
+                            (applied.0, applied.1, applied.2, applied.3) != revision
+                                && ((applied.0, applied.2, applied.3)
+                                    != (revision.0, revision.2, revision.3)
+                                    || applied.4.changed(world, *entity))
+                        }))
             })
             .map(|(entity, text, _)| (entity, text.value.clone()))
             .collect::<Vec<_>>()
@@ -108,6 +139,7 @@ pub(crate) fn apply_bindings(world: &mut World) {
         let mut query = world.query_filtered::<(Entity, &TiltText), (
             Or<(Changed<TiltText>, Added<Text>)>,
             Without<super::content::LiteralInnerText>,
+            Without<super::ParkedUi>,
         )>();
         query
             .iter(world)
@@ -117,6 +149,9 @@ pub(crate) fn apply_bindings(world: &mut World) {
     };
     let mut translated_options = Vec::new();
     for (entity, source) in texts {
+        let dependencies = Dependencies::text(world, entity, &source);
+        #[cfg(test)]
+        super::dependencies::record(world, entity);
         let value = interpolate(world, entity, &source);
         if let Some(mut text) = world.get_mut::<Text>(entity) {
             if text.0 != value {
@@ -124,7 +159,11 @@ pub(crate) fn apply_bindings(world: &mut World) {
             }
         }
         world.entity_mut(entity).insert(AppliedTextRevision(
-            revision.0, revision.1, revision.2, revision.3,
+            revision.0,
+            revision.1,
+            revision.2,
+            revision.3,
+            dependencies,
         ));
         let mut parent = world.get::<ChildOf>(entity).map(ChildOf::parent);
         while let Some(ancestor) = parent {
@@ -220,18 +259,25 @@ fn resolve_with_context(
     {
         let mut value = locals
             .get(root)
-            .cloned()
-            .or_else(|| lookup_root(world, entity, root))?;
-        for segment in path {
+            .or_else(|| lookup_root_ref(world, entity, root))?;
+        let mut path = path;
+        while let Some(segment) = path.next() {
             value = match value {
-                Value::Object(map) => map.get(segment)?.clone(),
-                Value::Array(items) if segment == "length" => Value::from(items.len()),
-                Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?.clone(),
-                Value::String(text) if segment == "length" => Value::from(text.chars().count()),
+                Value::Object(map) => map.get(segment)?,
+                Value::Array(items) if segment == "length" => {
+                    return path.next().is_none().then(|| Value::from(items.len()));
+                }
+                Value::Array(items) => items.get(segment.parse::<usize>().ok()?)?,
+                Value::String(text) if segment == "length" => {
+                    return path
+                        .next()
+                        .is_none()
+                        .then(|| Value::from(text.chars().count()));
+                }
                 _ => return None,
             };
         }
-        return Some(value);
+        return Some(value.clone());
     }
     let component = world
         .get::<crate::ComponentStyleOwner>(entity)
@@ -242,16 +288,16 @@ fn resolve_with_context(
                 .component_metadata(instance.component)
         })
         .map(|metadata| metadata.name);
-    super::expression::evaluate_with_methods(
+    super::expression::evaluate_with_borrowed_methods(
         expression,
         |root| {
             if root == "$event" {
-                return event.cloned();
+                return event.map(Cow::Borrowed);
             }
             locals
                 .get(root)
-                .cloned()
-                .or_else(|| lookup_root(world, entity, root))
+                .or_else(|| lookup_root_ref(world, entity, root))
+                .map(Cow::Borrowed)
         },
         |path, receiver, arguments| {
             world
@@ -283,14 +329,14 @@ fn simple_path(expression: &str) -> Option<(&str, impl Iterator<Item = &str>)> {
     Some((root, segments))
 }
 
-fn lookup_root(world: &World, entity: Entity, root: &str) -> Option<Value> {
+fn lookup_root_ref<'w>(world: &'w World, entity: Entity, root: &str) -> Option<&'w Value> {
     let mut current = Some(entity);
     while let Some(node) = current {
         if let Some(value) = world
             .get::<LocalValues>(node)
             .and_then(|values| values.0.get(root))
         {
-            return Some(value.clone());
+            return Some(value);
         }
         current = world
             .get::<super::content::TemplateParent>(node)
@@ -302,7 +348,7 @@ fn lookup_root(world: &World, entity: Entity, root: &str) -> Option<Value> {
         .json(root)
         .or_else(|| world.resource::<UiSharedValues>().get(root))
     {
-        return Some(value.clone());
+        return Some(value);
     }
     let owner = world.get::<crate::ComponentStyleOwner>(entity)?.0;
     let shared = world.resource::<UiSharedValues>();
@@ -317,11 +363,11 @@ fn lookup_root(world: &World, entity: Entity, root: &str) -> Option<Value> {
                 if import.wildcard {
                     if let Value::Object(fields) = value {
                         if let Some(field) = fields.get(root) {
-                            return Some(field.clone());
+                            return Some(field);
                         }
                     }
                 } else if import.alias == root {
-                    return Some(value.clone());
+                    return Some(value);
                 }
             }
         }
@@ -815,6 +861,10 @@ fn usize_value(value: &Value) -> Option<usize> {
     }
     .and_then(|number| usize::try_from(number).ok())
 }
+
+#[cfg(test)]
+#[path = "binding_borrow_tests.rs"]
+mod borrow_tests;
 
 #[cfg(test)]
 mod tests {

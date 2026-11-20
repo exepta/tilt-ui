@@ -1,5 +1,7 @@
 //! Small, side-effect-free expression evaluator for reactive template values.
 
+use std::{borrow::Cow, collections::BTreeSet, marker::PhantomData};
+
 use serde_json::Value;
 
 pub(super) const MAX_SOURCE_BYTES: usize = 4096;
@@ -41,9 +43,18 @@ pub(super) fn evaluate(source: &str, lookup: impl Fn(&str) -> Option<Value>) -> 
     evaluate_with_methods(source, lookup, |_, _, _| None)
 }
 
+#[cfg(test)]
 pub(super) fn evaluate_with_methods(
     source: &str,
     lookup: impl Fn(&str) -> Option<Value>,
+    call: impl Fn(&str, &Value, &[Value]) -> Option<Value>,
+) -> Option<Value> {
+    evaluate_with_borrowed_methods(source, |root| lookup(root).map(Cow::Owned), call)
+}
+
+pub(super) fn evaluate_with_borrowed_methods<'v>(
+    source: &str,
+    lookup: impl Fn(&str) -> Option<Cow<'v, Value>>,
     call: impl Fn(&str, &Value, &[Value]) -> Option<Value>,
 ) -> Option<Value> {
     let tokens = lex(source)?;
@@ -54,9 +65,41 @@ pub(super) fn evaluate_with_methods(
         call: &call,
         nesting: 0,
         active: true,
+        borrowed: PhantomData,
+        dependencies: None,
+        method_seen: false,
     };
     let value = parser.conditional()?;
     (parser.at == tokens.len()).then_some(value)
+}
+
+/// Parse the same grammar without looking up values or invoking methods.
+/// Inactive branches still contribute roots; custom calls remain conservative.
+pub(super) fn dependencies(source: &str) -> Option<BTreeSet<String>> {
+    fn no_lookup(_: &str) -> Option<Cow<'static, Value>> {
+        None
+    }
+    fn no_call(_: &str, _: &Value, _: &[Value]) -> Option<Value> {
+        None
+    }
+    let tokens = lex(source)?;
+    let mut roots = BTreeSet::new();
+    let mut parser = Parser {
+        tokens: &tokens,
+        at: 0,
+        lookup: &no_lookup,
+        call: &no_call,
+        nesting: 0,
+        active: false,
+        borrowed: PhantomData,
+        dependencies: Some(&mut roots),
+        method_seen: false,
+    };
+    parser.conditional()?;
+    if parser.at != tokens.len() || parser.method_seen {
+        return None;
+    }
+    Some(roots)
 }
 
 fn lex(source: &str) -> Option<Vec<Token>> {
@@ -186,17 +229,20 @@ fn text(value: &Value) -> String {
     }
 }
 
-struct Parser<'a, F, C> {
+struct Parser<'a, 'v, F, C> {
     tokens: &'a [Token],
     at: usize,
     lookup: &'a F,
     call: &'a C,
     nesting: usize,
     active: bool,
+    borrowed: PhantomData<&'v Value>,
+    dependencies: Option<&'a mut BTreeSet<String>>,
+    method_seen: bool,
 }
 
-impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value>>
-    Parser<'_, F, C>
+impl<'v, F: Fn(&str) -> Option<Cow<'v, Value>>, C: Fn(&str, &Value, &[Value]) -> Option<Value>>
+    Parser<'_, 'v, F, C>
 {
     fn with_active(
         &mut self,
@@ -418,7 +464,7 @@ impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value
                 _ => return None,
             }
         };
-        self.postfix(value, None)
+        self.postfix(Cow::Owned(value), None)
     }
 
     fn path(&mut self, name: String) -> Option<Value> {
@@ -429,19 +475,22 @@ impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value
                 };
                 self.at += 1;
                 if !self.take(Token::Scope) {
-                    return self.postfix(Value::String(next), None);
+                    return self.postfix(Cow::Owned(Value::String(next)), None);
                 }
             }
         }
+        if let Some(roots) = self.dependencies.as_deref_mut() {
+            roots.insert(name.clone());
+        }
         let value = if self.active {
-            (self.lookup)(&name).unwrap_or(Value::Null)
+            (self.lookup)(&name).unwrap_or(Cow::Borrowed(&Value::Null))
         } else {
-            Value::Null
+            Cow::Borrowed(&Value::Null)
         };
         self.postfix(value, Some(name))
     }
 
-    fn postfix(&mut self, mut value: Value, mut path: Option<String>) -> Option<Value> {
+    fn postfix(&mut self, mut value: Cow<'v, Value>, mut path: Option<String>) -> Option<Value> {
         loop {
             if self.take(Token::Dot) {
                 let Token::Name(field) = self.tokens.get(self.at)?.clone() else {
@@ -449,6 +498,7 @@ impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value
                 };
                 self.at += 1;
                 if self.take(Token::Open) {
+                    self.method_seen = true;
                     let mut arguments = Vec::new();
                     if !self.take(Token::Close) {
                         loop {
@@ -463,7 +513,7 @@ impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value
                         }
                     }
                     let method_path = path.as_ref().map(|path| format!("{path}.{field}"));
-                    value = if self.active {
+                    value = Cow::Owned(if self.active {
                         string_method(&value, &field, &arguments).or_else(|| {
                             method_path
                                 .as_deref()
@@ -471,7 +521,7 @@ impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value
                         })?
                     } else {
                         Value::Null
-                    };
+                    });
                     path = None;
                 } else {
                     if let Some(path) = &mut path {
@@ -479,39 +529,69 @@ impl<F: Fn(&str) -> Option<Value>, C: Fn(&str, &Value, &[Value]) -> Option<Value
                         path.push_str(&field);
                     }
                     value = if self.active {
-                        match value {
-                            Value::Object(map) => map.get(&field).cloned().unwrap_or(Value::Null),
-                            Value::Array(items) if field == "length" => Value::from(items.len()),
-                            Value::String(text) if field == "length" => {
-                                Value::from(text.chars().count())
-                            }
-                            _ => Value::Null,
-                        }
+                        field_value(value, &field)
                     } else {
-                        Value::Null
+                        Cow::Borrowed(&Value::Null)
                     };
                 }
             } else if self.take(Token::Bracket) {
                 let index = self.conditional()?;
                 self.take(Token::EndBracket).then_some(())?;
                 value = if self.active {
-                    match (value, index) {
-                        (Value::Array(items), Value::Number(index)) => index
-                            .as_u64()
-                            .and_then(|index| items.get(index as usize).cloned())
-                            .unwrap_or(Value::Null),
-                        (Value::Object(map), Value::String(index)) => {
-                            map.get(&index).cloned().unwrap_or(Value::Null)
-                        }
-                        _ => Value::Null,
-                    }
+                    indexed_value(value, index)
                 } else {
-                    Value::Null
+                    Cow::Borrowed(&Value::Null)
                 };
             } else {
-                return Some(value);
+                return Some(value.into_owned());
             }
         }
+    }
+}
+
+fn field_value<'v>(value: Cow<'v, Value>, field: &str) -> Cow<'v, Value> {
+    match value {
+        Cow::Borrowed(Value::Object(map)) => Cow::Borrowed(map.get(field).unwrap_or(&Value::Null)),
+        Cow::Borrowed(Value::Array(items)) if field == "length" => {
+            Cow::Owned(Value::from(items.len()))
+        }
+        Cow::Borrowed(Value::String(text)) if field == "length" => {
+            Cow::Owned(Value::from(text.chars().count()))
+        }
+        Cow::Owned(Value::Object(mut map)) => Cow::Owned(map.remove(field).unwrap_or(Value::Null)),
+        Cow::Owned(Value::Array(items)) if field == "length" => {
+            Cow::Owned(Value::from(items.len()))
+        }
+        Cow::Owned(Value::String(text)) if field == "length" => {
+            Cow::Owned(Value::from(text.chars().count()))
+        }
+        _ => Cow::Borrowed(&Value::Null),
+    }
+}
+
+fn indexed_value<'v>(value: Cow<'v, Value>, index: Value) -> Cow<'v, Value> {
+    match (value, index) {
+        (Cow::Borrowed(Value::Array(items)), Value::Number(index)) => Cow::Borrowed(
+            index
+                .as_u64()
+                .and_then(|index| items.get(index as usize))
+                .unwrap_or(&Value::Null),
+        ),
+        (Cow::Borrowed(Value::Object(map)), Value::String(index)) => {
+            Cow::Borrowed(map.get(&index).unwrap_or(&Value::Null))
+        }
+        (Cow::Owned(Value::Array(mut items)), Value::Number(index)) => Cow::Owned(
+            index
+                .as_u64()
+                .filter(|index| (*index as usize) < items.len())
+                .map_or(Value::Null, |index| {
+                    std::mem::take(&mut items[index as usize])
+                }),
+        ),
+        (Cow::Owned(Value::Object(mut map)), Value::String(index)) => {
+            Cow::Owned(map.remove(&index).unwrap_or(Value::Null))
+        }
+        _ => Cow::Borrowed(&Value::Null),
     }
 }
 
@@ -534,9 +614,39 @@ fn string_method(receiver: &Value, method: &str, arguments: &[Value]) -> Option<
 }
 
 #[cfg(test)]
+#[path = "expression_borrow_tests.rs"]
+mod borrow_tests;
+
+#[cfg(test)]
 mod tests {
-    use super::{evaluate, evaluate_with_methods};
+    use super::{dependencies, evaluate, evaluate_with_methods};
     use serde_json::json;
+
+    #[test]
+    fn dependencies_use_full_expression_grammar_and_include_inactive_branches() {
+        for source in [
+            "inventoryView.items[miniMapView.index].count + menuView.extra",
+            "true ? inventoryView.title : miniMapView.title",
+            "false && inventoryView.enabled || menuView.enabled",
+        ] {
+            let roots = dependencies(source).unwrap();
+            assert!(roots.contains("inventoryView"), "{source}");
+            assert!(
+                roots.contains("miniMapView") || roots.contains("menuView"),
+                "{source}"
+            );
+            assert!(!roots.contains("items"));
+            assert!(!roots.contains("count"));
+        }
+        assert!(
+            dependencies("'inventoryView' + Menu::Playing")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(dependencies("menuView.dynamic(miniMapView.index)").is_none());
+        assert!(dependencies("false && menuView.dynamic()").is_none());
+        assert!(dependencies("inventoryView.items[").is_none());
+    }
 
     #[test]
     fn expressions_obey_precedence_and_resolve_paths() {

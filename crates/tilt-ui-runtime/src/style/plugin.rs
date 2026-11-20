@@ -38,7 +38,7 @@ use super::{
     apply::{resolve_and_apply_tree, sync_text_transform},
     cascade::{Cascade, StyleOrigin, key},
     inline::InlineStyle,
-    matcher::{SelectorView, matching_specificity},
+    matcher::{RuleIndex, SelectorView, matching_specificity},
     motion::{reconcile_scope, tick_animations},
 };
 
@@ -87,7 +87,14 @@ struct StyleInvalidation {
 struct StyleSelectorCache(SelectorView);
 
 #[derive(Resource)]
-struct DocumentStyleSheet(Arc<tilt_ui_css::StyleSheet>);
+struct DocumentStyleSheet(Arc<tilt_ui_css::StyleSheet>, Arc<RuleIndex>);
+
+impl DocumentStyleSheet {
+    fn new(stylesheet: tilt_ui_css::StyleSheet) -> Self {
+        let index = Arc::new(RuleIndex::new(&stylesheet));
+        Self(Arc::new(stylesheet), index)
+    }
+}
 
 /// Registers component-scoped CSS matching, cascade, and Bevy UI application.
 #[derive(Debug, Clone, Copy)]
@@ -173,7 +180,7 @@ fn refresh_document_styles(
     let Some(stylesheet) = merge_stylesheets(&assets, links.0.iter()) else {
         return;
     };
-    commands.insert_resource(DocumentStyleSheet(Arc::new(stylesheet)));
+    commands.insert_resource(DocumentStyleSheet::new(stylesheet));
     for scope in &scopes {
         commands.entity(scope).insert(StyleDirty);
     }
@@ -378,6 +385,16 @@ fn apply_dirty_styles(world: &mut World) {
     if dirty.is_empty() && invalidations.is_empty() {
         return;
     }
+    let mut cold_owners = full_owners.clone();
+    for (owner, changed) in &invalidations {
+        if world
+            .get::<StyleSelectorCache>(*owner)
+            .is_none_or(|cache| !cache.0.contains_entities(&changed.entities))
+        {
+            cold_owners.insert(*owner);
+        }
+    }
+    let mut selector_views = SelectorView::build_many(world, &cold_owners);
     let default_theme = world
         .get_resource::<DefaultThemeStyleSheet>()
         .map(|theme| theme.0.clone());
@@ -406,6 +423,7 @@ fn apply_dirty_styles(world: &mut World) {
             &providers,
             environment,
             None,
+            selector_views.remove(&owner),
         );
         let mut owner_entity = world.entity_mut(owner);
         owner_entity.remove::<StyleDirty>();
@@ -431,6 +449,7 @@ fn apply_dirty_styles(world: &mut World) {
             &providers,
             environment,
             Some(&changed),
+            selector_views.remove(&owner),
         );
     }
 }
@@ -498,12 +517,17 @@ fn restyle_scope(
     providers: &UiProviderRegistry,
     environment: tilt_ui_css::MediaEnvironment,
     changed: Option<&StyleInvalidation>,
+    snapshot: Option<SelectorView>,
 ) -> Option<tilt_ui_css::StyleSheet> {
     let stylesheet =
         merge_author_stylesheets(world.resource::<Assets<UiStyleSheetAsset>>(), handles);
     let document_styles = world
         .get_resource::<DocumentStyleSheet>()
         .map(|styles| styles.0.clone());
+    let document_index = world
+        .get_resource::<DocumentStyleSheet>()
+        .map(|styles| styles.1.clone());
+    let mut document_candidates = Vec::new();
     let has_provider_scopes = world.query::<&ProviderScope>().iter(world).next().is_some();
     if default_theme.is_none()
         && stylesheet.is_none()
@@ -513,7 +537,9 @@ fn restyle_scope(
     {
         return stylesheet;
     }
-    let mut view = if changed.is_some() {
+    let mut view = if let Some(snapshot) = snapshot {
+        snapshot
+    } else if changed.is_some() {
         world
             .entity_mut(owner)
             .take::<StyleSelectorCache>()
@@ -571,13 +597,13 @@ fn restyle_scope(
             StyleOrigin::NamedTheme,
             environment,
         );
-        apply_stylesheet(
+        apply_document_stylesheet(
             &mut cascade,
             &view,
             entity,
-            document_styles.as_deref(),
-            StyleOrigin::Document,
+            document_styles.as_deref().zip(document_index.as_deref()),
             environment,
+            &mut document_candidates,
         );
         for (index, sheet) in &extra_styles {
             apply_stylesheet(
@@ -636,13 +662,13 @@ fn restyle_scope(
                 StyleOrigin::NamedTheme,
                 environment,
             );
-            apply_stylesheet(
+            apply_document_stylesheet(
                 &mut cascade,
                 &view,
                 entity,
-                document_styles.as_deref(),
-                StyleOrigin::Document,
+                document_styles.as_deref().zip(document_index.as_deref()),
                 environment,
+                &mut document_candidates,
             );
             for (index, sheet) in &extra_styles {
                 apply_stylesheet(
@@ -905,6 +931,25 @@ fn provider_layers(
     (theme, sheets)
 }
 
+fn apply_document_stylesheet(
+    cascade: &mut Cascade,
+    view: &SelectorView,
+    entity: Entity,
+    stylesheet: Option<(&tilt_ui_css::StyleSheet, &RuleIndex)>,
+    environment: tilt_ui_css::MediaEnvironment,
+    candidates: &mut Vec<usize>,
+) {
+    let Some((sheet, index)) = stylesheet else {
+        return;
+    };
+    index.candidates(view, entity, candidates);
+    for candidate in candidates.iter().copied() {
+        if let Some(rule) = index.rule(sheet, candidate, environment) {
+            apply_rule(cascade, view, entity, rule, StyleOrigin::Document);
+        }
+    }
+}
+
 fn apply_stylesheet(
     cascade: &mut Cascade,
     view: &SelectorView,
@@ -1087,6 +1132,93 @@ mod tests {
     }
 
     #[test]
+    fn cold_slot_scopes_share_one_selector_capture_and_hover_keeps_warm_snapshots() {
+        let mut app = app();
+        app.world_mut()
+            .init_resource::<super::super::matcher::SelectorBuildPasses>();
+        let author = stylesheet(
+            app.world_mut(),
+            "button { width: 24px; } button:hover { width: 48px; }",
+        );
+        let shell = owner(app.world_mut(), author.clone());
+        let mut slots = Vec::new();
+        for _ in 0..96 {
+            let scope = owner(app.world_mut(), author.clone());
+            app.world_mut().entity_mut(shell).add_child(scope);
+            let button = app
+                .world_mut()
+                .spawn((
+                    TiltElement {
+                        kind: ElementKind::Button,
+                    },
+                    ComponentStyleOwner(scope),
+                    ElementState::default(),
+                    Node::default(),
+                ))
+                .id();
+            app.world_mut().entity_mut(scope).add_child(button);
+            slots.push(button);
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<super::super::matcher::SelectorBuildPasses>()
+                .0,
+            1
+        );
+        for button in &slots {
+            assert_eq!(
+                app.world().get::<Node>(*button).unwrap().width,
+                Val::Px(24.0)
+            );
+        }
+        app.world_mut()
+            .get_mut::<ElementState>(slots[0])
+            .unwrap()
+            .hovered = true;
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(slots[0]).unwrap().width,
+            Val::Px(48.0)
+        );
+        assert_eq!(
+            app.world().get::<Node>(slots[1]).unwrap().width,
+            Val::Px(24.0)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<super::super::matcher::SelectorBuildPasses>()
+                .0,
+            1
+        );
+        let new_scope = owner(app.world_mut(), author);
+        app.world_mut().entity_mut(shell).add_child(new_scope);
+        let new_button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(new_scope),
+                ElementState::default(),
+                Node::default(),
+            ))
+            .id();
+        app.world_mut().entity_mut(new_scope).add_child(new_button);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(new_button).unwrap().width,
+            Val::Px(24.0)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<super::super::matcher::SelectorBuildPasses>()
+                .0,
+            2
+        );
+    }
+
+    #[test]
     fn document_css_reaches_nested_component_scopes_before_author_css() {
         let mut app = app();
         let linked = stylesheet(
@@ -1124,6 +1256,134 @@ mod tests {
         );
     }
 
+    #[test]
+    fn document_index_reuses_cold_scope_rules_and_tracks_metadata_resize_and_asset_replacement() {
+        let mut app = app();
+        let document = stylesheet(
+            app.world_mut(),
+            "button { width: 20px; } .item-cell { width: 40px; } .item-cell:hover { width: 80px; } @media (max-width: 700px) { .item-cell { width: 30px; } }",
+        );
+        app.world_mut()
+            .insert_resource(super::DocumentStylesheets(vec![document.clone()]));
+        let author = stylesheet(
+            app.world_mut(),
+            "@media (max-width: 700px) { button { height: 25px; } }",
+        );
+        let scope = owner(app.world_mut(), author.clone());
+        let button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(scope),
+                ElementClasses {
+                    classes: vec!["item-cell".into()],
+                },
+                ElementState::default(),
+                Node::default(),
+                bevy::prelude::ChildOf(scope),
+            ))
+            .id();
+        let mut window = Window::default();
+        window.resolution.set(1280.0, 800.0);
+        let window = app.world_mut().spawn((window, PrimaryWindow)).id();
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(40.0)
+        );
+        let initial_index = app
+            .world()
+            .resource::<super::DocumentStyleSheet>()
+            .1
+            .clone();
+        let cold_scope = owner(app.world_mut(), author);
+        let cold_button = app
+            .world_mut()
+            .spawn((
+                TiltElement {
+                    kind: ElementKind::Button,
+                },
+                ComponentStyleOwner(cold_scope),
+                ElementClasses {
+                    classes: vec!["item-cell".into()],
+                },
+                ElementState::default(),
+                Node::default(),
+                bevy::prelude::ChildOf(cold_scope),
+            ))
+            .id();
+        app.update();
+        assert!(std::sync::Arc::ptr_eq(
+            &initial_index,
+            &app.world().resource::<super::DocumentStyleSheet>().1
+        ));
+        assert_eq!(
+            app.world().get::<Node>(cold_button).unwrap().width,
+            Val::Px(40.0)
+        );
+        app.world_mut()
+            .get_mut::<ElementState>(button)
+            .unwrap()
+            .hovered = true;
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(80.0)
+        );
+        assert_eq!(
+            app.world().get::<Node>(cold_button).unwrap().width,
+            Val::Px(40.0)
+        );
+        app.world_mut()
+            .get_mut::<ElementState>(button)
+            .unwrap()
+            .hovered = false;
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .resolution
+            .set(640.0, 800.0);
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(30.0)
+        );
+        app.world_mut()
+            .get_mut::<ElementClasses>(button)
+            .unwrap()
+            .classes = vec!["other".into()];
+        app.update();
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(20.0)
+        );
+        app.world_mut()
+            .resource_mut::<Assets<UiStyleSheetAsset>>()
+            .insert(
+                document.id(),
+                UiStyleSheetAsset::new(
+                    parse_stylesheet("button { width: 11px; } .other { width: 91px; }").unwrap(),
+                ),
+            )
+            .unwrap();
+        app.world_mut()
+            .write_message(bevy::asset::AssetEvent::Modified { id: document.id() });
+        app.update();
+        assert!(!std::sync::Arc::ptr_eq(
+            &initial_index,
+            &app.world().resource::<super::DocumentStyleSheet>().1
+        ));
+        assert_eq!(
+            app.world().get::<Node>(button).unwrap().width,
+            Val::Px(91.0)
+        );
+        assert_eq!(
+            app.world().get::<Node>(cold_button).unwrap().width,
+            Val::Px(11.0)
+        );
+    }
     #[test]
     fn bound_inline_style_overrides_author_and_restores_static_style_when_cleared() {
         let mut app = app();

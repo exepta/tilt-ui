@@ -3,6 +3,7 @@
 use std::{
     any::{Any, TypeId},
     collections::{BTreeMap, HashMap},
+    sync::{Arc, OnceLock},
 };
 
 use bevy::ecs::{resource::Resource, world::World};
@@ -152,17 +153,23 @@ inventory::collect!(SharedValueRegistration);
 /// Serialized snapshots of registered Bevy resources.
 #[derive(Resource, Default)]
 pub struct UiSharedValues {
-    values: BTreeMap<String, Value>,
+    values: BTreeMap<String, Arc<Value>>,
+    snapshots: Vec<Option<Arc<Value>>>,
     revision: u64,
+    root_revisions: BTreeMap<String, u64>,
 }
 
 impl UiSharedValues {
     pub fn get(&self, key: &str) -> Option<&Value> {
-        self.values.get(key)
+        self.values.get(key).map(Arc::as_ref)
     }
 
     pub(crate) fn revision(&self) -> u64 {
         self.revision
+    }
+
+    pub(super) fn root_revision(&self, key: &str) -> u64 {
+        self.root_revisions.get(key).copied().unwrap_or(0)
     }
 }
 
@@ -175,38 +182,83 @@ pub(crate) fn install(app: &mut bevy::app::App) {
 }
 
 pub(crate) fn refresh_shared_values(world: &mut World) {
-    let registrations = inventory::iter::<SharedValueRegistration>
-        .into_iter()
-        .collect::<Vec<_>>();
-    let needs_refresh = registrations.iter().any(|registration| {
-        let present = (registration.present)(world);
-        let was_present = world
-            .resource::<UiSharedValues>()
-            .values
-            .contains_key(registration.key);
-        present != was_present || (present && (registration.changed)(world))
+    static REGISTRATIONS: OnceLock<Vec<&'static SharedValueRegistration>> = OnceLock::new();
+    let registrations = REGISTRATIONS.get_or_init(|| {
+        inventory::iter::<SharedValueRegistration>
+            .into_iter()
+            .collect()
     });
-    if !needs_refresh {
-        return;
-    }
+    refresh_registered_shared_values(world, registrations);
+}
+
+fn refresh_registered_shared_values(world: &mut World, registrations: &[&SharedValueRegistration]) {
+    let shared = world.resource::<UiSharedValues>();
+    let initialized = shared.snapshots.len() == registrations.len();
     let snapshots = registrations
-        .into_iter()
-        .filter_map(|registration| {
-            (registration.snapshot)(world)
-                .map(|value| (registration.key, registration.alias, value))
+        .iter()
+        .enumerate()
+        .filter_map(|(index, registration)| {
+            let old = shared.snapshots.get(index).and_then(Option::as_ref);
+            let present = (registration.present)(world);
+            let needs_refresh = !initialized
+                || present != old.is_some()
+                || (present && (registration.changed)(world));
+            if !needs_refresh {
+                return None;
+            }
+            let value = present
+                .then(|| (registration.snapshot)(world))
+                .flatten()
+                .map(Arc::new);
+            Some((index, value))
         })
         .collect::<Vec<_>>();
+    if initialized && snapshots.is_empty() {
+        return;
+    }
     let mut shared = world.resource_mut::<UiSharedValues>();
+    if !initialized {
+        shared.snapshots = vec![None; registrations.len()];
+    }
+    let mut changed = !initialized;
+    for (index, value) in snapshots {
+        if shared.snapshots[index] != value {
+            shared.snapshots[index] = value;
+            changed = true;
+        }
+    }
+    if !changed {
+        return;
+    }
+    // Share one snapshot between its public aliases; other resources retain theirs.
     let mut next = BTreeMap::new();
-    for (key, alias, value) in snapshots {
-        next.insert(key.to_owned(), value.clone());
-        next.insert(alias.to_owned(), value);
+    for (registration, snapshot) in registrations.iter().zip(&shared.snapshots) {
+        if let Some(value) = snapshot {
+            next.insert(registration.key.to_owned(), value.clone());
+            next.insert(registration.alias.to_owned(), value.clone());
+        }
     }
     if shared.values != next {
+        let revision = shared.revision.wrapping_add(1);
+        let changed_roots = shared
+            .values
+            .keys()
+            .chain(next.keys())
+            .filter(|key| shared.values.get(*key) != next.get(*key))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        for root in changed_roots {
+            // Keep tombstones: a missing root becoming present must invalidate bindings too.
+            shared.root_revisions.insert(root, revision);
+        }
         shared.values = next;
-        shared.revision = shared.revision.wrapping_add(1);
+        shared.revision = revision;
     }
 }
+
+#[cfg(test)]
+#[path = "binding_incremental_tests.rs"]
+mod incremental_tests;
 
 fn lower_first(name: &str) -> String {
     let mut chars = name.chars();
@@ -260,13 +312,19 @@ mod tests {
         world
             .resource_mut::<UiSharedValues>()
             .values
-            .insert("State".into(), json!({"count": 3}));
+            .insert("State".into(), json!({"count": 3}).into());
         super::super::binding_runtime::apply_bindings(&mut world);
         assert_eq!(world.get::<Text>(text).unwrap().0, "6");
         let mut shared = world.resource_mut::<UiSharedValues>();
-        shared.values.insert("State".into(), json!({"count": 5}));
+        shared
+            .values
+            .insert("State".into(), json!({"count": 5}).into());
         shared.revision += 1;
         super::super::binding_runtime::apply_bindings(&mut world);
         assert_eq!(world.get::<Text>(text).unwrap().0, "10");
     }
 }
+
+#[cfg(test)]
+#[path = "binding_snapshot_tests.rs"]
+mod snapshot_tests;

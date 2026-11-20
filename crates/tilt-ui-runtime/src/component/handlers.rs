@@ -210,6 +210,7 @@ pub(super) fn install(app: &mut App) {
                 super::binding_runtime::apply_bindings,
             )
                 .chain()
+                .in_set(super::TiltUiComponentRuntimeSet::Reactivity)
                 .after(super::TiltUiComponentRuntimeSet::Instantiate),
         )
         .add_systems(

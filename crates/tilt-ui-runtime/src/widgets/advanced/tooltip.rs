@@ -16,8 +16,8 @@ use bevy::{
     render::{RenderApp, render_resource::AsBindGroup},
     shader::{Shader, ShaderRef},
     ui::{
-        BackgroundColor, ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex, Node,
-        PositionType, UiGlobalTransform, UiRect, UiScale, Val,
+        BackgroundColor, ComputedNode, ComputedUiRenderTargetInfo, GlobalZIndex,
+        InteractionDisabled, Node, PositionType, UiGlobalTransform, UiRect, UiScale, Val,
     },
     ui_render::{
         UiMaterialPlugin,
@@ -31,7 +31,7 @@ use bevy_picking::{
         PointerClick, PointerDragEnd, PointerDragStart, PointerMove, PointerOut, PointerOver,
     },
     hover::HoverMap,
-    pointer::{PointerButton, PointerId},
+    pointer::{PointerButton, PointerId, PointerLocation},
 };
 use tilt_ui_core::{TemplateAttribute, ToolTipAlignment, ToolTipPriority};
 
@@ -104,7 +104,7 @@ pub struct TooltipSettings {
 #[derive(Component, Debug, Default)]
 struct TooltipTargets(Vec<Entity>);
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
 struct OpenTooltip {
     pointer_id: PointerId,
     pointer: Vec2,
@@ -321,11 +321,20 @@ fn set_tooltip_open(
     pointer_id: PointerId,
     pointer: Vec2,
 ) {
+    let open = open && world.get::<InteractionDisabled>(entity).is_none();
+    let current = world.get::<OpenTooltip>(entity).copied();
+    let next = OpenTooltip {
+        pointer_id,
+        pointer,
+    };
+    if current.is_some() == open {
+        if open && current != Some(next) {
+            *world.get_mut::<OpenTooltip>(entity).unwrap() = next;
+        }
+        return;
+    }
     if open {
-        world.entity_mut(entity).insert(OpenTooltip {
-            pointer_id,
-            pointer,
-        });
+        world.entity_mut(entity).insert(next);
     } else {
         world.entity_mut(entity).remove::<OpenTooltip>();
     }
@@ -334,7 +343,8 @@ fn set_tooltip_open(
 
 pub(crate) fn set_bound_open(world: &mut World, entity: Entity, open: bool) {
     if world.get::<TooltipSettings>(entity).is_none()
-        || world.get::<OpenTooltip>(entity).is_some() == open
+        || (world.get::<InteractionDisabled>(entity).is_none()
+            && world.get::<OpenTooltip>(entity).is_some() == open)
     {
         return;
     }
@@ -353,6 +363,10 @@ fn handle_target_event(
             continue;
         };
         let open = world.get::<OpenTooltip>(tooltip).is_some();
+        if world.get::<InteractionDisabled>(tooltip).is_some() {
+            set_tooltip_open(world, tooltip, false, pointer, position);
+            continue;
+        }
         match action {
             0 if settings.hover => set_tooltip_open(world, tooltip, true, pointer, position),
             1 if settings.hover
@@ -364,6 +378,75 @@ fn handle_target_event(
             3 if settings.drag => set_tooltip_open(world, tooltip, true, pointer, position),
             4 if settings.drag => set_tooltip_open(world, tooltip, false, pointer, position),
             _ => {}
+        }
+    }
+}
+
+fn refresh_hover(world: &mut World) {
+    let pointers = {
+        let mut query = world.query::<(&PointerId, &PointerLocation)>();
+        query
+            .iter(world)
+            .filter_map(|(id, location)| {
+                location
+                    .location()
+                    .filter(|location| location.position.is_finite())
+                    .map(|location| (*id, location.position))
+            })
+            .collect::<Vec<_>>()
+    };
+    let tooltips = {
+        let mut query = world.query::<(
+            Entity,
+            &TooltipSettings,
+            Option<&OpenTooltip>,
+            Option<&InteractionDisabled>,
+        )>();
+        query
+            .iter(world)
+            .filter_map(|(entity, settings, open, disabled)| {
+                let hover_only = settings.hover && !settings.click && !settings.drag;
+                (hover_only || (disabled.is_some() && open.is_some())).then_some((
+                    entity,
+                    settings.target,
+                    open.copied(),
+                    disabled.is_some(),
+                ))
+            })
+            .collect::<Vec<_>>()
+    };
+    let has_hover = world.contains_resource::<HoverMap>();
+    for (entity, target, open, disabled) in tooltips {
+        if disabled {
+            set_tooltip_open(world, entity, false, PointerId::Mouse, Vec2::ZERO);
+            continue;
+        }
+        if !has_hover {
+            continue;
+        }
+        // Retain the active pointer when multiple pointers hover the same target.
+        let hovered = target.and_then(|target| {
+            open.and_then(|open| {
+                pointers
+                    .iter()
+                    .find(|(id, _)| *id == open.pointer_id && hovered_target(world, target, *id))
+            })
+            .or_else(|| {
+                pointers
+                    .iter()
+                    .find(|(id, _)| *id == PointerId::Mouse && hovered_target(world, target, *id))
+            })
+            .or_else(|| {
+                pointers
+                    .iter()
+                    .find(|(id, _)| hovered_target(world, target, *id))
+            })
+            .copied()
+        });
+        if let Some((pointer, position)) = hovered {
+            set_tooltip_open(world, entity, true, pointer, position);
+        } else {
+            set_tooltip_open(world, entity, false, PointerId::Mouse, Vec2::ZERO);
         }
     }
 }
@@ -459,18 +542,14 @@ fn clamp_to_viewport(mut top_left: Vec2, size: Vec2, viewport: Vec2, margin: f32
     top_left
 }
 
-fn follow_position(pointer: Vec2, size: Vec2, viewport: Vec2, margin: f32, gap: f32) -> Vec2 {
-    let x = if pointer.x + gap + size.x > viewport.x - margin {
-        pointer.x - gap - size.x
-    } else {
-        pointer.x + gap
-    };
-    let y = if pointer.y + gap + size.y > viewport.y - margin {
-        pointer.y - gap - size.y
-    } else {
-        pointer.y + gap
-    };
-    clamp_to_viewport(Vec2::new(x, y), size, viewport, margin)
+fn follow_position(pointer: Vec2, size: Vec2, viewport: Vec2, gap: f32) -> Vec2 {
+    let mut result = pointer + Vec2::splat(gap);
+    for axis in 0..2 {
+        if result[axis] + size[axis] > viewport[axis] - gap {
+            result[axis] = pointer[axis] - gap - size[axis];
+        }
+    }
+    result.clamp(Vec2::ZERO, (viewport - size).max(Vec2::ZERO))
 }
 
 #[cfg(test)]
@@ -633,6 +712,7 @@ fn update_nose(world: &mut World, tooltip: Entity, side: ToolTipPriority) {
 }
 
 pub(crate) fn place_open_tooltips(world: &mut World) {
+    refresh_hover(world);
     let open = {
         let mut query = world.query::<(Entity, &TooltipSettings, &OpenTooltip)>();
         query
@@ -642,12 +722,15 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
     };
     let viewport = {
         let mut windows = world.query_filtered::<&Window, bevy::ecs::query::With<PrimaryWindow>>();
-        windows
-            .iter(world)
-            .next()
-            .map(|window| Vec2::new(window.width(), window.height()))
+        windows.iter(world).next().map(|window| {
+            Vec2::new(
+                window.physical_width() as f32,
+                window.physical_height() as f32,
+            )
+        })
     };
     for (entity, settings, open) in open {
+        crate::style::refresh_inherited_opacity(world, entity);
         let Some(parent) = world.get::<ChildOf>(entity).map(ChildOf::parent) else {
             continue;
         };
@@ -662,6 +745,10 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
             continue;
         };
         let parent_size = parent_node.size();
+        let inverse_scale = tip_node.inverse_scale_factor;
+        if !inverse_scale.is_finite() || inverse_scale <= 0.0 {
+            continue;
+        }
         let scale = world
             .get::<ComputedUiRenderTargetInfo>(entity)
             .map_or(1.0, |target| target.scale_factor())
@@ -671,20 +758,19 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
         } else {
             1.0
         };
-        let viewport = viewport.unwrap_or(Vec2::new(1920.0, 1080.0)) * scale;
+        let viewport = world
+            .get::<ComputedUiRenderTargetInfo>(entity)
+            .map(|target| target.physical_size().as_vec2())
+            .filter(|size| size.min_element() > 0.0)
+            .or(viewport)
+            .unwrap_or(Vec2::new(1920.0, 1080.0) * scale);
         let size = tip_node.size();
         if size.x <= 0.0 || size.y <= 0.0 {
             continue;
         }
         let (position, nose_side) = match settings.variant {
             TooltipVariant::Follow => (
-                follow_position(
-                    open.pointer * scale,
-                    size,
-                    viewport,
-                    6.0 * scale,
-                    10.0 * scale,
-                ),
+                follow_position(open.pointer * scale, size, viewport, 10.0 / inverse_scale),
                 None,
             ),
             TooltipVariant::Point => {
@@ -713,10 +799,10 @@ pub(crate) fn place_open_tooltips(world: &mut World) {
         if let Some(side) = nose_side {
             update_nose(world, entity, side);
         }
-        let local = inverse.transform_point2(position) + parent_size * 0.5;
+        let local = (inverse.transform_point2(position) + parent_size * 0.5) * inverse_scale;
         let layout = WidgetLayoutOverride {
-            left: Some(Val::Px(local.x / scale)),
-            top: Some(Val::Px(local.y / scale)),
+            left: Some(Val::Px(local.x)),
+            top: Some(Val::Px(local.y)),
             ..Default::default()
         };
         if world
@@ -740,11 +826,18 @@ mod tests {
     };
     use crate::ComponentStyleOwner;
     use bevy::{
+        camera::NormalizedRenderTarget,
         ecs::world::World,
+        ecs::{change_detection::DetectChanges, entity::Entity},
         math::Vec2,
-        ui::{Display, Node},
+        ui::{Display, InteractionDisabled, Node},
     };
-    use bevy_picking::{Pickable, pointer::PointerId};
+    use bevy_picking::{
+        Pickable,
+        backend::HitData,
+        hover::HoverMap,
+        pointer::{Location, PointerId, PointerLocation},
+    };
     use tilt_ui_core::{TemplateAttribute, ToolTipPriority};
 
     #[test]
@@ -753,11 +846,114 @@ mod tests {
             Vec2::new(190.0, 90.0),
             Vec2::new(45.0, 25.0),
             Vec2::new(200.0, 100.0),
-            4.0,
             8.0,
         );
         assert!(position.x < 190.0 && position.y < 90.0);
         assert!(position.x >= 4.0 && position.y >= 4.0);
+    }
+
+    #[test]
+    fn scaled_follow_placement_matches_css_layout_and_stays_clean_at_rest() {
+        use bevy::{
+            app::Propagate,
+            camera::{Camera, ComputedCameraValues, RenderTargetInfo},
+            ecs::system::RunSystemOnce,
+            math::Affine2,
+            ui::{
+                ComputedNode, ComputedUiRenderTargetInfo, UiGlobalTransform, UiScale,
+                UiTargetCamera, Val,
+            },
+        };
+        for ui_scale in [0.8, 1.5] {
+            for dpi in [1.0, 2.0] {
+                for pointer in [Vec2::new(100.0, 120.0), Vec2::new(795.0, 595.0)] {
+                    let mut world = World::new();
+                    world.insert_resource(UiScale(ui_scale));
+                    let viewport = Vec2::new(800.0, 600.0) * dpi;
+                    let camera = world
+                        .spawn(Camera {
+                            computed: ComputedCameraValues {
+                                target_info: Some(RenderTargetInfo {
+                                    physical_size: viewport.as_uvec2(),
+                                    scale_factor: dpi,
+                                }),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        })
+                        .id();
+                    let origin = Vec2::new(13.0, 17.0);
+                    let transform =
+                        UiGlobalTransform::from(Affine2::from_translation(viewport * 0.5 + origin));
+                    let root = world
+                        .spawn((
+                            Node::default(),
+                            UiTargetCamera(camera),
+                            ComputedNode {
+                                size: viewport,
+                                ..Default::default()
+                            },
+                            transform,
+                        ))
+                        .id();
+                    world
+                        .run_system_once(bevy::ui::update::propagate_ui_target_cameras)
+                        .unwrap();
+                    let target = world
+                        .get::<Propagate<ComputedUiRenderTargetInfo>>(root)
+                        .unwrap()
+                        .0;
+                    let inverse_scale = 1.0 / (dpi * ui_scale);
+                    let size = Vec2::new(180.0, 80.0) / inverse_scale;
+                    let popup = world
+                        .spawn((
+                            Node::default(),
+                            ComputedNode {
+                                size,
+                                inverse_scale_factor: inverse_scale,
+                                ..Default::default()
+                            },
+                            target,
+                        ))
+                        .id();
+                    world.entity_mut(root).add_child(popup);
+                    super::materialize(
+                        &mut world,
+                        popup,
+                        &[TemplateAttribute::Static {
+                            name: "trigger".into(),
+                            value: "click".into(),
+                        }],
+                    );
+                    super::set_tooltip_open(&mut world, popup, true, PointerId::Mouse, pointer);
+                    super::place_open_tooltips(&mut world);
+                    let gap = 10.0 / inverse_scale;
+                    let position = if pointer.x < 400.0 {
+                        pointer * dpi + Vec2::splat(gap)
+                    } else {
+                        pointer * dpi - Vec2::splat(gap) - size
+                    };
+                    let local = (transform.try_inverse().unwrap().transform_point2(position)
+                        + viewport * 0.5)
+                        * inverse_scale;
+                    let layout = world.get::<crate::WidgetLayoutOverride>(popup).unwrap();
+                    assert_eq!(layout.left, Some(Val::Px(local.x)));
+                    assert_eq!(layout.top, Some(Val::Px(local.y)));
+                    world.clear_trackers();
+                    for _ in 0..2 {
+                        super::place_open_tooltips(&mut world);
+                        assert!(!world.entity(popup).get_ref::<Node>().unwrap().is_changed());
+                        assert!(
+                            !world
+                                .entity(popup)
+                                .get_ref::<crate::WidgetLayoutOverride>()
+                                .unwrap()
+                                .is_changed()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -970,5 +1166,198 @@ mod tests {
         assert_eq!(world.get::<Node>(click).unwrap().display, Display::None);
         assert!(world.get_entity(hover).is_ok());
         assert!(world.get_entity(label).is_ok());
+    }
+
+    fn current_hover(world: &mut World, hit: Entity, position: Vec2) -> Entity {
+        world.init_resource::<bevy_picking::pointer::PointerMap>();
+        world.insert_resource(HoverMap::default());
+        world
+            .resource_mut::<HoverMap>()
+            .entry(PointerId::Mouse)
+            .or_default()
+            .insert(hit, HitData::new(hit, 0.0, None, None));
+        world
+            .spawn((
+                PointerId::Mouse,
+                PointerLocation::new(Location {
+                    target: NormalizedRenderTarget::None {
+                        width: 800,
+                        height: 600,
+                    },
+                    position,
+                }),
+            ))
+            .id()
+    }
+
+    fn persistent_tip(world: &mut World, trigger: &str) -> (Entity, Entity) {
+        let scope = world.spawn_empty().id();
+        let target = world.spawn(Node::default()).id();
+        let tooltip = world
+            .spawn((Node::default(), ComponentStyleOwner(scope)))
+            .id();
+        world.entity_mut(scope).add_child(target);
+        world.entity_mut(target).add_child(tooltip);
+        super::materialize(
+            world,
+            tooltip,
+            &[TemplateAttribute::Static {
+                name: "trigger".into(),
+                value: trigger.into(),
+            }],
+        );
+        resolve_targets(world, scope);
+        (target, tooltip)
+    }
+
+    #[test]
+    fn newly_materialized_hover_tooltip_opens_under_an_already_stationary_pointer() {
+        let mut world = World::new();
+        let scope = world.spawn_empty().id();
+        let target = world.spawn(Node::default()).id();
+        let label = world.spawn(Node::default()).id();
+        world.entity_mut(scope).add_child(target);
+        world.entity_mut(target).add_child(label);
+        let position = Vec2::new(42.0, 57.0);
+        current_hover(&mut world, label, position);
+        super::handle_target_event(&mut world, label, PointerId::Mouse, position, 0);
+
+        let tooltip = world
+            .spawn((Node::default(), ComponentStyleOwner(scope)))
+            .id();
+        world.entity_mut(target).add_child(tooltip);
+        super::materialize(&mut world, tooltip, &[]);
+        resolve_targets(&mut world, scope);
+        super::place_open_tooltips(&mut world);
+        let open = world.get::<super::OpenTooltip>(tooltip).unwrap();
+        assert_eq!(open.pointer_id, PointerId::Mouse);
+        assert_eq!(open.pointer, position);
+        assert_ne!(world.get::<Node>(tooltip).unwrap().display, Display::None);
+        world.resource_mut::<HoverMap>().clear();
+        super::place_open_tooltips(&mut world);
+        assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+    }
+
+    #[test]
+    fn disabled_empty_slot_tooltip_reenables_without_a_click_or_new_pointer_enter() {
+        let mut world = World::new();
+        let (target, tooltip) = persistent_tip(&mut world, "hover");
+        let position = Vec2::new(84.0, 129.0);
+        current_hover(&mut world, target, position);
+        world.entity_mut(tooltip).insert(InteractionDisabled);
+        super::set_bound_open(&mut world, tooltip, true);
+        super::place_open_tooltips(&mut world);
+        assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+        assert_eq!(world.get::<Node>(tooltip).unwrap().display, Display::None);
+        world.entity_mut(tooltip).remove::<InteractionDisabled>();
+        super::place_open_tooltips(&mut world);
+        assert_eq!(
+            world.get::<super::OpenTooltip>(tooltip).unwrap().pointer,
+            position
+        );
+
+        world.entity_mut(tooltip).insert(InteractionDisabled);
+        super::place_open_tooltips(&mut world);
+        assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+        world.entity_mut(tooltip).remove::<InteractionDisabled>();
+        super::place_open_tooltips(&mut world);
+        assert_eq!(
+            world.get::<super::OpenTooltip>(tooltip).unwrap().pointer,
+            position
+        );
+    }
+
+    #[test]
+    fn disabling_click_or_drag_tooltips_closes_them_and_blocks_every_open_path() {
+        for (trigger, action) in [("click", 2), ("drag", 3), ("hover|click|drag", 3)] {
+            let mut world = World::new();
+            let (target, tooltip) = persistent_tip(&mut world, trigger);
+            current_hover(&mut world, target, Vec2::ONE);
+            super::handle_target_event(&mut world, target, PointerId::Mouse, Vec2::ONE, action);
+            assert!(world.get::<super::OpenTooltip>(tooltip).is_some());
+            world.entity_mut(tooltip).insert(InteractionDisabled);
+            super::place_open_tooltips(&mut world);
+            assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+            for action in [0, 2, 3] {
+                super::handle_target_event(&mut world, target, PointerId::Mouse, Vec2::ONE, action);
+                assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+            }
+            super::set_bound_open(&mut world, tooltip, true);
+            assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+            world.entity_mut(tooltip).remove::<InteractionDisabled>();
+            super::place_open_tooltips(&mut world);
+            assert!(world.get::<super::OpenTooltip>(tooltip).is_none());
+        }
+    }
+
+    #[test]
+    fn unchanged_hover_sync_does_not_dirty_tooltip_layout_or_material_resources() {
+        let mut world = World::new();
+        world.init_resource::<bevy::asset::Assets<super::TooltipNoseMaterial>>();
+        let (target, tooltip) = persistent_tip(&mut world, "hover");
+        current_hover(&mut world, target, Vec2::ONE);
+        world.resource_mut::<HoverMap>().clear();
+        world.clear_trackers();
+        for _ in 0..3 {
+            super::place_open_tooltips(&mut world);
+        }
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<Node>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<crate::widgets::state::WidgetDisplayOverride>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .get_resource_ref::<bevy::asset::Assets<super::TooltipNoseMaterial>>()
+                .unwrap()
+                .is_changed()
+        );
+
+        world
+            .resource_mut::<HoverMap>()
+            .entry(PointerId::Mouse)
+            .or_default()
+            .insert(target, HitData::new(target, 0.0, None, None));
+        super::place_open_tooltips(&mut world);
+        world.clear_trackers();
+        for _ in 0..3 {
+            super::place_open_tooltips(&mut world);
+        }
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<Node>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<super::OpenTooltip>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .entity(tooltip)
+                .get_ref::<crate::widgets::state::WidgetDisplayOverride>()
+                .unwrap()
+                .is_changed()
+        );
+        assert!(
+            !world
+                .get_resource_ref::<bevy::asset::Assets<super::TooltipNoseMaterial>>()
+                .unwrap()
+                .is_changed()
+        );
     }
 }
